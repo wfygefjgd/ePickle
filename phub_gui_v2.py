@@ -800,7 +800,7 @@ class PHUBApp:
             if self._current_stream:
                 self.translator.stop()
                 srt_path = None
-                if self._current_stream.startswith("http") is False and self._current_stream.lower().endswith(".m3u8"):
+                if not self._current_stream.startswith("http") and self._current_stream.lower().endswith(".m3u8"):
                     srt_path = os.path.join(os.path.dirname(self._current_stream), "subs.srt")
                 self.translator.set_srt_path(srt_path)
                 self.translator.start(self._current_stream)
@@ -1010,6 +1010,8 @@ class PHUBApp:
                 if len(r) >= n: break
             return r
         def done(vs):
+            if not self._running:
+                return
             for v in vs:
                 m,s = divmod(v.duration,60)
                 self.s_tree.insert("","end",values=(v.title,f"{m}:{s:02d}",v.url))
@@ -1023,6 +1025,8 @@ class PHUBApp:
         self.root.after(0, lambda: self._apply_search_translations(vs, translated))
 
     def _apply_search_translations(self, vs, translated):
+        if not self._running:
+            return
         items = self.s_tree.get_children()
         for i, (item, zh) in enumerate(zip(items, translated)):
             if i < len(vs):
@@ -1114,6 +1118,8 @@ class PHUBApp:
             self.root.after(0, lambda: self.r_lbl.config(text=f"加载失败: {e}"))
 
     def _fill_recommend(self, results):
+        if not self._running:
+            return
         for title, dur, url in results:
             self.r_tree.insert("", "end", values=(title, dur, url))
         self.r_lbl.config(text=f"推荐 {len(results)} 个 | 翻译中...")
@@ -1125,6 +1131,8 @@ class PHUBApp:
         self.root.after(0, lambda: self._apply_recommend_translations(results, translated))
 
     def _apply_recommend_translations(self, results, translated):
+        if not self._running:
+            return
         items = self.r_tree.get_children()
         for i, (item, zh) in enumerate(zip(items, translated)):
             if i < len(results):
@@ -1170,6 +1178,8 @@ class PHUBApp:
                 f"发布时间:  {v.publish_date}", f"标签:      {tags}", f"分类:      {cats}",
             ])
         def done(t):
+            if not self._running:
+                return
             self.d_text.config(state="normal"); self.d_text.delete("1.0","end")
             self.d_text.insert("1.0",t); self.d_text.config(state="disabled")
         self.run_async(f(), done)
@@ -1235,6 +1245,8 @@ class PHUBApp:
             await v.download(quality=q, path=self.save_path, callback=prog)
             return v.title
         def done(t):
+            if not self._running:
+                return
             self._log(f"完成: {t}"); self.dl_prog["value"]=100; self.dl_slbl.config(text="完成")
             messagebox.showinfo("完成", f"下载完成!\n{t}")
         self.run_async(f(), done)

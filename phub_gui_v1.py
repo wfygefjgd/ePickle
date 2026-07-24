@@ -388,6 +388,8 @@ class PHUBApp:
                 if len(r) >= n: break
             return r
         def done(vs):
+            if not self._running:
+                return
             for v in vs:
                 m,s = divmod(v.duration,60)
                 self.s_tree.insert("","end",values=(v.title,f"{m}:{s:02d}",v.url))
@@ -465,6 +467,8 @@ class PHUBApp:
             self.root.after(0, lambda: self.r_lbl.config(text=f"加载失败: {e}"))
 
     def _fill_recommend(self, results):
+        if not self._running:
+            return
         for title, dur, url in results:
             self.r_tree.insert("", "end", values=(title, dur, url))
         self.r_lbl.config(text=f"推荐 {len(results)} 个 | 翻译中...")
@@ -521,6 +525,8 @@ class PHUBApp:
                 f"发布时间:  {v.publish_date}", f"标签:      {tags}", f"分类:      {cats}",
             ])
         def done(t):
+            if not self._running:
+                return
             self.d_text.config(state="normal"); self.d_text.delete("1.0","end")
             self.d_text.insert("1.0",t); self.d_text.config(state="disabled")
         self.run_async(f(), done)
@@ -648,6 +654,8 @@ class PHUBApp:
             await v.download(quality=q, path=self.save_path, callback=prog)
             return v.title
         def done(t):
+            if not self._running:
+                return
             self._log(f"完成: {t}"); self.dl_prog["value"]=100; self.dl_slbl.config(text="完成")
             messagebox.showinfo("完成", f"下载完成!\n{t}")
         self.run_async(f(), done)
