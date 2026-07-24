@@ -14,6 +14,8 @@ Future<void> showPlayerSettingsSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    enableDrag: true,
+    isDismissible: true,
     backgroundColor: const Color(0xFF1E1E1E),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
@@ -47,8 +49,13 @@ Future<void> showPlayerSettingsSheet(
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const ListTile(
-                      title: Text('设置',
+                    ListTile(
+                      leading: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54),
+                        onPressed: () => Navigator.pop(ctx),
+                        tooltip: '关闭',
+                      ),
+                      title: const Text('设置',
                           style:
                               TextStyle(color: Colors.white70, fontSize: 13)),
                       dense: true,
