@@ -27,6 +27,13 @@
 - **裸 except 语句**：全部替换为 `except Exception:`，允许 `KeyboardInterrupt` 正常传播
 - **搜索输入校验**：增加 1-100 范围检查，无效值自动回退默认值 10
 
+### 线程安全修复
+- **下载协程 Tkinter 线程安全**：修复 `do_download()` 中 `self._log()` 在协程（事件循环线程）内直接访问 Tkinter 控件的问题，改用 `self.root.after(0, ...)` 调度到主线程执行
+- 三个 GUI 文件（phub_gui.py、phub_gui_v1.py、phub_gui_v2.py）均已修复
+
+### 代码清理
+- 移除未使用的 `_last_progress_update` 变量
+
 ---
 
 ## [1.7.3] — 代理状态一眼懂 + 冷启动更快 + 播放失败说明
