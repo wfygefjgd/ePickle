@@ -745,7 +745,6 @@ class PHUBApp:
 
     def _start_progress_loop(self):
         self._mpv_duration_override = 0
-        self._last_progress_update = 0
         def _update():
             if not self._running:
                 return
@@ -1231,7 +1230,7 @@ class PHUBApp:
             ))
         async def f():
             v = await self.client.get_video(url)
-            self._log(f"标题: {v.title}")
+            self.root.after(0, self._log, f"标题: {v.title}")
             await v.ensure_html()
             await v.download(quality=q, path=self.save_path, callback=prog)
             return v.title
