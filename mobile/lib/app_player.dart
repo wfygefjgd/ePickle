@@ -21,41 +21,33 @@ class PlayerApp extends StatelessWidget {
       value: settings,
       child: ChangeNotifierProvider(
         create: (_) => PlayerChrome(),
-        // Rebuild network clients when proxy settings change.
-        child: Consumer<AppSettings>(
-          builder: (context, s, _) {
-            final netKey =
-                '${s.proxyEnabled}|${s.proxyType}|${s.proxyHost}|${s.proxyPort}';
-            return MultiProvider(
-              key: ValueKey(netKey),
-              providers: [
-                Provider(create: (_) => PhubApi()),
-                Provider(create: (_) => XvideosApi()),
-                Provider(create: (_) => MitaoApi()),
-                Provider(create: (_) => Translator()),
-              ],
-              child: MaterialApp(
-                title: 'PHUB Player',
-                debugShowCheckedModeBanner: false,
-                theme: ThemeData(
-                  useMaterial3: true,
-                  brightness: Brightness.dark,
-                  scaffoldBackgroundColor: const Color(0xFF1E1E1E),
-                  colorScheme: const ColorScheme.dark(
-                    primary: Color(0xFFFF6B35),
-                    secondary: Color(0xFFFF6B35),
-                    surface: Color(0xFF1E1E1E),
-                  ),
-                  appBarTheme: const AppBarTheme(
-                    backgroundColor: Color(0xFF1E1E1E),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                  ),
-                ),
-                home: const HomeShell(),
+        child: MultiProvider(
+          providers: [
+            Provider(create: (_) => PhubApi()),
+            Provider(create: (_) => XvideosApi()),
+            Provider(create: (_) => MitaoApi()),
+            Provider(create: (_) => Translator()),
+          ],
+          child: MaterialApp(
+            title: 'PHUB Player',
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              useMaterial3: true,
+              brightness: Brightness.dark,
+              scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+              colorScheme: const ColorScheme.dark(
+                primary: Color(0xFFFF6B35),
+                secondary: Color(0xFFFF6B35),
+                surface: Color(0xFF1E1E1E),
               ),
-            );
-          },
+              appBarTheme: const AppBarTheme(
+                backgroundColor: Color(0xFF1E1E1E),
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+            ),
+            home: const HomeShell(),
+          ),
         ),
       ),
     );

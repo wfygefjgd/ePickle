@@ -10,8 +10,9 @@ import 'phub_api.dart';
 
 /// XVideos list + detail (for feed kind "X").
 class XvideosApi {
-  XvideosApi({Dio? dio})
-      : _dio = dio ??
+  XvideosApi({Dio? dio, CancelToken? cancelToken})
+      : _cancelToken = cancelToken ?? CancelToken(),
+        _dio = dio ??
             AppHttpClient.create(
               headers: {
                 ...AppHttpHeaders.browser,
@@ -23,6 +24,9 @@ class XvideosApi {
             );
 
   final Dio _dio;
+  final CancelToken _cancelToken;
+
+  void cancelRequests([String reason = 'cancelled']) => _cancelToken.cancel(reason);
 
   Future<String> _getHtml(String url) async {
     final res = await _dio.get<String>(

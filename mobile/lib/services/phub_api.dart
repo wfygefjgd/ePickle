@@ -13,8 +13,9 @@ import '../utils/http_headers.dart';
 /// Pure-client API: scrapes site HTML (no backend, no built-in nodes).
 /// Uses system route by default; optional local proxy via [AppHttpClient].
 class PhubApi {
-  PhubApi({Dio? dio})
-      : _dio = dio ??
+  PhubApi({Dio? dio, CancelToken? cancelToken})
+      : _cancelToken = cancelToken ?? CancelToken(),
+        _dio = dio ??
             AppHttpClient.create(
               headers: {
                 ...AppHttpHeaders.browser,
@@ -27,6 +28,7 @@ class PhubApi {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           options.headers['Cookie'] = _cookieHeader();
+          options.cancelToken ??= _cancelToken;
           handler.next(options);
         },
         onResponse: (response, handler) {
@@ -37,7 +39,10 @@ class PhubApi {
     );
   }
 
+  void cancelRequests([String reason = 'cancelled']) => _cancelToken.cancel(reason);
+
   final Dio _dio;
+  final CancelToken _cancelToken;
   final Map<String, String> _cookies = {
     'accessAgeDisclaimerPH': '1',
     'accessAgeDisclaimerUK': '1',

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
@@ -16,6 +17,7 @@ import '../services/player_chrome.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
+import '../widgets/video_player_page.dart';
 
 enum VideoFeedKind {
   hot,
@@ -24,7 +26,8 @@ enum VideoFeedKind {
   zhong,
 }
 
-/// Vertical feed with **exactly one** VideoPlayerController at a time.
+/// Vertical feed with one active VideoPlayerController plus one silent
+/// pre-buffered next-video controller for instant swipe (TikTok-style).
 /// Designed for Android stability (ExoPlayer + multi-instance freezes).
 class VideoFeedScreen extends StatefulWidget {
   const VideoFeedScreen({
@@ -51,6 +54,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _currentIndex = 0;
   int _loadSeq = 0;
 
+  /// Pre-buffered next video controller (paused, muted) for instant swipe.
+  VideoPlayerController? _preloadController;
+  int? _preloadIndex;
+  StreamQuality? _preloadStream;
+  int _preloadRetries = 0;
+
   bool _loading = false;
   bool _loadingMore = false;
   bool _pageLoading = false;
@@ -61,6 +70,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   String _speedLabel = '';
 
   Timer? _progressTimer;
+  Timer? _retryTimer;
+  Timer? _skipTimer;
+  Timer? _loadMoreTimer;
   final ValueNotifier<double> _sliderValue = ValueNotifier(0);
   final ValueNotifier<String> _currentTime = ValueNotifier('0:00');
   String _totalTime = '0:00';
@@ -76,8 +88,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
   String get _cacheKey => widget.kind.name;
+  late final Map<String, String> _httpHeaders = _buildHeaders();
 
-  Map<String, String> get _httpHeaders {
+  Map<String, String> _buildHeaders() {
     switch (widget.kind) {
       case VideoFeedKind.x:
         return {
@@ -155,6 +168,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
+    _retryTimer?.cancel();
+    _skipTimer?.cancel();
+    _loadMoreTimer?.cancel();
     _sliderValue.dispose();
     _currentTime.dispose();
     _pageCtrl.dispose();
@@ -163,8 +179,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     try {
       c?.dispose();
     } catch (_) {}
+    _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
+  }
+
+  void _disposePreloadSync() {
+    final p = _preloadController;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    if (p != null) {
+      // ignore: unawaited_futures
+      p.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p.dispose();
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _toggleFullscreen() async {
@@ -178,6 +211,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       _controller?.pause();
+      _preloadController?.pause();
       WakelockPlus.disable();
     } else if (state == AppLifecycleState.resumed && _active) {
       _controller?.play();
@@ -213,6 +247,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     try {
       c?.pause();
     } catch (_) {}
+    _disposePreloadSync();
     WakelockPlus.disable();
     if (releasePlayers && c != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -299,7 +334,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _playIndex(_currentIndex.clamp(0, _items.length - 1));
       }
       if (isCold && _items.length < 20 && _active) {
-        Future<void>.delayed(const Duration(seconds: 1), () {
+        _loadMoreTimer?.cancel();
+        _loadMoreTimer = Timer(const Duration(seconds: 1), () {
           if (mounted && _active) _loadMore();
         });
       }
@@ -320,15 +356,37 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  final Set<int> _retried = {};
+
   void _scheduleSkipToNext(int fromIndex) {
+    if (!_active) return;
+    if (!_retried.contains(fromIndex)) {
+      _retried.add(fromIndex);
+      _retryTimer?.cancel();
+      _retryTimer = Timer(const Duration(milliseconds: 600), () {
+        if (!mounted || !_active) return;
+        _playIndex(fromIndex);
+      });
+      return;
+    }
     _failStreak++;
-    if (_failStreak > 8 || !_active) {
+    if (_failStreak >= 3) {
+      // Pause auto-play after 3 consecutive failures
       _failStreak = 0;
+      _active = false;
+      if (mounted) {
+        PlaybackHelpers.toast(
+          context,
+          '连续多个视频无法播放。已暂停自动播放，请检查网络或代理设置',
+          duration: const Duration(seconds: 4),
+        );
+      }
       return;
     }
     if (mounted) PlaybackHelpers.toast(context, '已跳过无法播放的视频');
     final next = fromIndex + 1;
-    Future<void>.delayed(const Duration(milliseconds: 400), () {
+    _skipTimer?.cancel();
+    _skipTimer = Timer(const Duration(milliseconds: 400), () {
       if (!mounted || !_active) return;
       if (next < _items.length) {
         if (_pageCtrl.hasClients) {
@@ -357,10 +415,170 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
   }
 
+  void _disposePreload() {
+    final p = _preloadController;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    if (p != null) {
+      // ignore: unawaited_futures
+      p.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p.dispose();
+        } catch (_) {}
+      });
+    }
+  }
+
+  Future<void> _preloadNext(int index) async {
+    if (!_active ||
+        index < 0 ||
+        index >= _items.length ||
+        index == _currentIndex) {
+      return;
+    }
+    if (_preloadIndex == index && _preloadController != null) return;
+    final seq = _loadSeq;
+    final detail = _detailCache[index];
+    if (detail == null) return;
+    if (detail.countryBlocked || detail.unavailable) return;
+    final cap = context.read<AppSettings>().qualityCap;
+    final stream =
+        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    if (stream == null) return;
+    if (_preloadIndex == index &&
+        _preloadController != null &&
+        _preloadStream?.url == stream.url) {
+      return;
+    }
+    final existing = _preloadController;
+    final existingIndex = _preloadIndex;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    if (existing != null && existingIndex != index) {
+      // ignore: unawaited_futures
+      existing.pause().catchError((_) {}).whenComplete(() {
+        try {
+          existing.dispose();
+        } catch (_) {}
+      });
+    }
+    if (seq != _loadSeq || !_active) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: _httpHeaders,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    try {
+      await player.initialize();
+      _preloadRetries = 0;
+    } catch (e) {
+      // Retry up to 2 times for transient failures
+      if (_preloadRetries < 2 && seq == _loadSeq && _active) {
+        _preloadRetries++;
+        try {
+          await player.dispose();
+        } catch (_) {}
+        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
+        if (seq == _loadSeq && _active && mounted) {
+          return _preloadNext(index);
+        }
+      }
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _loadSeq || !_active || mounted == false) {
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    _preloadController = player;
+    _preloadIndex = index;
+    _preloadStream = stream;
+    _preloadRetries = 0;
+    try {
+      await player.pause();
+      player.setVolume(0);
+    } catch (_) {}
+  }
+
   Future<void> _playIndex(int index) async {
     if (!_active || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
+
+    if (_preloadIndex == index &&
+        _preloadController != null &&
+        _preloadController!.value.isInitialized) {
+      final preloaded = _preloadController!;
+      final preloadDetail = _detailCache[index];
+      final preloadStream = _preloadStream;
+      final previous = _controller;
+      _controller = null;
+      _preloadController = null;
+      _preloadIndex = null;
+      _preloadStream = null;
+      await _disposeController(seqGuard: seq, exclude: preloaded);
+      if (previous != null && !identical(previous, preloaded)) {
+        try {
+          await previous.pause();
+        } catch (_) {}
+        // ignore: unawaited_futures
+        previous.dispose().catchError((_) {});
+      }
+      if (!mounted || seq != _loadSeq || !_active) {
+        try {
+          await preloaded.dispose();
+        } catch (_) {}
+        return;
+      }
+      _failStreak = 0;
+      _currentDetail = preloadDetail;
+      _currentIndex = index;
+      final settings = context.read<AppSettings>();
+      _muted = settings.muted;
+      preloaded.setVolume(_muted ? 0 : 1);
+      if (preloadDetail != null) {
+        await PlaybackHelpers.skipIntro(preloaded, enabled: settings.skipIntro);
+      }
+      if (!mounted || seq != _loadSeq || !_active) {
+        try {
+          await preloaded.dispose();
+        } catch (_) {}
+        return;
+      }
+      _controller = preloaded;
+      final dur = preloaded.value.duration;
+      setState(() {
+        _pageLoading = false;
+        _titleText = preloadDetail?.title ?? item.title;
+        _totalTime = PlaybackHelpers.fmtDuration(dur);
+        _baseSpeed = preloadStream != null
+            ? _estimateBaseSpeed(preloadStream.height)
+            : 1500;
+      });
+      _sliderValue.value = 0;
+      _currentTime.value = '0:00';
+      if (preloadDetail != null) {
+        _translateTitleOnly(preloadDetail.title);
+      }
+      await preloaded.play();
+      _startProgressTimer();
+      WakelockPlus.enable();
+      if (mounted) setState(() {});
+
+      // Clean up old detail cache to prevent memory growth
+      _cleanupDetailCache(index);
+      return;
+    }
+
+    _disposePreload();
 
     // Tear down previous player completely before creating a new one
     await _disposeController();
@@ -409,10 +627,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       return;
     }
 
+    final settings = context.read<AppSettings>();
+
+    // Start preloading next video immediately after detail is loaded
+    _prefetchDetail(index + 1);
+    // ignore: unawaited_futures
+    _preloadNext(index + 1);
+
     // Quality: only what user set in settings. No auto fallback / stall switch.
-    final cap = context.read<AppSettings>().qualityCap;
     final stream =
-        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+        PlaybackHelpers.pickStream(detail, settings.qualityCap) ?? detail.bestStream;
     if (stream == null) {
       setState(() => _pageLoading = false);
       PlaybackHelpers.toast(context, '无可用播放地址，已跳过');
@@ -436,9 +660,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
       if (mounted && seq == _loadSeq) {
         setState(() => _pageLoading = false);
-        final net = context.read<AppSettings>();
-        final tip = net.proxyEnabled && net.hasProxyEndpoint
-            ? (net.proxyType == 'socks5'
+        final tip = settings.proxyEnabled && settings.hasProxyEndpoint
+            ? (settings.proxyType == 'socks5'
                 ? '列表可能已通，但播放器常不跟 SOCKS。可开 TUN，或改用 HTTP 代理后重试'
                 : '列表可能已通，播放仍失败。可开 TUN，或检查代理是否支持视频流')
             : '播放失败。若列表能出、播不动：开 TUN，或设置里配置 HTTP 代理';
@@ -453,10 +676,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
 
     _failStreak = 0;
-    _muted = context.read<AppSettings>().muted;
+    _muted = settings.muted;
     player.setVolume(_muted ? 0 : 1);
-    final skip = context.read<AppSettings>().skipIntro;
-    await PlaybackHelpers.skipIntro(player, enabled: skip);
+    await PlaybackHelpers.skipIntro(player, enabled: settings.skipIntro);
     if (!mounted || seq != _loadSeq || !_active) {
       await player.dispose();
       return;
@@ -472,15 +694,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _startProgressTimer();
     WakelockPlus.enable();
     if (mounted) setState(() {});
-    _prefetchDetail(index + 1);
+
+    // Clean up old detail cache to prevent memory growth
+    _cleanupDetailCache(index);
   }
 
-  Future<void> _disposeController() async {
+  Future<void> _disposeController({int? seqGuard, VideoPlayerController? exclude}) async {
     _progressTimer?.cancel();
     _progressTimer = null;
     final c = _controller;
     _controller = null;
-    if (c == null) return;
+    if (c == null || identical(c, exclude)) return;
+    if (seqGuard != null && seqGuard != _loadSeq) return;
     try {
       await c.pause();
     } catch (_) {}
@@ -498,7 +723,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _lastPosMs = 0;
     // 200ms feels smoother than 400ms; skip UI while user is dragging.
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!ctrl.value.isInitialized || _seeking) return;
+      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized || _seeking) {
+        _progressTimer?.cancel();
+        _progressTimer = null;
+        return;
+      }
       final pos = ctrl.value.position;
       final dur = ctrl.value.duration;
       if (dur.inMilliseconds <= 0) return;
@@ -540,6 +769,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _onPageChanged(int page) {
     if (page == _currentIndex) return;
+    _retried.removeWhere((i) => (i - page).abs() > 3);
     // Hard switch: dispose old, play new only
     _playIndex(page);
     if (page >= _items.length - 3) {
@@ -741,7 +971,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       );
     }
 
-    final immersive = context.watch<PlayerChrome>().immersive;
+    final immersive =
+        context.select<PlayerChrome, bool>((c) => c.immersive);
 
     return PopScope(
       canPop: !immersive,
@@ -764,221 +995,43 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           },
           onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
           onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              PageView.builder(
-                controller: _pageCtrl,
-                scrollDirection: Axis.vertical,
-                itemCount: _items.length,
-                onPageChanged: _onPageChanged,
-                itemBuilder: (_, i) {
-                  if (i == _currentIndex &&
-                      _controller != null &&
-                      _controller!.value.isInitialized) {
-                    return ColoredBox(
-                      color: Colors.black,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: _controller!.value.aspectRatio,
-                          child: VideoPlayer(_controller!),
-                        ),
-                      ),
-                    );
-                  }
-                  final thumb = _items[i].thumb;
-                  return Container(
-                    color: const Color(0xFF1A1A1A),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (thumb != null && thumb.isNotEmpty)
-                          Image.network(
-                            thumb,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            headers: AppHttpHeaders.forMediaUrl(thumb),
-                            errorBuilder: (_, __, ___) =>
-                                const SizedBox.shrink(),
-                          ),
-                        if (i == _currentIndex && _pageLoading)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFFF6B35),
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              // Fullscreen: settings top-left, exit top-right; mute stays bottom-right.
-              if (immersive) ...[
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        tooltip: '设置 / 画质',
-                        icon: const Icon(Icons.tune,
-                            color: Colors.white70, size: 20),
-                        onPressed: _openPlayerSettings,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        tooltip: '退出全屏',
-                        icon: const Icon(Icons.fullscreen_exit,
-                            color: Colors.white70, size: 22),
-                        onPressed: _toggleFullscreen,
-                      ),
-                    ),
-                  ),
-                ),
-                if (_controller != null || _pageLoading)
-                  Positioned(
-                    right: 10,
-                    bottom: 56,
-                    child: SafeArea(
-                      child: FeedSideControls(
-                        muted: _muted,
-                        onMute: _toggleMute,
-                      ),
-                    ),
-                  ),
-              ] else if (_controller != null || _pageLoading) ...[
-                _buildTopBar(),
-                // Fullscreen under title, left
-                Positioned(
-                  left: 10,
-                  top: 0,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: FeedCircleButton(
-                        icon: Icons.fullscreen,
-                        onTap: _toggleFullscreen,
-                      ),
-                    ),
-                  ),
-                ),
-                // Settings (quality etc.) top-right on player
-                Positioned(
-                  top: 0,
-                  right: 6,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: Material(
-                        color: Colors.black45,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          tooltip: '设置',
-                          icon: const Icon(Icons.tune,
-                              color: Colors.white70, size: 20),
-                          onPressed: _openPlayerSettings,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Mute only on right side
-                Positioned(
-                  right: 10,
-                  bottom: 56,
-                  child: SafeArea(
-                    child: FeedSideControls(
-                      muted: _muted,
-                      onMute: _toggleMute,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: SafeArea(
-                    child: FeedProgressBar(
-                      slider: _sliderValue,
-                      curTime: _currentTime,
-                      totalTime: _totalTime,
-                      onChanged: _onSeekPreview,
-                      onChangeStart: (_) {
-                        _seeking = true;
-                      },
-                      onChangeEnd: (v) {
-                        // ignore: unawaited_futures
-                        _onSeekCommit(v);
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          child: VideoPlayerPage(
+            items: _items,
+            currentIndex: _currentIndex,
+            controller: _controller,
+            pageLoading: _pageLoading,
+            muted: _muted,
+            immersive: immersive,
+            pageCtrl: _pageCtrl,
+            sliderValue: _sliderValue,
+            currentTime: _currentTime,
+            totalTime: _totalTime,
+            titleText: _titleText,
+            speedLabel: _speedLabel,
+            onPageChanged: _onPageChanged,
+            onMute: _toggleMute,
+            onFullscreen: _toggleFullscreen,
+            onOpenSettings: _openPlayerSettings,
+            onSeekPreview: _onSeekPreview,
+            onSeekStart: () => _seeking = true,
+            onSeekEnd: _onSeekCommit,
           ),
         ),
       ),
     );
   }
 
-  /// Title + speed on one row (leave left gap for fullscreen under title).
-  Widget _buildTopBar() {
-    final title = _titleText.isNotEmpty
-        ? _titleText
-        : (_currentIndex < _items.length ? _items[_currentIndex].title : '');
-    return Positioned(
-      left: 10,
-      right: 10,
-      top: 8,
-      child: SafeArea(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
-                ),
-              ),
-            ),
-            if (_speedLabel.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black45,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  _speedLabel,
-                  style: const TextStyle(
-                    color: Color(0xFF00E676),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
+  /// Clean up detail cache that's far from current position to prevent memory growth
+  void _cleanupDetailCache(int currentIndex) {
+    const maxCacheDistance = 10;
+    final toRemove = <int>[];
+    for (final key in _detailCache.keys) {
+      if ((key - currentIndex).abs() > maxCacheDistance) {
+        toRemove.add(key);
+      }
+    }
+    for (final key in toRemove) {
+      _detailCache.remove(key);
+    }
   }
 }

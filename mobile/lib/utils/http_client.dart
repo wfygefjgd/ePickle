@@ -51,6 +51,7 @@ class AppHttpClient {
     Map<String, dynamic>? headers,
     Duration connectTimeout = const Duration(seconds: 12),
     Duration receiveTimeout = const Duration(seconds: 18),
+    CancelToken? cancelToken,
   }) {
     final dio = Dio(
       BaseOptions(
@@ -65,6 +66,17 @@ class AppHttpClient {
         responseType: ResponseType.plain,
       ),
     );
+
+    if (cancelToken != null) {
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            options.cancelToken = cancelToken;
+            handler.next(options);
+          },
+        ),
+      );
+    }
 
     dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {

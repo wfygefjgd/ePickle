@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
@@ -20,7 +21,8 @@ import '../widgets/player_settings_sheet.dart';
 enum SearchSource { ph, x, zhong }
 
 /// Vertical swipe player for search results.
-/// Single player; preloads next detail; can append pages via [onLoadMore].
+/// Single active player + one silent pre-buffered next-video controller
+/// (TikTok-style) for instant swipe; preloads next detail; can append pages via [onLoadMore].
 class SearchFeedScreen extends StatefulWidget {
   const SearchFeedScreen({
     super.key,
@@ -58,6 +60,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   String _titleText = '';
   String _totalTime = '0:00';
   Timer? _progressTimer;
+  Timer? _retryTimer;
+  Timer? _skipTimer;
   final ValueNotifier<double> _slider = ValueNotifier(0);
   final ValueNotifier<String> _curTime = ValueNotifier('0:00');
 
@@ -66,7 +70,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
 
-  Map<String, String> get _headers {
+  VideoPlayerController? _preloadController;
+  int? _preloadIndex;
+  StreamQuality? _preloadStream;
+  int _preloadRetries = 0;
+
+  late final Map<String, String> _headers = _buildHeaders();
+
+  Map<String, String> _buildHeaders() {
     switch (widget.source) {
       case SearchSource.x:
         return {
@@ -111,6 +122,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
+    _retryTimer?.cancel();
+    _skipTimer?.cancel();
     _slider.dispose();
     _curTime.dispose();
     _pageCtrl.dispose();
@@ -119,8 +132,24 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     try {
       c?.dispose();
     } catch (_) {}
+    _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
+  }
+
+  void _disposePreloadSync() {
+    final p = _preloadController;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    if (p != null) {
+      // ignore: unawaited_futures
+      p.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p.dispose();
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _toggleFullscreen() async {
@@ -134,6 +163,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       _controller?.pause();
+      _preloadController?.pause();
       WakelockPlus.disable();
     } else if (state == AppLifecycleState.resumed) {
       _controller?.play();
@@ -173,15 +203,34 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
+  final Set<int> _retried = {};
+
   void _scheduleSkipToNext(int fromIndex) {
+    if (!_retried.contains(fromIndex)) {
+      _retried.add(fromIndex);
+      _retryTimer?.cancel();
+      _retryTimer = Timer(const Duration(milliseconds: 600), () {
+        if (!mounted) return;
+        _playIndex(fromIndex);
+      });
+      return;
+    }
     _failStreak++;
-    if (_failStreak > 8) {
+    if (_failStreak > 5) {
       _failStreak = 0;
+      if (mounted) {
+        PlaybackHelpers.toast(
+          context,
+          '连续多个视频无法播放，请检查网络或代理设置',
+          duration: const Duration(seconds: 3),
+        );
+      }
       return;
     }
     if (mounted) PlaybackHelpers.toast(context, '已跳过无法播放的视频');
     final next = fromIndex + 1;
-    Future<void>.delayed(const Duration(milliseconds: 400), () async {
+    _skipTimer?.cancel();
+    _skipTimer = Timer(const Duration(milliseconds: 400), () async {
       if (!mounted) return;
       if (next >= _items.length) {
         await _ensureMoreIfNearEnd(_items.length - 1);
@@ -201,6 +250,72 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (index < 0 || index >= _items.length) return;
     final seq = ++_seq;
     final item = _items[index];
+
+    if (_preloadIndex == index &&
+        _preloadController != null &&
+        _preloadController!.value.isInitialized) {
+      final preloaded = _preloadController!;
+      final preloadDetail = _detailCache[index];
+      final previous = _controller;
+      _controller = null;
+      _preloadController = null;
+      _preloadIndex = null;
+      _preloadStream = null;
+      await _disposePlayer(seqGuard: seq, exclude: preloaded);
+      if (previous != null && !identical(previous, preloaded)) {
+        try {
+          await previous.pause();
+        } catch (_) {}
+        // ignore: unawaited_futures
+        previous.dispose().catchError((_) {});
+      }
+      if (!mounted || seq != _seq) {
+        try {
+          await preloaded.dispose();
+        } catch (_) {}
+        return;
+      }
+      _failStreak = 0;
+      _currentDetail = preloadDetail;
+      _index = index;
+      _muted = context.read<AppSettings>().muted;
+      preloaded.setVolume(_muted ? 0 : 1);
+      if (preloadDetail != null) {
+        final skip = context.read<AppSettings>().skipIntro;
+        await PlaybackHelpers.skipIntro(preloaded, enabled: skip);
+      }
+      if (!mounted || seq != _seq) {
+        try {
+          await preloaded.dispose();
+        } catch (_) {}
+        return;
+      }
+      _controller = preloaded;
+      final dur = preloaded.value.duration;
+      setState(() {
+        _pageLoading = false;
+        _titleText = preloadDetail?.title ?? item.title;
+        _totalTime = PlaybackHelpers.fmtDuration(dur);
+      });
+      _slider.value = 0;
+      _curTime.value = '0:00';
+      // ignore: unawaited_futures
+      _ensureMoreIfNearEnd(index);
+      if (preloadDetail != null) {
+        // ignore: unawaited_futures
+        _translateTitleOnly(preloadDetail.title);
+      }
+      await preloaded.play();
+      _startTimer();
+      WakelockPlus.enable();
+      if (mounted) setState(() {});
+
+      // Clean up old detail cache to prevent memory growth
+      _cleanupDetailCache(index);
+      return;
+    }
+
+    _disposePreload();
 
     await _disposePlayer();
     if (!mounted || seq != _seq) return;
@@ -251,6 +366,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _scheduleSkipToNext(index);
       return;
     }
+
+    // Start preloading next video immediately after detail is loaded
+    _prefetchDetail(index + 1);
+    // ignore: unawaited_futures
+    _preloadNext(index + 1);
 
     final cap = context.read<AppSettings>().qualityCap;
     final stream =
@@ -318,7 +438,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     WakelockPlus.enable();
     if (mounted) setState(() {});
 
-    _prefetchDetail(index + 1);
+    // Clean up old detail cache to prevent memory growth
+    _cleanupDetailCache(index);
   }
 
   Future<void> _translateTitleOnly(String title) async {
@@ -353,12 +474,100 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     });
   }
 
-  Future<void> _disposePlayer() async {
+  void _disposePreload() {
+    final p = _preloadController;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    if (p != null) {
+      // ignore: unawaited_futures
+      p.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p.dispose();
+        } catch (_) {}
+      });
+    }
+  }
+
+  Future<void> _preloadNext(int index) async {
+    if (index < 0 || index >= _items.length || index == _index) return;
+    if (_preloadIndex == index && _preloadController != null) return;
+    final seq = _seq;
+    final detail = _detailCache[index];
+    if (detail == null) return;
+    if (detail.countryBlocked || detail.unavailable) return;
+    final cap = context.read<AppSettings>().qualityCap;
+    final stream =
+        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    if (stream == null) return;
+    if (_preloadIndex == index &&
+        _preloadController != null &&
+        _preloadStream?.url == stream.url) {
+      return;
+    }
+    final existing = _preloadController;
+    final existingIndex = _preloadIndex;
+    _preloadController = null;
+    _preloadIndex = null;
+    _preloadStream = null;
+    _preloadRetries = 0;
+    if (existing != null && existingIndex != index) {
+      // ignore: unawaited_futures
+      existing.pause().catchError((_) {}).whenComplete(() {
+        try {
+          existing.dispose();
+        } catch (_) {}
+      });
+    }
+    if (seq != _seq) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: _headers,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    try {
+      await player.initialize();
+      _preloadRetries = 0;
+    } catch (e) {
+      // Retry up to 2 times for transient failures
+      if (_preloadRetries < 2 && seq == _seq) {
+        _preloadRetries++;
+        try {
+          await player.dispose();
+        } catch (_) {}
+        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
+        if (seq == _seq && mounted) {
+          return _preloadNext(index);
+        }
+      }
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _seq || !mounted) {
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    _preloadController = player;
+    _preloadIndex = index;
+    _preloadStream = stream;
+    _preloadRetries = 0;
+    try {
+      await player.pause();
+      player.setVolume(0);
+    } catch (_) {}
+  }
+
+  Future<void> _disposePlayer({int? seqGuard, VideoPlayerController? exclude}) async {
     _progressTimer?.cancel();
     _progressTimer = null;
     final c = _controller;
     _controller = null;
-    if (c == null) return;
+    if (c == null || identical(c, exclude)) return;
+    if (seqGuard != null && seqGuard != _seq) return;
     try {
       await c.pause();
     } catch (_) {}
@@ -372,7 +581,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (ctrl == null) return;
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!ctrl.value.isInitialized || _seeking) return;
+      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized || _seeking) {
+        _progressTimer?.cancel();
+        _progressTimer = null;
+        return;
+      }
       final pos = ctrl.value.position;
       final dur = ctrl.value.duration;
       if (dur.inMilliseconds <= 0) return;
@@ -403,6 +616,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   void _onPageChanged(int page) {
     if (page == _index) return;
+    _retried.removeWhere((i) => (i - page).abs() > 3);
     _playIndex(page);
     // ignore: unawaited_futures
     _ensureMoreIfNearEnd(page);
@@ -461,7 +675,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   @override
   Widget build(BuildContext context) {
-    final immersive = context.watch<PlayerChrome>().immersive;
+    final immersive =
+        context.select<PlayerChrome, bool>((c) => c.immersive);
 
     return PopScope(
       canPop: !immersive,
@@ -522,11 +737,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       fit: StackFit.expand,
                       children: [
                         if (thumb != null && thumb.isNotEmpty)
-                          Image.network(
-                            thumb,
+                          CachedNetworkImage(
+                            imageUrl: thumb,
+                            httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
                             fit: BoxFit.cover,
-                            headers: AppHttpHeaders.forMediaUrl(thumb),
-                            errorBuilder: (_, __, ___) =>
+                            memCacheWidth: 720,
+                            placeholder: (_, __) =>
+                                const ColoredBox(color: Color(0xFF1A1A1A)),
+                            errorWidget: (_, __, ___) =>
                                 const SizedBox.shrink(),
                           ),
                         if (i == _index && _pageLoading)
@@ -672,5 +890,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         ),
       ),
     );
+  }
+
+  /// Clean up detail cache that's far from current position to prevent memory growth
+  void _cleanupDetailCache(int currentIndex) {
+    const maxCacheDistance = 10;
+    final toRemove = <int>[];
+    for (final key in _detailCache.keys) {
+      if ((key - currentIndex).abs() > maxCacheDistance) {
+        toRemove.add(key);
+      }
+    }
+    for (final key in toRemove) {
+      _detailCache.remove(key);
+    }
   }
 }

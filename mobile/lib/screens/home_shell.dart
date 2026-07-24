@@ -56,7 +56,8 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final immersive = context.watch<PlayerChrome>().immersive;
+    final immersive =
+        context.select<PlayerChrome, bool>((c) => c.immersive);
 
     return Scaffold(
       extendBody: true,
@@ -115,49 +116,51 @@ class _HomeShellState extends State<HomeShell> {
       ),
       bottomNavigationBar: immersive
           ? null
-          : ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: NavigationBar(
-                  selectedIndex: _index,
-                  onDestinationSelected: _onTabSelected,
-                  backgroundColor: Colors.black.withValues(alpha: 0.28),
-                  surfaceTintColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  elevation: 0,
-                  indicatorColor: const Color(0x33FF6B35),
-                  destinations: const [
-                    NavigationDestination(
-                      icon: Icon(Icons.local_fire_department_outlined),
-                      selectedIcon: Icon(Icons.local_fire_department,
-                          color: Color(0xFFFF6B35)),
-                      label: '热',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.public_outlined),
-                      selectedIcon:
-                          Icon(Icons.public, color: Color(0xFFFF6B35)),
-                      label: '亚',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.play_circle_outline),
-                      selectedIcon: Icon(Icons.play_circle,
-                          color: Color(0xFFFF6B35)),
-                      label: 'X',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.subtitles_outlined),
-                      selectedIcon:
-                          Icon(Icons.subtitles, color: Color(0xFFFF6B35)),
-                      label: '中',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.search),
-                      selectedIcon:
-                          Icon(Icons.search, color: Color(0xFFFF6B35)),
-                      label: '搜',
-                    ),
-                  ],
+          : RepaintBoundary(
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: NavigationBar(
+                    selectedIndex: _index,
+                    onDestinationSelected: _onTabSelected,
+                    backgroundColor: Colors.black.withValues(alpha: 0.28),
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    elevation: 0,
+                    indicatorColor: const Color(0x33FF6B35),
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.local_fire_department_outlined),
+                        selectedIcon: Icon(Icons.local_fire_department,
+                            color: Color(0xFFFF6B35)),
+                        label: '热',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.public_outlined),
+                        selectedIcon:
+                            Icon(Icons.public, color: Color(0xFFFF6B35)),
+                        label: '亚',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.play_circle_outline),
+                        selectedIcon: Icon(Icons.play_circle,
+                            color: Color(0xFFFF6B35)),
+                        label: 'X',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.subtitles_outlined),
+                        selectedIcon:
+                            Icon(Icons.subtitles, color: Color(0xFFFF6B35)),
+                        label: '中',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.search),
+                        selectedIcon:
+                            Icon(Icons.search, color: Color(0xFFFF6B35)),
+                        label: '搜',
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
