@@ -368,7 +368,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
 
     // Start preloading next video immediately after detail is loaded
-    _prefetchDetail(index + 1);
+    // Wait for detail to be fetched before preloading
+    await _prefetchDetail(index + 1);
     // ignore: unawaited_futures
     _preloadNext(index + 1);
 
@@ -459,19 +460,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
   }
 
-  void _prefetchDetail(int index) {
+  Future<void> _prefetchDetail(int index) async {
     if (index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
     if (_prefetchingIndex == index) return;
     _prefetchingIndex = index;
     final url = _items[index].url;
-    _fetchDetail(url).then((d) {
+    try {
+      final d = await _fetchDetail(url);
       if (!mounted) return;
       _detailCache[index] = d;
       _detailCache.removeWhere((k, _) => (k - _index).abs() > 2);
-    }).catchError((_) {}).whenComplete(() {
+    } catch (_) {
+      // Ignore errors in prefetch
+    } finally {
       if (_prefetchingIndex == index) _prefetchingIndex = null;
-    });
+    }
   }
 
   void _disposePreload() {
