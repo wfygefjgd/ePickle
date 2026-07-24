@@ -19,18 +19,17 @@ def translate_en_to_zh(text):
     try:
         import curl_cffi.requests as requests
         encoded = urllib.parse.quote(text[:5000])
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q={encoded}"
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q={encoded}"
         r = requests.get(url, impersonate="chrome",
                          proxies={"https": PROXY, "http": PROXY}, timeout=10)
         data = r.json()
         return "".join([s[0] for s in data[0] if s[0]])
-    except:
+    except Exception:
         return text
 
 
 class RealtimeTranslator:
     def __init__(self, callback=None, whisper_model="tiny"):
-        # callback(zh_text) is invoked for each translated chunk (GUI display).
         self.callback = callback
         self.running = False
         self._thread = None
@@ -38,7 +37,7 @@ class RealtimeTranslator:
         self._sub_id = 0
         self._lock = threading.Lock()
         self._srt_path = None
-        self._srt_entries = []  # (index, start_sec, end_sec, text)
+        self._srt_entries = []
 
     def _load_model(self):
         if self.model is None:
@@ -54,7 +53,7 @@ class RealtimeTranslator:
         if path and os.path.exists(path):
             try:
                 os.remove(path)
-            except:
+            except Exception:
                 pass
 
     def _write_srt(self):
@@ -72,7 +71,7 @@ class RealtimeTranslator:
                 lines.append("")
             with open(self._srt_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines))
-        except:
+        except Exception:
             pass
 
     def start(self, stream_url):
@@ -114,7 +113,8 @@ class RealtimeTranslator:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
-        except:
+        except Exception:
+            self.running = False
             return
 
         audio_buffer = b""
@@ -146,7 +146,7 @@ class RealtimeTranslator:
                         audio_np,
                         beam_size=1, vad_filter=True,
                     )
-                except:
+                except Exception:
                     continue
 
                 for seg in segments:
@@ -159,7 +159,7 @@ class RealtimeTranslator:
                     if self.callback:
                         try:
                             self.callback(zh_text)
-                        except:
+                        except Exception:
                             pass
                     if self._srt_path:
                         with self._lock:
@@ -168,3 +168,4 @@ class RealtimeTranslator:
                         self._write_srt()
 
         proc.kill()
+        self.running = False

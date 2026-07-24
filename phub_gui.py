@@ -13,6 +13,7 @@ import json
 import os
 import tempfile
 import urllib.parse
+import time
 
 from phub import Client
 from base_api.modules.config import config
@@ -23,6 +24,9 @@ config.proxies = {
 
 MPV_PATH = r"C:\Users\96335\mpv\mpv.exe"
 from subtitle_translator import RealtimeTranslator
+
+ERROR_LOG = os.path.join(os.path.expanduser("~"), "phub_logs", "error.log")
+os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
 
 
 def translate_en_to_zh(text):
@@ -41,29 +45,14 @@ def translate_en_to_zh(text):
 
 
 def translate_batch_zh(texts):
-    """批量翻译，合并为单次API请求"""
+    """批量翻译，逐条请求避免错位"""
     if not texts:
         return []
-    try:
-        import curl_cffi.requests as requests
-        joined = "\n".join(texts)
-        encoded = urllib.parse.quote(joined[:5000])
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q={encoded}"
-        r = requests.get(url, impersonate="chrome", proxies={"https": "http://127.0.0.1:10808"}, timeout=20)
-        data = r.json()
-        translated_parts = []
-        for s in data[0]:
-            if s[0]:
-                translated_parts.append(s[0])
-        full = "".join(translated_parts)
-        lines = full.split("\n")
-        if len(lines) >= len(texts):
-            return lines[:len(texts)]
-        while len(lines) < len(texts):
-            lines.append(texts[len(lines)])
-        return lines
-    except:
-        return [translate_en_to_zh(t) for t in texts]
+    results = []
+    for t in texts:
+        results.append(translate_en_to_zh(t))
+        time.sleep(0.15)
+    return results
 
 
 class Toast:
@@ -71,7 +60,7 @@ class Toast:
         self.root = root
         self.label = None
 
-    def show(self, msg, duration=500):
+    def show(self, msg, duration=1500):
         if self.label:
             self.label.destroy()
         self.label = tk.Toplevel(self.root)
@@ -105,7 +94,7 @@ class MpvPlayer:
             try:
                 self.proc.stdin.write((json.dumps({"command": command}) + "\n").encode())
                 self.proc.stdin.flush()
-            except:
+            except Exception:
                 pass
 
     def play(self, url):
@@ -128,7 +117,7 @@ class MpvPlayer:
                 self.proc.stdin.write(b'{"command":["quit"]}\n')
                 self.proc.stdin.flush()
                 self.proc.wait(timeout=2)
-            except:
+            except Exception:
                 self.proc.kill()
         self.proc = None
         self.playing = False
@@ -181,7 +170,7 @@ class MpvPlayer:
                     d = json.loads(line)
                     if d.get("data") is not None:
                         return float(d["data"])
-        except:
+        except Exception:
             pass
         return 0
 
@@ -205,7 +194,7 @@ class PHUBApp:
         self.client = Client()
         self.toast = Toast(root)
         self.mpv = MpvPlayer()
-        self.translator = RealtimeTranslator(self.mpv._ipc_path)
+        self.translator = RealtimeTranslator(callback=lambda zh: None)
         self._running = True
 
         self.main_frame = tk.Frame(root, bg="#1e1e1e")
@@ -240,7 +229,8 @@ class PHUBApp:
         f4 = ttk.Frame(nb); nb.add(f4, text="  下载  "); self._build_download(f4)
 
         self._loop = asyncio.new_event_loop()
-        threading.Thread(target=self._run_loop, daemon=True).start()
+        self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._loop_thread.start()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _set_dark_title_bar(self):
@@ -267,6 +257,10 @@ class PHUBApp:
         self._running = False
         self.translator.stop()
         self.mpv.stop()
+        try:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception:
+            pass
         self.root.destroy()
 
     def _run_loop(self):
@@ -329,7 +323,7 @@ class PHUBApp:
             if line.startswith("#EXT-X-STREAM-INF:"):
                 try:
                     w = int(line.split("RESOLUTION=")[1].split("x")[0].split(",")[0])
-                except:
+                except Exception:
                     w = 0
                 if w > best_res and i+1 < len(lines):
                     best_res = w; best_url = lines[i+1].strip()
@@ -354,7 +348,6 @@ class PHUBApp:
                 messagebox.showerror("错误", "无法获取播放地址")
         self.run_async(f(), done)
 
-    # ===== 搜索 =====
     def _build_search(self, p):
         top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
         tk.Label(top, text="关键词:", bg="#1e1e1e", fg="#ddd").pack(side="left")
@@ -381,7 +374,13 @@ class PHUBApp:
     def do_search(self):
         q = self.s_entry.get().strip()
         if not q: return
-        n = int(self.s_cnt.get()); self.s_lbl.config(text="搜索中..."); self.s_tree.delete(*self.s_tree.get_children())
+        try:
+            n = int(self.s_cnt.get())
+            if n <= 0 or n > 100:
+                n = 10
+        except (ValueError, tk.TclError):
+            n = 10
+        self.s_lbl.config(text="搜索中..."); self.s_tree.delete(*self.s_tree.get_children())
         async def f():
             r = []
             async for v in self.client.search_videos(q):
@@ -409,7 +408,6 @@ class PHUBApp:
                 self.s_tree.item(item, values=(zh, f"{m}:{s:02d}", vs[i].url))
         self.s_lbl.config(text=f"找到 {len(vs)} 个")
 
-    # ===== 推荐 =====
     def _build_recommend(self, p):
         top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
         tk.Label(top, text="Cookie:", bg="#1e1e1e", fg="#ddd").pack(side="left")
@@ -484,7 +482,6 @@ class PHUBApp:
                 self.r_tree.item(item, values=(zh, results[i][1], results[i][2]))
         self.r_lbl.config(text=f"推荐 {len(results)} 个")
 
-    # ===== 详情 =====
     def _build_detail(self, p):
         top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
         tk.Label(top, text="链接:", bg="#1e1e1e", fg="#ddd").pack(side="left")
@@ -507,7 +504,7 @@ class PHUBApp:
         self.d_text.pack(side="left", fill="both", expand=True)
         ds = ttk.Scrollbar(df, orient="vertical", command=self.d_text.yview); self.d_text.configure(yscrollcommand=ds.set); ds.pack(side="right",fill="y")
 
-        tk.Label(p, text="中文翻译:", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",9,"bold")).pack(fill="x", padx=10, pady=(5,0))
+        tk.Label(p, text="译文:", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",9,"bold")).pack(fill="x", padx=10, pady=(5,0))
         self.d_lbl = tk.Label(p, text="", bg="#1e1e1e", fg="#888"); self.d_lbl.pack(fill="x", padx=10)
 
     def do_detail(self):
@@ -540,71 +537,6 @@ class PHUBApp:
             self.d_text.insert("1.0",r); self.d_text.config(state="disabled")
         threading.Thread(target=lambda: self.root.after(0, done, translate_en_to_zh(text)), daemon=True).start()
 
-    # ===== 用户 =====
-    def _build_user(self, p):
-        top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
-        tk.Label(top, text="用户名/URL:", bg="#1e1e1e", fg="#ddd").pack(side="left")
-        self.u_entry = tk.Entry(top, width=40, bg="#2d2d2d", fg="#fff", insertbackground="#fff", font=("Segoe UI",10))
-        self.u_entry.pack(side="left", padx=5)
-        tk.Button(top, text="查询", bg="#ff6b35", fg="#fff", font=("Segoe UI",9,"bold"),
-                  command=self.do_user, relief="flat", padx=10).pack(side="left", padx=5)
-        self.u_tree = ttk.Treeview(p, columns=("title","url"), show="headings", height=18)
-        self.u_tree.heading("title",text="标题"); self.u_tree.heading("url",text="链接")
-        self.u_tree.column("title",width=550); self.u_tree.column("url",width=300)
-        self.u_tree.pack(fill="both",expand=True,padx=10,pady=5)
-        self.u_tree.bind("<Double-1>", lambda e: self._on_dblclick(self.u_tree, 1, 0, self.u_lbl))
-        self._bind_menu(self.u_tree)
-        self.u_lbl = tk.Label(p, text="", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",10,"bold"))
-        self.u_lbl.pack(fill="x", padx=10)
-
-    def do_user(self):
-        q = self.u_entry.get().strip()
-        if not q: return
-        self.u_tree.delete(*self.u_tree.get_children()); self.u_lbl.config(text="查询中...")
-        async def f():
-            u = await self.client.get_user(q); vs = []
-            async for v in u.get_uploads():
-                vs.append(v)
-                if len(vs) >= 20: break
-            return (u.name or "", u.bio or "", vs)
-        def done(r):
-            n,b,vs = r; self.u_lbl.config(text=f"{n} | {b}")
-            for v in vs: self.u_tree.insert("","end",values=(v.title,v.url))
-        self.run_async(f(), done)
-
-    # ===== 频道 =====
-    def _build_channel(self, p):
-        top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
-        tk.Label(top, text="频道名/URL:", bg="#1e1e1e", fg="#ddd").pack(side="left")
-        self.c_entry = tk.Entry(top, width=40, bg="#2d2d2d", fg="#fff", insertbackground="#fff", font=("Segoe UI",10))
-        self.c_entry.pack(side="left", padx=5)
-        tk.Button(top, text="查询", bg="#ff6b35", fg="#fff", font=("Segoe UI",9,"bold"),
-                  command=self.do_channel, relief="flat", padx=10).pack(side="left", padx=5)
-        self.c_tree = ttk.Treeview(p, columns=("title","url"), show="headings", height=18)
-        self.c_tree.heading("title",text="标题"); self.c_tree.heading("url",text="链接")
-        self.c_tree.column("title",width=550); self.c_tree.column("url",width=300)
-        self.c_tree.pack(fill="both",expand=True,padx=10,pady=5)
-        self.c_tree.bind("<Double-1>", lambda e: self._on_dblclick(self.c_tree, 1, 0, self.c_lbl))
-        self._bind_menu(self.c_tree)
-        self.c_lbl = tk.Label(p, text="", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",10,"bold"))
-        self.c_lbl.pack(fill="x", padx=10)
-
-    def do_channel(self):
-        q = self.c_entry.get().strip()
-        if not q: return
-        self.c_tree.delete(*self.c_tree.get_children()); self.c_lbl.config(text="查询中...")
-        async def f():
-            ch = await self.client.get_channel(q); vs = []
-            async for v in ch.get_videos():
-                vs.append(v)
-                if len(vs) >= 20: break
-            return (ch.name or "", ch.subscribers or "", ch.video_views or "", vs)
-        def done(r):
-            n,s,w,vs = r; self.c_lbl.config(text=f"{n} | 订阅:{s} | 播放:{w}")
-            for v in vs: self.c_tree.insert("","end",values=(v.title,v.url))
-        self.run_async(f(), done)
-
-    # ===== 下载 =====
     def _build_download(self, p):
         top = tk.Frame(p, bg="#1e1e1e"); top.pack(fill="x", padx=10, pady=(10,5))
         tk.Label(top, text="链接:", bg="#1e1e1e", fg="#ddd").pack(side="left")
@@ -636,13 +568,20 @@ class PHUBApp:
         if not url: return
         q = self.dl_q.get()
         self.dl_log.config(state="normal"); self.dl_log.delete("1.0","end"); self._log("下载中..."); self.dl_prog["value"]=0
+        last_update = [0]
         def prog(pos,total):
-            pct = int(pos/total*100) if total else 0
-            self.root.after(0, lambda: self.dl_prog.configure(value=pct))
-            self.root.after(0, lambda: self.dl_slbl.config(text=f"下载中... {pct}%"))
+            pct = max(0, min(100, int(pos/total*100))) if total else 0
+            now = time.time() * 1000
+            if now - last_update[0] < 200 and pct < 100:
+                return
+            last_update[0] = now
+            self.root.after(0, lambda p=pct: (
+                self.dl_prog.configure(value=p),
+                self.dl_slbl.config(text=f"下载中... {p}%")
+            ))
         async def f():
             v = await self.client.get_video(url)
-            self.root.after(0, lambda: self._log(f"标题: {v.title}"))
+            self._log(f"标题: {v.title}")
             await v.ensure_html()
             await v.download(quality=q, path=self.save_path, callback=prog)
             return v.title
@@ -671,6 +610,5 @@ if __name__ == "__main__":
         root.mainloop()
     except Exception:
         import traceback
-        log_path = os.path.join(os.path.expanduser("~"), "Documents", "Default Project", "error.log")
-        with open(log_path, "w", encoding="utf-8") as f:
+        with open(ERROR_LOG, "w", encoding="utf-8") as f:
             traceback.print_exc(file=f)

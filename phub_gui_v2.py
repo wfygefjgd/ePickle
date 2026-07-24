@@ -17,7 +17,12 @@ import socketserver
 import traceback
 import time
 
-DEBUG_LOG = os.path.join(os.path.expanduser("~"), "Documents", "Default Project", "debug.log")
+import uuid
+
+DEBUG_LOG = os.path.join(os.path.expanduser("~"), "phub_logs", "debug.log")
+ERROR_LOG = os.path.join(os.path.expanduser("~"), "phub_logs", "error.log")
+os.makedirs(os.path.dirname(DEBUG_LOG), exist_ok=True)
+
 def _dbg(msg):
     try:
         with open(DEBUG_LOG, "a", encoding="utf-8") as f:
@@ -26,6 +31,13 @@ def _dbg(msg):
     except Exception:
         pass
     print(f"[DBG] {msg}", flush=True)
+
+def _log_err(msg):
+    try:
+        with open(ERROR_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
 
 from phub import Client
 from base_api.modules.config import config
@@ -55,26 +67,11 @@ def translate_en_to_zh(text):
 def translate_batch_zh(texts):
     if not texts:
         return []
-    try:
-        import curl_cffi.requests as requests
-        joined = "\n".join(texts)
-        encoded = urllib.parse.quote(joined[:5000])
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q={encoded}"
-        r = requests.get(url, impersonate="chrome", proxies={"https": "http://127.0.0.1:10808"}, timeout=20)
-        data = r.json()
-        translated_parts = []
-        for s in data[0]:
-            if s[0]:
-                translated_parts.append(s[0])
-        full = "".join(translated_parts)
-        lines = full.split("\n")
-        if len(lines) >= len(texts):
-            return lines[:len(texts)]
-        while len(lines) < len(texts):
-            lines.append(texts[len(lines)])
-        return lines
-    except:
-        return [translate_en_to_zh(t) for t in texts]
+    results = []
+    for t in texts:
+        results.append(translate_en_to_zh(t))
+        time.sleep(0.15)
+    return results
 
 
 class Toast:
@@ -82,7 +79,7 @@ class Toast:
         self.root = root
         self.label = None
 
-    def show(self, msg, duration=500):
+    def show(self, msg, duration=1500):
         if self.label:
             self.label.destroy()
         self.label = tk.Toplevel(self.root)
@@ -153,7 +150,6 @@ class _StreamResolver:
         with self._lock:
             items = list(self.seg_map.items())
         if idx >= len(items):
-            # seg_map may be keyed by filename; map index -> filename via media order
             media = __import__("m3u8", fromlist=["loads"]).loads(self.media_text)
             segs = media.segments if media.segments else []
             if idx >= len(segs):
@@ -193,9 +189,9 @@ class _CurlProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     _cache = {}
     _cache_lock = threading.Lock()
+    _MAX_CACHE = 50
 
     def _get_segment(self, filename):
-        # try cache first
         with _CurlProxyHandler._cache_lock:
             if filename in _CurlProxyHandler._cache:
                 return _CurlProxyHandler._cache[filename]
@@ -210,11 +206,13 @@ class _CurlProxyHandler(http.server.BaseHTTPRequestHandler):
             r = self.session.get(url, headers=self.req_headers, timeout=60)
             if r.status_code == 200:
                 with _CurlProxyHandler._cache_lock:
+                    if len(_CurlProxyHandler._cache) >= _CurlProxyHandler._MAX_CACHE:
+                        oldest_key = next(iter(_CurlProxyHandler._cache))
+                        del _CurlProxyHandler._cache[oldest_key]
                     _CurlProxyHandler._cache[filename] = r.content
                 return r.content
         except Exception:
             pass
-        # token likely expired -> refresh and retry once
         if self.resolver.refresh():
             url = self.resolver.seg_url(filename)
             if url:
@@ -222,6 +220,9 @@ class _CurlProxyHandler(http.server.BaseHTTPRequestHandler):
                     r = self.session.get(url, headers=self.req_headers, timeout=60)
                     if r.status_code == 200:
                         with _CurlProxyHandler._cache_lock:
+                            if len(_CurlProxyHandler._cache) >= _CurlProxyHandler._MAX_CACHE:
+                                oldest_key = next(iter(_CurlProxyHandler._cache))
+                                del _CurlProxyHandler._cache[oldest_key]
                             _CurlProxyHandler._cache[filename] = r.content
                         return r.content
                 except Exception:
@@ -231,7 +232,6 @@ class _CurlProxyHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             if self.path == "/" or self.path.endswith(".m3u8"):
-                # serve the (rewritten) playlist
                 media_text = getattr(_CurlProxyHandler, "local_media_text", None) or self.resolver.media_text
                 body = media_text.encode("utf-8")
                 self.send_response(200)
@@ -243,7 +243,6 @@ class _CurlProxyHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 self.wfile.flush()
                 return
-            # segment
             filename = self.path.split("?")[0].lstrip("/")
             data = self._get_segment(filename)
             if data is None:
@@ -331,7 +330,11 @@ class MpvPlayer:
     def __init__(self):
         self.proc = None
         self.playing = False
-        self._ipc_path = r"\\.\pipe\phub-mpv-ipc" if sys.platform == "win32" else os.path.join(tempfile.gettempdir(), "phub_mpv_ipc.sock")
+        uid = uuid.uuid4().hex[:8]
+        if sys.platform == "win32":
+            self._ipc_path = rf"\\.\pipe\phub-mpv-ipc-{uid}"
+        else:
+            self._ipc_path = os.path.join(tempfile.gettempdir(), f"phub_mpv_ipc_{uid}.sock")
 
     def _send(self, command):
         if not self.proc or self.proc.poll() is not None:
@@ -392,7 +395,7 @@ class MpvPlayer:
                 args.append(f"--wid={wid}")
             else:
                 args.append("--force-window")
-            mpv_log = os.path.join(os.path.expanduser("~"), "Documents", "Default Project", "mpv.log")
+            mpv_log = os.path.join(os.path.expanduser("~"), "phub_logs", "mpv.log")
             self.proc = subprocess.Popen(
                 args, stdin=subprocess.DEVNULL,
                 stdout=open(mpv_log, "w", encoding="utf-8"),
@@ -562,7 +565,8 @@ class PHUBApp:
         self._mpv_wid = self.mpv_frame.winfo_id()
 
         self._loop = asyncio.new_event_loop()
-        threading.Thread(target=self._run_loop, daemon=True).start()
+        self._loop_thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._loop_thread.start()
         self._start_progress_loop()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.bind("<Destroy>", lambda e: _dbg("root <Destroy>"))
@@ -585,9 +589,12 @@ class PHUBApp:
 
     def _keep_focus(self):
         if self._running and self._video_playing:
-            self.root.focus_force()
+            try:
+                self.root.focus_force()
+            except Exception:
+                pass
         if self._running:
-            self.root.after(500, self._keep_focus)
+            self.root.after(5000, self._keep_focus)
 
     def _seek_relative(self, secs):
         if self._video_playing:
@@ -625,7 +632,14 @@ class PHUBApp:
             except Exception:
                 pass
             self._proxy_server = None
-        self.root.destroy()
+        try:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def _toggle_play(self):
         if self.mpv.playing:
@@ -731,6 +745,7 @@ class PHUBApp:
 
     def _start_progress_loop(self):
         self._mpv_duration_override = 0
+        self._last_progress_update = 0
         def _update():
             if not self._running:
                 return
@@ -745,7 +760,7 @@ class PHUBApp:
                     dur = 0
                 if dur > 0:
                     self._mpv_duration_override = 0
-                    self._progress_pct = pos / dur * 100 if dur > 0 else 0
+                    self._progress_pct = max(0, min(100, pos / dur * 100))
                     self._draw_progress()
                     self.time_label.config(text=f"{self._fmt(pos*1000)} / {self._fmt(dur*1000)}")
                 else:
@@ -831,7 +846,7 @@ class PHUBApp:
             if line.startswith("#EXT-X-STREAM-INF:"):
                 try:
                     w = int(line.split("RESOLUTION=")[1].split("x")[0].split(",")[0])
-                except:
+                except Exception:
                     w = 0
                 if w > 0 and i+1 < len(lines):
                     url = lines[i+1].strip()
@@ -887,9 +902,6 @@ class PHUBApp:
         return local_url
 
     def _resolve_m3u8(self, video):
-        # Online playback through a local streaming proxy. This is NOT full
-        # download: each segment is fetched on demand with browser headers and
-        # fresh tokens, then streamed to mpv from localhost.
         urls = video.get_m3u8_urls
         if not urls:
             return None
@@ -983,8 +995,15 @@ class PHUBApp:
 
     def do_search(self):
         q = self.s_entry.get().strip()
-        if not q: return
-        n = int(self.s_cnt.get()); self.s_lbl.config(text="搜索中..."); self.s_tree.delete(*self.s_tree.get_children())
+        if not q:
+            return
+        try:
+            n = int(self.s_cnt.get())
+            if n <= 0 or n > 100:
+                n = 10
+        except (ValueError, tk.TclError):
+            n = 10
+        self.s_lbl.config(text="搜索中..."); self.s_tree.delete(*self.s_tree.get_children())
         async def f():
             r = []
             async for v in self.client.search_videos(q):
@@ -1081,11 +1100,11 @@ class PHUBApp:
                                         secs = int(parts[0]) * 60 + int(parts[1]) if len(parts) == 2 else int(parts[0])
                                         if secs < 30:
                                             continue
-                                    except:
+                                    except Exception:
                                         pass
                                 url = f"https://www.pornhub.com/view_video.php?viewkey={vk}"
                                 results.append((title, dur, url))
-                except:
+                except Exception:
                     continue
                 if len(results) >= 70:
                     break
@@ -1135,7 +1154,7 @@ class PHUBApp:
         self.d_text.pack(side="left", fill="both", expand=True)
         ds = ttk.Scrollbar(df, orient="vertical", command=self.d_text.yview); self.d_text.configure(yscrollcommand=ds.set); ds.pack(side="right",fill="y")
 
-        tk.Label(p, text="中文翻译:", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",9,"bold")).pack(fill="x", padx=10, pady=(5,0))
+        tk.Label(p, text="译文:", bg="#1e1e1e", fg="#ff6b35", font=("Segoe UI",9,"bold")).pack(fill="x", padx=10, pady=(5,0))
         self.d_lbl = tk.Label(p, text="", bg="#1e1e1e", fg="#888"); self.d_lbl.pack(fill="x", padx=10)
 
     def do_detail(self):
@@ -1199,13 +1218,20 @@ class PHUBApp:
         if not url: return
         q = self.dl_q.get()
         self.dl_log.config(state="normal"); self.dl_log.delete("1.0","end"); self._log("下载中..."); self.dl_prog["value"]=0
+        last_update = [0]
         def prog(pos,total):
-            pct = int(pos/total*100) if total else 0
-            self.root.after(0, lambda: self.dl_prog.configure(value=pct))
-            self.root.after(0, lambda: self.dl_slbl.config(text=f"下载中... {pct}%"))
+            pct = max(0, min(100, int(pos/total*100))) if total else 0
+            now = time.time() * 1000
+            if now - last_update[0] < 200 and pct < 100:
+                return
+            last_update[0] = now
+            self.root.after(0, lambda p=pct: (
+                self.dl_prog.configure(value=p),
+                self.dl_slbl.config(text=f"下载中... {p}%")
+            ))
         async def f():
             v = await self.client.get_video(url)
-            self.root.after(0, lambda: self._log(f"标题: {v.title}"))
+            self._log(f"标题: {v.title}")
             await v.ensure_html()
             await v.download(quality=q, path=self.save_path, callback=prog)
             return v.title
@@ -1221,7 +1247,7 @@ class PHUBApp:
     def _on_dblclick(self, tree, url_idx, title_idx, status_lbl):
         _dbg(f"_on_dblclick: tree={tree}, selection={tree.selection()}")
         sel = tree.selection()
-        if not sel: 
+        if not sel:
             _dbg("_on_dblclick: no selection, return")
             return
         vals = tree.item(sel[0])["values"]
@@ -1232,15 +1258,8 @@ class PHUBApp:
 
 
 if __name__ == "__main__":
-    import sys as _sys, traceback as _tb
-
-    def _log_err(msg):
-        try:
-            log_path = os.path.join(os.path.expanduser("~"), "Documents", "Default Project", "error.log")
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(msg + "\n")
-        except Exception:
-            pass
+    import sys as _sys
+    import traceback as _tb
 
     def _excepthook(etype, evalue, etb):
         _log_err("UNCAUGHT: " + "".join(_tb.format_exception(etype, evalue, etb)))
@@ -1261,7 +1280,4 @@ if __name__ == "__main__":
         PHUBApp(root)
         root.mainloop()
     except Exception:
-        import traceback
-        log_path = os.path.join(os.path.expanduser("~"), "Documents", "Default Project", "error.log")
-        with open(log_path, "w", encoding="utf-8") as f:
-            traceback.print_exc(file=f)
+        _log_err("FATAL: " + traceback.format_exc())
