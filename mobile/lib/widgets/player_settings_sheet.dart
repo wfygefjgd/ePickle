@@ -49,13 +49,8 @@ Future<void> showPlayerSettingsSheet(
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    ListTile(
-                      leading: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white54),
-                        onPressed: () => Navigator.pop(ctx),
-                        tooltip: '关闭',
-                      ),
-                      title: const Text('设置',
+                    const ListTile(
+                      title: Text('设置',
                           style:
                               TextStyle(color: Colors.white70, fontSize: 13)),
                       dense: true,
@@ -158,6 +153,23 @@ Future<void> showPlayerSettingsSheet(
                           onQualityChanged?.call();
                         },
                       ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white24),
+                          minimumSize: const Size(double.infinity, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text('关闭'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               );
