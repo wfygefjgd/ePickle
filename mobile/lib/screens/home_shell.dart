@@ -100,50 +100,107 @@ class _HomeShellState extends State<HomeShell> {
               child: ClipRect(
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                  child: NavigationBar(
-                    selectedIndex: _index,
-                    onDestinationSelected: _onTabSelected,
-                    backgroundColor: Colors.black.withValues(alpha: 0.28),
-                    surfaceTintColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    elevation: 0,
-                    indicatorColor: const Color(0x33FF6B35),
-                    destinations: const [
-                      NavigationDestination(
-                        icon: Icon(Icons.local_fire_department_outlined),
-                        selectedIcon: Icon(Icons.local_fire_department,
-                            color: Color(0xFFFF6B35)),
-                        label: '',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.public_outlined),
-                        selectedIcon:
-                            Icon(Icons.public, color: Color(0xFFFF6B35)),
-                        label: '',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.cancel_outlined),
-                        selectedIcon: Icon(Icons.cancel,
-                            color: Color(0xFFFF6B35)),
-                        label: '',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.category_outlined),
-                        selectedIcon:
-                            Icon(Icons.category, color: Color(0xFFFF6B35)),
-                        label: '',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.search),
-                        selectedIcon:
-                            Icon(Icons.search, color: Color(0xFFFF6B35)),
-                        label: '',
-                      ),
-                    ],
-                  ),
+                  child: _buildNavigationBar(),
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildNavigationBar() {
+    return NavigationBar(
+      selectedIndex: _index,
+      onDestinationSelected: _onTabSelected,
+      backgroundColor: Colors.black.withValues(alpha: 0.28),
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: 0,
+      indicatorColor: const Color(0x33FF6B35),
+      destinations: [
+        _buildNavigationDestination(
+          0,
+          Icons.local_fire_department_outlined,
+          Icons.local_fire_department,
+        ),
+        _buildNavigationDestination(
+          1,
+          Icons.public_outlined,
+          Icons.public,
+        ),
+        _buildNavigationDestination(
+          2,
+          Icons.cancel_outlined,
+          Icons.cancel,
+        ),
+        _buildNavigationDestination(
+          3,
+          Icons.category_outlined,
+          Icons.category,
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.search),
+          selectedIcon: Icon(Icons.search, color: Color(0xFFFF6B35)),
+          label: '',
+        ),
+      ],
+    );
+  }
+
+  NavigationDestination _buildNavigationDestination(
+    int index,
+    IconData icon,
+    IconData selectedIcon,
+  ) {
+    return NavigationDestination(
+      icon: GestureDetector(
+        onLongPress: () => _showShareDialog(index),
+        child: Icon(icon),
+      ),
+      selectedIcon: GestureDetector(
+        onLongPress: () => _showShareDialog(index),
+        child: Icon(selectedIcon, color: const Color(0xFFFF6B35)),
+      ),
+      label: '',
+    );
+  }
+
+  void _showShareDialog(int tabIndex) {
+    if (tabIndex >= _feedKeys.length) return;
+
+    final feedState = _feedKeys[tabIndex].currentState;
+    if (feedState == null) return;
+
+    final shareUrl = feedState.getCurrentVideoUrl();
+    if (shareUrl == null || shareUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('当前没有可分享的视频'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text(
+          '分享视频',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SelectableText(
+          shareUrl,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭', style: TextStyle(color: Color(0xFFFF6B35))),
+          ),
+        ],
+      ),
     );
   }
 }

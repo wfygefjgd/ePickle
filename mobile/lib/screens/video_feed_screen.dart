@@ -101,6 +101,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
+  /// Get current video URL for sharing
+  String? getCurrentVideoUrl() {
+    if (_currentIndex < 0 || _currentIndex >= _items.length) return null;
+    return _items[_currentIndex].url;
+  }
+
   Map<String, String> _buildHeaders() {
     switch (widget.kind) {
       case VideoFeedKind.x:
