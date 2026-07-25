@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-/// A draggable button that maintains its functionality while being movable.
+import '../services/button_positions.dart';
+
+/// A draggable button that saves its position via ButtonPositions service.
 class DraggableButton extends StatefulWidget {
   const DraggableButton({
     super.key,
-    required this.initialPosition,
-    required this.onPositionChanged,
+    required this.buttonKey,
+    required this.defaultPosition,
     required this.child,
-    required this.onTap,
     this.size = 48.0,
   });
 
-  final Offset initialPosition;
-  final ValueChanged<Offset> onPositionChanged;
+  final String buttonKey;
+  final Offset defaultPosition;
   final Widget child;
-  final VoidCallback onTap;
   final double size;
 
   @override
@@ -22,71 +23,97 @@ class DraggableButton extends StatefulWidget {
 }
 
 class _DraggableButtonState extends State<DraggableButton> {
-  late Offset _position;
+  Offset? _position;
   bool _isDragging = false;
   Offset? _dragStart;
 
-  @override
-  void initState() {
-    super.initState();
-    _position = widget.initialPosition;
+  Offset _getPosition(ButtonPositions positions) {
+    if (_position != null) return _position!;
+    switch (widget.buttonKey) {
+      case 'fullscreen':
+        return positions.fullscreenPos;
+      case 'settings':
+        return positions.settingsPos;
+      case 'mute':
+        return positions.volumePos;
+      case 'fastforward':
+        return positions.fastForwardPos;
+      default:
+        return widget.defaultPosition;
+    }
   }
 
-  @override
-  void didUpdateWidget(DraggableButton oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.initialPosition != oldWidget.initialPosition && !_isDragging) {
-      _position = widget.initialPosition;
+  Future<void> _savePosition(BuildContext context, Offset pos) async {
+    final positions = context.read<ButtonPositions>();
+    switch (widget.buttonKey) {
+      case 'fullscreen':
+        await positions.setFullscreenPos(pos);
+        break;
+      case 'settings':
+        await positions.setSettingsPos(pos);
+        break;
+      case 'mute':
+        await positions.setVolumePos(pos);
+        break;
+      case 'fastforward':
+        await positions.setFastForwardPos(pos);
+        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      left: _position.dx,
-      top: _position.dy,
-      child: GestureDetector(
-        onPanStart: (details) {
-          setState(() {
-            _isDragging = true;
-            _dragStart = details.globalPosition;
-          });
-        },
-        onPanUpdate: (details) {
-          setState(() {
-            _position = Offset(
-              (_position.dx + details.delta.dx).clamp(0.0,
-                MediaQuery.of(context).size.width - widget.size),
-              (_position.dy + details.delta.dy).clamp(0.0,
-                MediaQuery.of(context).size.height - widget.size),
-            );
-          });
-        },
-        onPanEnd: (details) {
-          // If drag distance is very small, treat as tap
-          final totalDrag = _dragStart == null
-              ? 0.0
-              : (details.velocity.pixelsPerSecond.distance);
+    return Consumer<ButtonPositions>(
+      builder: (context, positions, _) {
+        final position = _getPosition(positions);
+        return Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: GestureDetector(
+            onPanStart: (details) {
+              setState(() {
+                _isDragging = true;
+                _dragStart = position;
+              });
+            },
+            onPanUpdate: (details) {
+              setState(() {
+                _position = Offset(
+                  ((_position ?? position).dx + details.delta.dx).clamp(
+                    0.0,
+                    MediaQuery.of(context).size.width - widget.size,
+                  ),
+                  ((_position ?? position).dy + details.delta.dy).clamp(
+                    0.0,
+                    MediaQuery.of(context).size.height - widget.size,
+                  ),
+                );
+              });
+            },
+            onPanEnd: (details) {
+              final moved = _dragStart != null && _position != null
+                  ? (_position!.dx - _dragStart!.dx).abs() +
+                      (_position!.dy - _dragStart!.dy).abs()
+                  : 0.0;
 
-          setState(() {
-            _isDragging = false;
-          });
+              if (_position != null) {
+                _savePosition(context, _position!);
+              }
 
-          // Save position after drag
-          widget.onPositionChanged(_position);
+              setState(() {
+                _isDragging = false;
+                _dragStart = null;
+              });
 
-          // If barely moved, trigger tap
-          if (totalDrag < 50) {
-            widget.onTap();
-          }
-        },
-        onTap: () {
-          if (!_isDragging) {
-            widget.onTap();
-          }
-        },
-        child: widget.child,
-      ),
+              // If barely moved, it was a tap - let child handle it
+              if (moved < 10) {
+                // Child widgets have their own onPressed handlers
+              }
+            },
+            child: widget.child,
+          ),
+        );
+      },
     );
   }
 }
