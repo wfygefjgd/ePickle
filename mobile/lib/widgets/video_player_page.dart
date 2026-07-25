@@ -1,10 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
+import '../services/button_positions.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
+import 'draggable_button.dart';
 
 class VideoPlayerPage extends StatelessWidget {
   const VideoPlayerPage({
@@ -105,9 +108,10 @@ class VideoPlayerPage extends StatelessWidget {
           },
         ),
         if (immersive) ...[
-          Positioned(
-            top: 8,
-            left: 8,
+          // 可拖动的设置按钮
+          DraggableButton(
+            buttonKey: 'settings',
+            defaultPosition: const Offset(8, 8),
             child: SafeArea(
               child: Material(
                 color: Colors.black45,
@@ -120,9 +124,10 @@ class VideoPlayerPage extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            top: 8,
-            right: 8,
+          // 可拖动的全屏按钮
+          DraggableButton(
+            buttonKey: 'fullscreen',
+            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 8),
             child: SafeArea(
               child: Material(
                 color: Colors.black45,
@@ -136,60 +141,83 @@ class VideoPlayerPage extends StatelessWidget {
               ),
             ),
           ),
+          // 可拖动的快进按钮
           if (controller != null || pageLoading)
-            Positioned(
-              left: 10,
-              bottom: 56,
+            DraggableButton(
+              buttonKey: 'fastforward',
+              defaultPosition: const Offset(10, 500),
               child: SafeArea(
-                child: FeedSideControls(
-                  muted: muted,
-                  onMute: onMute,
-                  onFastForward: onFastForward,
+                child: FeedCircleButton(
+                  icon: Icons.forward_30,
+                  onTap: onFastForward,
+                  size: 24,
+                ),
+              ),
+            ),
+          // 可拖动的音量按钮
+          if (controller != null || pageLoading)
+            DraggableButton(
+              buttonKey: 'mute',
+              defaultPosition: const Offset(70, 500),
+              child: SafeArea(
+                child: FeedCircleButton(
+                  icon: muted ? Icons.volume_off : Icons.volume_up,
+                  onTap: onMute,
+                  size: 24,
                 ),
               ),
             ),
         ] else if (controller != null || pageLoading) ...[
           _buildTopBar(),
-          Positioned(
-            left: 10,
-            top: 0,
+          // 可拖动的全屏按钮
+          DraggableButton(
+            buttonKey: 'fullscreen',
+            defaultPosition: const Offset(10, 80),
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 40),
-                child: FeedCircleButton(
-                  icon: Icons.fullscreen,
-                  onTap: onFullscreen,
+              child: FeedCircleButton(
+                icon: Icons.fullscreen,
+                onTap: onFullscreen,
+              ),
+            ),
+          ),
+          // 可拖动的设置按钮
+          DraggableButton(
+            buttonKey: 'settings',
+            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 80),
+            child: SafeArea(
+              child: Material(
+                color: Colors.black45,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: '设置',
+                  icon:
+                      const Icon(Icons.tune, color: Colors.white70, size: 20),
+                  onPressed: onOpenSettings,
                 ),
               ),
             ),
           ),
-          Positioned(
-            top: 0,
-            right: 6,
+          // 可拖动的快进按钮
+          DraggableButton(
+            buttonKey: 'fastforward',
+            defaultPosition: const Offset(10, 500),
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 40),
-                child: Material(
-                  color: Colors.black45,
-                  shape: const CircleBorder(),
-                  child: IconButton(
-                    tooltip: '设置',
-                    icon:
-                        const Icon(Icons.tune, color: Colors.white70, size: 20),
-                    onPressed: onOpenSettings,
-                  ),
-                ),
+              child: FeedCircleButton(
+                icon: Icons.forward_30,
+                onTap: onFastForward,
+                size: 24,
               ),
             ),
           ),
-          Positioned(
-            left: 10,
-            bottom: 56,
+          // 可拖动的音量按钮
+          DraggableButton(
+            buttonKey: 'mute',
+            defaultPosition: const Offset(70, 500),
             child: SafeArea(
-              child: FeedSideControls(
-                muted: muted,
-                onMute: onMute,
-                onFastForward: onFastForward,
+              child: FeedCircleButton(
+                icon: muted ? Icons.volume_off : Icons.volume_up,
+                onTap: onMute,
+                size: 24,
               ),
             ),
           ),
