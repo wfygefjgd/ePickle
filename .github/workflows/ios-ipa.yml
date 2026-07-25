@@ -30,40 +30,57 @@ jobs:
       - name: Build iOS release (device, no codesign)
         working-directory: mobile
         run: |
-          # Run Flutter build with verbose output
-          echo "Starting Flutter iOS build..."
-          flutter build ios --release --no-codesign --verbose 2>&1 || {
-            echo "❌ Flutter build failed"
-            echo "Attempting direct xcodebuild..."
+          echo "Generating iOS build files..."
+          flutter build ios --release --no-codesign 2>&1 | tee flutter_build.log || true
 
-            cd ios
-            xcodebuild build \
-              -workspace Runner.xcworkspace \
-              -scheme Runner \
-              -configuration Release \
-              -sdk iphoneos \
-              -derivedDataPath ../build/ios \
-              CONFIGURATION_BUILD_DIR="../build/ios/iphoneos" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              DEVELOPMENT_TEAM="" \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              ONLY_ACTIVE_ARCH=NO
-
-            cd ..
-          }
-
-          # Verify Runner.app was created
+          echo "Checking if build succeeded despite warning..."
           if [ -d "build/ios/iphoneos/Runner.app" ]; then
-            echo "✅ Runner.app found"
+            echo "✅ Flutter build succeeded"
             ls -la build/ios/iphoneos/Runner.app
-          else
-            echo "❌ Runner.app not found"
-            echo "Checking build directory structure:"
-            find build/ios -name "Runner.app" -type d 2>/dev/null || echo "No Runner.app found anywhere"
+            exit 0
+          fi
+
+          echo "Flutter build did not create Runner.app, checking error..."
+          if grep -q "Development Team" flutter_build.log; then
+            echo "⚠️  Development Team error detected, this is expected"
+            echo "Checking if build files were generated..."
+
+            if [ -d "ios/.symlinks/flutter/ios-release" ] || [ -d "build/ios/Release-iphoneos" ]; then
+              echo "✅ Build files exist, continuing with manual xcodebuild"
+
+              cd ios
+              xcodebuild -workspace Runner.xcworkspace \
+                -scheme Runner \
+                -configuration Release \
+                -sdk iphoneos \
+                -destination 'generic/platform=iOS' \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGN_IDENTITY="" \
+                DEVELOPMENT_TEAM="" \
+                PROVISIONING_PROFILE="" \
+                build
+
+              cd ..
+            fi
+          fi
+
+          # Final verification
+          if [ ! -d "build/ios/iphoneos/Runner.app" ] && [ ! -d "build/ios/Release-iphoneos/Runner.app" ]; then
+            echo "❌ Failed to create Runner.app"
+            echo "Searching for Runner.app..."
+            find build -name "Runner.app" -type d 2>/dev/null || echo "No Runner.app found"
             exit 1
           fi
+
+          # Copy to expected location if in different directory
+          if [ -d "build/ios/Release-iphoneos/Runner.app" ] && [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            mkdir -p build/ios/iphoneos
+            cp -r build/ios/Release-iphoneos/Runner.app build/ios/iphoneos/
+          fi
+
+          echo "✅ Build complete"
+          ls -la build/ios/iphoneos/Runner.app
 
       - name: Package sideload IPA (unsigned)
         working-directory: mobile
