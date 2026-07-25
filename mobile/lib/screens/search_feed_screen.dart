@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -92,6 +93,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   StreamQuality? _preloadStream3;
   int _preloadRetries3 = 0;
 
+  StreamSubscription<AccelerometerEvent>? _accelSubscription;
+  bool _wasLandscape = false;
+
   late final Map<String, String> _headers = _buildHeaders();
 
   Map<String, String> _buildHeaders() {
@@ -129,6 +133,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _index = widget.initialIndex.clamp(0, _items.length - 1);
     _pageCtrl = PageController(initialPage: _index);
     _titleText = _items[_index].title;
+    _startAccelerometerListener();
     WidgetsBinding.instance.addPostFrameCallback((_) => _playIndex(_index));
   }
 
@@ -137,6 +142,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     try {
       _chrome?.ensurePortraitChrome();
     } catch (_) {}
+    _accelSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
     _retryTimer?.cancel();
@@ -196,6 +202,33 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Future<void> _toggleFullscreen() async {
     await context.read<PlayerChrome>().toggleFullscreen();
     if (mounted) setState(() {});
+  }
+
+  void _startAccelerometerListener() {
+    final settings = context.read<AppSettings>();
+    _accelSubscription = accelerometerEventStream().listen((event) {
+      if (!settings.autoRotate || !mounted) return;
+
+      final chrome = _chrome;
+      if (chrome == null) return;
+
+      // 检测横屏：x 轴重力大于 y 轴（手机横置）
+      final isLandscape = event.x.abs() > event.y.abs() && event.x.abs() > 6.0;
+
+      if (isLandscape && !_wasLandscape && !chrome.immersive) {
+        // 手机刚横置且当前是竖屏 → 自动进入横屏
+        _wasLandscape = true;
+        _toggleFullscreen();
+      } else if (!isLandscape && _wasLandscape && chrome.immersive) {
+        // 手机刚竖置且当前是横屏 → 自动退出横屏
+        _wasLandscape = false;
+        _toggleFullscreen();
+      } else if (!isLandscape && !_wasLandscape) {
+        _wasLandscape = false;
+      } else if (isLandscape && _wasLandscape) {
+        _wasLandscape = true;
+      }
+    });
   }
 
   @override
