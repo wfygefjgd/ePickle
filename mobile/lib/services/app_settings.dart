@@ -14,7 +14,6 @@ class AppSettings extends ChangeNotifier {
   static const _kProxyPort = 'proxy_port';
   static const _kProxyType = 'proxy_type'; // http | socks5
   static const _kProxyUserConfigured = 'proxy_user_configured';
-  static const _kAutoRotate = 'auto_rotate_landscape'; // 自动横屏
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -27,7 +26,6 @@ class AppSettings extends ChangeNotifier {
   bool _userConfiguredProxy = false;
   bool _ready = false;
   String _proxyAutoNote = '';
-  bool _autoRotate = true; // 默认开启自动横屏
 
   bool get skipIntro => _skipIntro;
   bool get muted => _muted;
@@ -38,7 +36,6 @@ class AppSettings extends ChangeNotifier {
   String get proxyType => _proxyType;
   bool get ready => _ready;
   String get proxyAutoNote => _proxyAutoNote;
-  bool get autoRotate => _autoRotate;
 
   bool get hasProxyEndpoint =>
       _proxyHost.isNotEmpty && _proxyPort > 0 && _proxyPort < 65536;
@@ -108,7 +105,6 @@ class AppSettings extends ChangeNotifier {
       _muted = p.getBool(_kMuted) ?? false;
       _qualityCap = p.getInt(_kQualityCap) ?? 0;
       _userConfiguredProxy = p.getBool(_kProxyUserConfigured) ?? false;
-      _autoRotate = p.getBool(_kAutoRotate) ?? true;
 
       // Prefer "use system proxy when available" by default.
       _proxyEnabled = p.getBool(_kProxyEnabled) ?? true;
@@ -121,7 +117,6 @@ class AppSettings extends ChangeNotifier {
       _muted = false;
       _qualityCap = 0;
       _userConfiguredProxy = false;
-      _autoRotate = true;
       _proxyEnabled = true;
       _proxyHost = '';
       _proxyPort = 0;
@@ -181,16 +176,6 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_kMuted, v);
-    } catch (_) {}
-  }
-
-  Future<void> setAutoRotate(bool v) async {
-    if (_autoRotate == v) return;
-    _autoRotate = v;
-    notifyListeners();
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_kAutoRotate, v);
     } catch (_) {}
   }
 

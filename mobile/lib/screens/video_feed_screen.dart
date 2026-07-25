@@ -2,9 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -100,9 +98,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _seeking = false;
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
-  StreamSubscription<AccelerometerEvent>? _accelSubscription;
-  bool _wasLandscape = false;
-  DateTime? _lastOrientationChange;
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
@@ -165,7 +160,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _loading = false;
     }
     _pageCtrl = PageController(initialPage: _currentIndex);
-    _startAccelerometerListener();
     if (widget.autoStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) startPlaying();
@@ -189,7 +183,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     try {
       _chrome?.ensurePortraitChrome();
     } catch (_) {}
-    _accelSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
     _retryTimer?.cancel();
@@ -255,51 +248,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Future<void> _toggleFullscreen() async {
     await context.read<PlayerChrome>().toggleFullscreen();
     if (mounted) setState(() {});
-  }
-
-  void _startAccelerometerListener() {
-    final settings = context.read<AppSettings>();
-    _accelSubscription = accelerometerEventStream().listen((event) {
-      if (!settings.autoRotate || !mounted) return;
-
-      final chrome = _chrome;
-      if (chrome == null) return;
-
-      // 防抖：距离上次方向改变至少 2000ms（2秒）
-      final now = DateTime.now();
-      if (_lastOrientationChange != null &&
-          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 2000)) {
-        return;
-      }
-
-      // 检测横屏：x 轴绝对值明显大于 y 轴，且 x 足够大
-      // 阈值提高到 9.0，y 轴必须小于 3.5，反应更迟钝
-      final xAbs = event.x.abs();
-      final yAbs = event.y.abs();
-      final isLandscape = xAbs > yAbs && xAbs > 9.0 && yAbs < 3.5;
-
-      if (isLandscape && !_wasLandscape && !chrome.immersive) {
-        // 手机刚横置且当前是竖屏 → 自动进入横屏
-        // 根据 x 的正负判断方向：x > 0 是 landscapeRight，x < 0 是 landscapeLeft
-        _wasLandscape = true;
-        _lastOrientationChange = now;
-        final orientation = event.x > 0
-            ? DeviceOrientation.landscapeRight
-            : DeviceOrientation.landscapeLeft;
-        chrome.enterFullscreen(preferredOrientation: orientation);
-        if (mounted) setState(() {});
-      } else if (!isLandscape && _wasLandscape && chrome.immersive) {
-        // 手机刚竖置且当前是横屏 → 自动退出横屏
-        _wasLandscape = false;
-        _lastOrientationChange = now;
-        chrome.exitFullscreen();
-        if (mounted) setState(() {});
-      } else if (!isLandscape) {
-        _wasLandscape = false;
-      } else if (isLandscape) {
-        _wasLandscape = true;
-      }
-    });
   }
 
   @override

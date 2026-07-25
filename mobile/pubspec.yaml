@@ -1,7 +1,7 @@
 name: phub_player
 description: PHUB Player — video player for Android/iOS sideload
 publish_to: "none"
-version: 1.9.0+66
+version: 1.9.1+67
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -21,7 +21,6 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   path_provider: ^2.1.5
   share_plus: ^13.3.0
-  sensors_plus: ^6.1.1
 
 dev_dependencies:
   flutter_test:

@@ -70,19 +70,6 @@ Future<void> showPlayerSettingsSheet(
                           onChanged: settings.setSkipIntro,
                         ),
                         const Divider(color: Colors.white12),
-                        SwitchListTile(
-                          title: const Text('自动横屏',
-                              style: TextStyle(color: Colors.white)),
-                          subtitle: const Text(
-                            '检测到手机横置时自动进入全屏横屏模式。',
-                            style:
-                                TextStyle(color: Colors.white38, fontSize: 12),
-                          ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.autoRotate,
-                          onChanged: settings.setAutoRotate,
-                        ),
-                        const Divider(color: Colors.white12),
                         // C: 代理状态一眼懂
                         Container(
                           width: double.infinity,
@@ -177,7 +164,7 @@ Future<void> showPlayerSettingsSheet(
                           child: Padding(
                             padding: EdgeInsets.only(bottom: 8),
                             child: Text(
-                              'v1.8.9',
+                              'v1.9.1',
                               style: TextStyle(
                                 color: Colors.white24,
                                 fontSize: 11,
