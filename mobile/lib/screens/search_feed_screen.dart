@@ -1309,43 +1309,43 @@ class _LongPressDraggableButtonState
 
     return Transform.translate(
       offset: displayOffset,
-      child: SizedBox(
-        width: 48,
-        height: 48,
-        child: Material(
-          color: Colors.black54,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: _isDragging ? null : widget.onTap,
-            onLongPress: () {
-              setState(() {
-                _isDragging = true;
-                _dragStartOffset = _savedOffset ?? Offset.zero;
-                _currentDragOffset = _dragStartOffset;
-              });
-            },
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onLongPressMoveUpdate: (details) {
-                if (!_isDragging) return;
-                setState(() {
-                  _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
-                  // 限制拖动范围
-                  final size = MediaQuery.of(context).size;
-                  _currentDragOffset = Offset(
-                    _currentDragOffset.dx.clamp(-size.width + 48, size.width - 48),
-                    _currentDragOffset.dy.clamp(-size.height + 48, size.height - 48),
-                  );
-                });
-              },
-              onLongPressEnd: (details) {
-                setState(() {
-                  _savedOffset = _currentDragOffset;
-                  _isDragging = false;
-                });
-                _saveOffset(_currentDragOffset);
-              },
+      child: GestureDetector(
+        onTap: _isDragging ? null : widget.onTap,
+        onLongPressStart: (details) {
+          setState(() {
+            _isDragging = true;
+            _dragStartOffset = _savedOffset ?? Offset.zero;
+            _currentDragOffset = _dragStartOffset;
+          });
+        },
+        onLongPressMoveUpdate: (details) {
+          if (!_isDragging) return;
+          setState(() {
+            _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
+            // 限制拖动范围
+            final size = MediaQuery.of(context).size;
+            _currentDragOffset = Offset(
+              _currentDragOffset.dx.clamp(-size.width + 48, size.width - 48),
+              _currentDragOffset.dy.clamp(-size.height + 48, size.height - 48),
+            );
+          });
+        },
+        onLongPressEnd: (details) {
+          setState(() {
+            _savedOffset = _currentDragOffset;
+            _isDragging = false;
+          });
+          _saveOffset(_currentDragOffset);
+        },
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Material(
+            color: Colors.black54,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _isDragging ? null : widget.onTap,
               child: Center(
                 child: Icon(widget.icon, color: Colors.white, size: 22),
               ),
