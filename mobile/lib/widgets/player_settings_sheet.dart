@@ -70,19 +70,6 @@ Future<void> showPlayerSettingsSheet(
                           onChanged: settings.setSkipIntro,
                         ),
                         const Divider(color: Colors.white12),
-                        SwitchListTile(
-                          title: const Text('全屏时显示所有按钮',
-                              style: TextStyle(color: Colors.white)),
-                          subtitle: const Text(
-                            '关闭时，全屏只显示快进和退出按钮；开启时显示所有按钮。',
-                            style:
-                                TextStyle(color: Colors.white38, fontSize: 12),
-                          ),
-                          activeThumbColor: const Color(0xFFFF6B35),
-                          value: settings.showImmersiveButtons,
-                          onChanged: settings.setShowImmersiveButtons,
-                        ),
-                        const Divider(color: Colors.white12),
                         // C: 代理状态一眼懂
                         Container(
                           width: double.infinity,
