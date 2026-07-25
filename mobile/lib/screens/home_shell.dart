@@ -1,7 +1,10 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/player_chrome.dart';
 import '../widgets/player_settings_sheet.dart';
@@ -182,24 +185,148 @@ class _HomeShellState extends State<HomeShell> {
       return;
     }
 
-    showDialog<void>(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text(
-          '分享视频',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: SelectableText(
-          shareUrl,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('关闭', style: TextStyle(color: Color(0xFFFF6B35))),
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '分享视频',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    shareUrl,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // iOS 原生分享
+                _ShareOption(
+                  icon: Icons.ios_share,
+                  label: '分享到其他 APP',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Share.share(shareUrl, subject: '分享视频链接');
+                  },
+                ),
+                const SizedBox(height: 8),
+                // 复制链接
+                _ShareOption(
+                  icon: Icons.content_copy,
+                  label: '复制链接',
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: shareUrl));
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('链接已复制到剪贴板'),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+                // 浏览器打开
+                _ShareOption(
+                  icon: Icons.open_in_browser,
+                  label: '在浏览器中打开',
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final uri = Uri.parse(shareUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    } else {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('无法打开浏览器'),
+                            duration: Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                // 取消按钮
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: const Color(0xFF2A2A2A),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    '取消',
+                    style: TextStyle(color: Colors.white70, fontSize: 15),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+        );
+      },
+    );
+  }
+}
+
+class _ShareOption extends StatelessWidget {
+  const _ShareOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 22),
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

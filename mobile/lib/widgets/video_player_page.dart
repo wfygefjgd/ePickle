@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
+import '../services/app_settings.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 
@@ -57,6 +58,8 @@ class VideoPlayerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showAllButtons = context.watch<AppSettings>().showImmersiveButtons;
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -107,33 +110,63 @@ class VideoPlayerPage extends StatelessWidget {
           },
         ),
         if (immersive) ...[
-          // 固定位置的设置按钮
-          Positioned(
-            left: 8,
-            top: 8,
-            child: SafeArea(
-              child: _LongPressDraggableButton(
-                storageKey: 'settings_button_immersive',
-                defaultOffset: const Offset(8, 8),
-                icon: Icons.tune,
-                onTap: onOpenSettings,
+          // 全屏模式：根据设置显示按钮
+          if (showAllButtons) ...[
+            // 固定位置的设置按钮
+            Positioned(
+              left: 8,
+              top: 8,
+              child: SafeArea(
+                child: _LongPressDraggableButton(
+                  storageKey: 'settings_button_immersive',
+                  defaultOffset: const Offset(8, 8),
+                  icon: Icons.tune,
+                  onTap: onOpenSettings,
+                ),
               ),
             ),
-          ),
-          // 固定位置的全屏按钮
-          Positioned(
-            right: 8,
-            top: 8,
-            child: SafeArea(
-              child: _LongPressDraggableButton(
-                storageKey: 'fullscreen_button_immersive',
-                defaultOffset: const Offset(8, 8),
-                icon: Icons.fullscreen_exit,
-                onTap: onFullscreen,
+            // 固定位置的全屏按钮
+            Positioned(
+              right: 8,
+              top: 8,
+              child: SafeArea(
+                child: _LongPressDraggableButton(
+                  storageKey: 'fullscreen_button_immersive',
+                  defaultOffset: const Offset(8, 8),
+                  icon: Icons.fullscreen_exit,
+                  onTap: onFullscreen,
+                ),
               ),
             ),
-          ),
-          // 固定位置的快进按钮（左边）
+            // 固定位置的音量按钮（右边）
+            Positioned(
+              right: 8,
+              bottom: 80,
+              child: SafeArea(
+                child: _LongPressDraggableButton(
+                  storageKey: 'mute_button_immersive',
+                  defaultOffset: const Offset(8, 80),
+                  icon: muted ? Icons.volume_off : Icons.volume_up,
+                  onTap: onMute,
+                ),
+              ),
+            ),
+          ] else ...[
+            // 只显示快进按钮和退出全屏按钮（右上角）
+            Positioned(
+              right: 8,
+              top: 8,
+              child: SafeArea(
+                child: _LongPressDraggableButton(
+                  storageKey: 'fullscreen_button_immersive',
+                  defaultOffset: const Offset(8, 8),
+                  icon: Icons.fullscreen_exit,
+                  onTap: onFullscreen,
+                ),
+              ),
+            ),
+          ],
+          // 快进按钮始终显示（左边）
           Positioned(
             left: 8,
             bottom: 80,
@@ -143,19 +176,6 @@ class VideoPlayerPage extends StatelessWidget {
                 defaultOffset: const Offset(8, 80),
                 icon: Icons.forward_30,
                 onTap: onFastForward,
-              ),
-            ),
-          ),
-          // 固定位置的音量按钮（右边）
-          Positioned(
-            right: 8,
-            bottom: 80,
-            child: SafeArea(
-              child: _LongPressDraggableButton(
-                storageKey: 'mute_button_immersive',
-                defaultOffset: const Offset(8, 80),
-                icon: muted ? Icons.volume_off : Icons.volume_up,
-                onTap: onMute,
               ),
             ),
           ),
