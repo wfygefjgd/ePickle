@@ -265,18 +265,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       final chrome = _chrome;
       if (chrome == null) return;
 
-      // 防抖：距离上次方向改变至少 1200ms
+      // 防抖：距离上次方向改变至少 2000ms（2秒）
       final now = DateTime.now();
       if (_lastOrientationChange != null &&
-          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 1200)) {
+          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 2000)) {
         return;
       }
 
       // 检测横屏：x 轴绝对值明显大于 y 轴，且 x 足够大
-      // 阈值提高到 8.5，y 轴必须小于 4.0
+      // 阈值提高到 9.0，y 轴必须小于 3.5，反应更迟钝
       final xAbs = event.x.abs();
       final yAbs = event.y.abs();
-      final isLandscape = xAbs > yAbs && xAbs > 8.5 && yAbs < 4.0;
+      final isLandscape = xAbs > yAbs && xAbs > 9.0 && yAbs < 3.5;
 
       if (isLandscape && !_wasLandscape && !chrome.immersive) {
         // 手机刚横置且当前是竖屏 → 自动进入横屏
