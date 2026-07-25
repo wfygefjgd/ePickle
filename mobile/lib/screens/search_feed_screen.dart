@@ -1151,6 +1151,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     child: FeedSideControls(
                       muted: _muted,
                       onMute: _toggleMute,
+                      onFastForward: _handleFastForward,
                     ),
                   ),
                 ),
