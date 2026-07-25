@@ -92,26 +92,6 @@ class _HomeShellState extends State<HomeShell> {
               const SearchScreen(key: ValueKey('search')),
             ],
           ),
-          if (!immersive && _index != 4)
-            Positioned(
-              top: 0,
-              right: 6,
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 40),
-                  child: Material(
-                    color: Colors.black45,
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      tooltip: '设置',
-                      icon: const Icon(Icons.tune,
-                          color: Colors.white70, size: 20),
-                      onPressed: _openSettings,
-                    ),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
       bottomNavigationBar: immersive

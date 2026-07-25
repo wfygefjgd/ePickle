@@ -261,14 +261,29 @@ class _ProxyEditorState extends State<_ProxyEditor> {
 
     setState(() {});
 
-    // Use root context to show SnackBar outside the bottom sheet
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(widget.settings.proxySummary),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    // Use Dialog to show feedback in current settings page
+    if (mounted) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF2A2A2A),
+          title: const Text(
+            '代理检测结果',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            widget.settings.proxySummary,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('确定', style: TextStyle(color: Color(0xFFFF6B35))),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override

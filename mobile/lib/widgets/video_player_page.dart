@@ -107,65 +107,111 @@ class VideoPlayerPage extends StatelessWidget {
           },
         ),
         if (immersive) ...[
-          // 可拖动的设置按钮
-          _DraggableButton(
-            storageKey: 'settings_button',
-            defaultPosition: const Offset(8, 8),
-            icon: Icons.tune,
-            tooltip: '设置 / 画质',
-            onTap: onOpenSettings,
-          ),
-          // 可拖动的全屏按钮
-          _DraggableButton(
-            storageKey: 'fullscreen_button',
-            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 8),
-            icon: Icons.fullscreen_exit,
-            tooltip: '退出全屏',
-            onTap: onFullscreen,
-          ),
-          // 可拖动的快进按钮
-          if (controller != null || pageLoading)
-            _DraggableFastForward(
-              onTap: onFastForward,
+          // 固定位置的设置按钮
+          Positioned(
+            left: 8,
+            top: 8,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'settings_button_immersive',
+                defaultOffset: const Offset(8, 8),
+                icon: Icons.tune,
+                onTap: onOpenSettings,
+              ),
             ),
-          // 可拖动的音量按钮
-          if (controller != null || pageLoading)
-            _DraggableButton(
-              storageKey: 'mute_button_immersive',
-              defaultPosition: Offset(MediaQuery.of(context).size.width - 56, MediaQuery.of(context).size.height - 128),
-              icon: muted ? Icons.volume_off : Icons.volume_up,
-              tooltip: '音量',
-              onTap: onMute,
+          ),
+          // 固定位置的全屏按钮
+          Positioned(
+            right: 8,
+            top: 8,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'fullscreen_button_immersive',
+                defaultOffset: const Offset(8, 8),
+                icon: Icons.fullscreen_exit,
+                onTap: onFullscreen,
+              ),
             ),
-        ] else if (controller != null || pageLoading) ...[
+          ),
+          // 固定位置的快进按钮（左边）
+          Positioned(
+            left: 8,
+            bottom: 80,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'fastforward_button_immersive',
+                defaultOffset: const Offset(8, 80),
+                icon: Icons.forward_30,
+                onTap: onFastForward,
+              ),
+            ),
+          ),
+          // 固定位置的音量按钮（右边）
+          Positioned(
+            right: 8,
+            bottom: 80,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'mute_button_immersive',
+                defaultOffset: const Offset(8, 80),
+                icon: muted ? Icons.volume_off : Icons.volume_up,
+                onTap: onMute,
+              ),
+            ),
+          ),
+        ] else ...[
           _buildTopBar(),
-          // 可拖动的全屏按钮（左上角）
-          _DraggableButton(
-            storageKey: 'fullscreen_button_normal',
-            defaultPosition: const Offset(10, 8),
-            icon: Icons.fullscreen,
-            tooltip: '全屏',
-            onTap: onFullscreen,
+          // 固定位置的全屏按钮（左上角）
+          Positioned(
+            left: 10,
+            top: 8,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'fullscreen_button_normal',
+                defaultOffset: const Offset(10, 8),
+                icon: Icons.fullscreen,
+                onTap: onFullscreen,
+              ),
+            ),
           ),
-          // 可拖动的设置按钮（右上角）
-          _DraggableButton(
-            storageKey: 'settings_button_normal',
-            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 8),
-            icon: Icons.tune,
-            tooltip: '设置',
-            onTap: onOpenSettings,
+          // 固定位置的设置按钮（右上角，与全屏按钮平齐）
+          Positioned(
+            right: 10,
+            top: 8,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'settings_button_normal',
+                defaultOffset: const Offset(10, 8),
+                icon: Icons.tune,
+                onTap: onOpenSettings,
+              ),
+            ),
           ),
-          // 可拖动的快进按钮
-          _DraggableFastForward(
-            onTap: onFastForward,
+          // 固定位置的快进按钮（左边）
+          Positioned(
+            left: 10,
+            bottom: 80,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'fastforward_button_normal',
+                defaultOffset: const Offset(10, 80),
+                icon: Icons.forward_30,
+                onTap: onFastForward,
+              ),
+            ),
           ),
-          // 可拖动的音量按钮
-          _DraggableButton(
-            storageKey: 'mute_button_normal',
-            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, MediaQuery.of(context).size.height - 128),
-            icon: muted ? Icons.volume_off : Icons.volume_up,
-            tooltip: '音量',
-            onTap: onMute,
+          // 固定位置的音量按钮（右边，与快进平齐）
+          Positioned(
+            right: 10,
+            bottom: 80,
+            child: SafeArea(
+              child: _LongPressDraggableButton(
+                storageKey: 'mute_button_normal',
+                defaultOffset: const Offset(10, 80),
+                icon: muted ? Icons.volume_off : Icons.volume_up,
+                onTap: onMute,
+              ),
+            ),
           ),
           Positioned(
             left: 0,
@@ -239,200 +285,92 @@ class VideoPlayerPage extends StatelessWidget {
   }
 }
 
-/// 可拖动的快进按钮
-class _DraggableFastForward extends StatefulWidget {
-  const _DraggableFastForward({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_DraggableFastForward> createState() => _DraggableFastForwardState();
-}
-
-class _DraggableFastForwardState extends State<_DraggableFastForward> {
-  Offset _position = const Offset(10, 500); // 初始默认位置
-  bool _isDragging = false;
-  Offset? _dragStart;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPosition();
-  }
-
-  Future<void> _loadPosition() async {
-    final prefs = await SharedPreferences.getInstance();
-    // 默认在左下角，与静音按钮平齐：left: 10, bottom: 80
-    // bottom: 80 对应 top = height - 80 - 48（按钮高度）
-    final defaultY = MediaQuery.of(context).size.height - 128.0;
-    final x = prefs.getDouble('fastforward_x') ?? 10.0;
-    final y = prefs.getDouble('fastforward_y') ?? defaultY;
-    if (mounted) {
-      setState(() {
-        _position = Offset(x, y);
-      });
-    }
-  }
-
-  Future<void> _savePosition(Offset pos) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('fastforward_x', pos.dx);
-    await prefs.setDouble('fastforward_y', pos.dy);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Positioned(
-      left: _position.dx,
-      top: _position.dy,
-      child: GestureDetector(
-        onPanStart: (details) {
-          setState(() {
-            _isDragging = true;
-            _dragStart = details.globalPosition;
-          });
-        },
-        onPanUpdate: (details) {
-          setState(() {
-            _position = Offset(
-              (_position.dx + details.delta.dx).clamp(0.0, size.width - 48),
-              (_position.dy + details.delta.dy).clamp(0.0, size.height - 48),
-            );
-          });
-        },
-        onPanEnd: (details) {
-          final totalDrag = _dragStart == null
-              ? 0.0
-              : (details.velocity.pixelsPerSecond.distance);
-
-          setState(() {
-            _isDragging = false;
-          });
-
-          _savePosition(_position);
-
-          // 如果几乎没移动，触发点击
-          if (totalDrag < 50) {
-            widget.onTap();
-          }
-        },
-        child: SafeArea(
-          child: FeedCircleButton(
-            icon: Icons.forward_30,
-            onTap: _isDragging ? () {} : widget.onTap,
-            size: 24,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 通用可拖动按钮组件
-class _DraggableButton extends StatefulWidget {
-  const _DraggableButton({
+/// 支持长按拖动的按钮组件（默认固定）
+class _LongPressDraggableButton extends StatefulWidget {
+  const _LongPressDraggableButton({
     required this.storageKey,
-    required this.defaultPosition,
+    required this.defaultOffset,
     required this.icon,
     required this.onTap,
-    this.tooltip,
   });
 
   final String storageKey;
-  final Offset defaultPosition;
+  final Offset defaultOffset; // 相对于 Positioned 的偏移
   final IconData icon;
   final VoidCallback onTap;
-  final String? tooltip;
 
   @override
-  State<_DraggableButton> createState() => _DraggableButtonState();
+  State<_LongPressDraggableButton> createState() =>
+      _LongPressDraggableButtonState();
 }
 
-class _DraggableButtonState extends State<_DraggableButton> {
-  late Offset _position;
+class _LongPressDraggableButtonState
+    extends State<_LongPressDraggableButton> {
+  Offset? _savedOffset; // 保存的偏移量（相对于默认位置）
   bool _isDragging = false;
-  Offset? _dragStart;
+  Offset _currentDragOffset = Offset.zero;
 
   @override
   void initState() {
     super.initState();
-    _position = widget.defaultPosition;
-    _loadPosition();
+    _loadOffset();
   }
 
-  Future<void> _loadPosition() async {
+  Future<void> _loadOffset() async {
     final prefs = await SharedPreferences.getInstance();
-    final x = prefs.getDouble('${widget.storageKey}_x');
-    final y = prefs.getDouble('${widget.storageKey}_y');
+    final x = prefs.getDouble('${widget.storageKey}_offset_x');
+    final y = prefs.getDouble('${widget.storageKey}_offset_y');
     if (x != null && y != null && mounted) {
       setState(() {
-        _position = Offset(x, y);
+        _savedOffset = Offset(x, y);
       });
     }
   }
 
-  Future<void> _savePosition(Offset pos) async {
+  Future<void> _saveOffset(Offset offset) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('${widget.storageKey}_x', pos.dx);
-    await prefs.setDouble('${widget.storageKey}_y', pos.dy);
+    await prefs.setDouble('${widget.storageKey}_offset_x', offset.dx);
+    await prefs.setDouble('${widget.storageKey}_offset_y', offset.dy);
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Positioned(
-      left: _position.dx,
-      top: _position.dy,
+    final displayOffset = _isDragging
+        ? _currentDragOffset
+        : (_savedOffset ?? Offset.zero);
+
+    return Transform.translate(
+      offset: displayOffset,
       child: GestureDetector(
-        onPanStart: (details) {
+        onTap: _isDragging ? null : widget.onTap,
+        onLongPressStart: (details) {
           setState(() {
             _isDragging = true;
-            _dragStart = details.globalPosition;
+            _currentDragOffset = _savedOffset ?? Offset.zero;
           });
         },
-        onPanUpdate: (details) {
+        onLongPressMoveUpdate: (details) {
+          if (!_isDragging) return;
           setState(() {
-            _position = Offset(
-              (_position.dx + details.delta.dx).clamp(0.0, size.width - 48),
-              (_position.dy + details.delta.dy).clamp(0.0, size.height - 48),
+            _currentDragOffset += details.offsetFromOrigin - _currentDragOffset;
+            // 限制拖动范围
+            final size = MediaQuery.of(context).size;
+            _currentDragOffset = Offset(
+              _currentDragOffset.dx.clamp(-size.width + 48, size.width - 48),
+              _currentDragOffset.dy.clamp(-size.height + 48, size.height - 48),
             );
           });
         },
-        onPanEnd: (details) {
-          final totalDrag = _dragStart == null
-              ? 0.0
-              : (details.velocity.pixelsPerSecond.distance);
-
+        onLongPressEnd: (details) {
           setState(() {
+            _savedOffset = _currentDragOffset;
             _isDragging = false;
           });
-
-          _savePosition(_position);
-
-          // 如果几乎没移动，触发点击
-          if (totalDrag < 50) {
-            widget.onTap();
-          }
+          _saveOffset(_currentDragOffset);
         },
-        child: SafeArea(
-          child: Material(
-            color: Colors.black45,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _isDragging ? null : widget.onTap,
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: Icon(
-                  widget.icon,
-                  color: Colors.white70,
-                  size: 20,
-                ),
-              ),
-            ),
-          ),
+        child: FeedCircleButton(
+          icon: widget.icon,
+          onTap: () , // 点击由外层 GestureDetector 处理
         ),
       ),
     );
