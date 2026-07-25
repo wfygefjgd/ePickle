@@ -1025,7 +1025,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final deltaX = details.globalPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    final secondsPerScreenWidth = 180.0;
+    final secondsPerScreenWidth = 360.0;
     final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
 
     final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
@@ -1202,8 +1202,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ),
                 ),
               if (immersive) ...[
-                // 横屏：只显示退出按钮（点击屏幕显示/隐藏）
-                if (_showExitButton)
+                // 横屏：点击屏幕显示/隐藏控制栏
+                if (_showExitButton) ...[
+                  // 退出按钮
                   Positioned(
                     right: 16,
                     top: 16,
@@ -1221,6 +1222,56 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       ),
                     ),
                   ),
+                  // 设置按钮
+                  Positioned(
+                    left: 16,
+                    top: 16,
+                    child: SafeArea(
+                      child: GestureDetector(
+                        onTap: () {
+                          showPlayerSettingsSheet(
+                            context,
+                            onQualityChanged: () {
+                              // 搜索页暂不响应画质更改
+                            },
+                            onProxyChanged: () {
+                              // 搜索页暂不响应代理更改
+                            },
+                          );
+                        },
+                        child: Icon(
+                          Icons.settings,
+                          color: Colors.white.withOpacity(0.5),
+                          size: 28,
+                          shadows: const [
+                            Shadow(color: Colors.black45, blurRadius: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 进度条
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SafeArea(
+                      child: FeedProgressBar(
+                        slider: _slider,
+                        curTime: _curTime,
+                        totalTime: _totalTime,
+                        onChanged: _onSeekPreview,
+                        onChangeStart: (_) {
+                          _seeking = true;
+                        },
+                        onChangeEnd: (v) {
+                          // ignore: unawaited_futures
+                          _onSeekCommit(v);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ] else ...[
                 Positioned(
                   left: 12,
@@ -1251,6 +1302,29 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       defaultOffset: const Offset(10, 8),
                       icon: Icons.fullscreen,
                       onTap: _toggleFullscreen,
+                    ),
+                  ),
+                ),
+                // 竖屏：设置按钮（半透明，无背景）
+                Positioned(
+                  right: 10,
+                  top: 8,
+                  child: SafeArea(
+                    child: _MinimalButton(
+                      storageKey: 'search_settings_button_normal',
+                      defaultOffset: const Offset(10, 8),
+                      icon: Icons.settings,
+                      onTap: () {
+                        showPlayerSettingsSheet(
+                          context,
+                          onQualityChanged: () {
+                            // 搜索页暂不响应画质更改
+                          },
+                          onProxyChanged: () {
+                            // 搜索页暂不响应代理更改
+                          },
+                        );
+                      },
                     ),
                   ),
                 ),

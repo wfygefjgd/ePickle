@@ -87,8 +87,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final deltaX = details.globalPosition.dx - _dragStartX!;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    // 距离映射：拖动屏幕 1/6 宽度 = 30秒
-    final secondsPerScreenWidth = 180.0; // 全屏宽度 = 3分钟
+    // 距离映射：拖动屏幕 1/6 宽度 = 60秒
+    final secondsPerScreenWidth = 360.0; // 全屏宽度 = 6分钟
     final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
 
     final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
@@ -227,8 +227,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             ),
           ),
         if (widget.immersive) ...[
-          // 横屏：只显示退出按钮（点击屏幕显示/隐藏）
-          if (_showExitButton)
+          // 横屏：点击屏幕显示/隐藏控制栏
+          if (_showExitButton) ...[
+            // 退出按钮
             Positioned(
               right: 16,
               top: 16,
@@ -246,6 +247,43 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ),
               ),
             ),
+            // 设置按钮
+            Positioned(
+              left: 16,
+              top: 16,
+              child: SafeArea(
+                child: GestureDetector(
+                  onTap: widget.onOpenSettings,
+                  child: Icon(
+                    Icons.settings,
+                    color: Colors.white.withOpacity(0.5),
+                    size: 28,
+                    shadows: const [
+                      Shadow(color: Colors.black45, blurRadius: 4),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            // 进度条
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                child: RepaintBoundary(
+                  child: FeedProgressBar(
+                    slider: widget.sliderValue,
+                    curTime: widget.currentTime,
+                    totalTime: widget.totalTime,
+                    onChanged: widget.onSeekPreview,
+                    onChangeStart: (_) => widget.onSeekStart(),
+                    onChangeEnd: widget.onSeekEnd,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ] else ...[
           _buildTopBar(),
           // 竖屏：全屏按钮（半透明，无背景）
@@ -258,6 +296,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 defaultOffset: const Offset(10, 8),
                 icon: Icons.fullscreen,
                 onTap: widget.onFullscreen,
+              ),
+            ),
+          ),
+          // 竖屏：设置按钮（半透明，无背景）
+          Positioned(
+            right: 10,
+            top: 8,
+            child: SafeArea(
+              child: _MinimalButton(
+                storageKey: 'settings_button_normal',
+                defaultOffset: const Offset(10, 8),
+                icon: Icons.settings,
+                onTap: widget.onOpenSettings,
               ),
             ),
           ),
