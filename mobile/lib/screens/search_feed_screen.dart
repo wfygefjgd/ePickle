@@ -80,6 +80,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   StreamQuality? _preloadStream2;
   int _preloadRetries2 = 0;
 
+  VideoPlayerController? _preloadController3;
+  int? _preloadIndex3;
+  StreamQuality? _preloadStream3;
+  int _preloadRetries3 = 0;
+
   late final Map<String, String> _headers = _buildHeaders();
 
   Map<String, String> _buildHeaders() {
@@ -152,6 +157,30 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       p.pause().catchError((_) {}).whenComplete(() {
         try {
           p.dispose();
+        } catch (_) {}
+      });
+    }
+    final p2 = _preloadController2;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    if (p2 != null) {
+      // ignore: unawaited_futures
+      p2.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p2.dispose();
+        } catch (_) {}
+      });
+    }
+    final p3 = _preloadController3;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    if (p3 != null) {
+      // ignore: unawaited_futures
+      p3.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p3.dispose();
         } catch (_) {}
       });
     }
@@ -256,16 +285,50 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final seq = ++_seq;
     final item = _items[index];
 
+    // Check if we have this index preloaded in any slot
+    VideoPlayerController? preloaded;
+    VideoDetail? preloadDetail;
+    int preloadSlot = 0; // 1, 2, or 3
+
     if (_preloadIndex == index &&
         _preloadController != null &&
         _preloadController!.value.isInitialized) {
-      final preloaded = _preloadController!;
-      final preloadDetail = _detailCache[index];
+      preloaded = _preloadController!;
+      preloadDetail = _detailCache[index];
+      preloadSlot = 1;
+    } else if (_preloadIndex2 == index &&
+        _preloadController2 != null &&
+        _preloadController2!.value.isInitialized) {
+      preloaded = _preloadController2!;
+      preloadDetail = _detailCache[index];
+      preloadSlot = 2;
+    } else if (_preloadIndex3 == index &&
+        _preloadController3 != null &&
+        _preloadController3!.value.isInitialized) {
+      preloaded = _preloadController3!;
+      preloadDetail = _detailCache[index];
+      preloadSlot = 3;
+    }
+
+    if (preloaded != null) {
       final previous = _controller;
       _controller = null;
-      _preloadController = null;
-      _preloadIndex = null;
-      _preloadStream = null;
+
+      // Clear the slot that was used
+      if (preloadSlot == 1) {
+        _preloadController = null;
+        _preloadIndex = null;
+        _preloadStream = null;
+      } else if (preloadSlot == 2) {
+        _preloadController2 = null;
+        _preloadIndex2 = null;
+        _preloadStream2 = null;
+      } else if (preloadSlot == 3) {
+        _preloadController3 = null;
+        _preloadIndex3 = null;
+        _preloadStream3 = null;
+      }
+
       await _disposePlayer(seqGuard: seq, exclude: preloaded);
       if (previous != null && !identical(previous, preloaded)) {
         try {
@@ -315,26 +378,33 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       WakelockPlus.enable();
       if (mounted) setState(() {});
 
-      // Promote preload2 to preload1
+      // Promote preload2 to preload1, preload3 to preload2
       if (_preloadController2 != null && _preloadIndex2 == index + 1) {
         _preloadController = _preloadController2;
         _preloadIndex = _preloadIndex2;
         _preloadStream = _preloadStream2;
         _preloadRetries = _preloadRetries2;
-        _preloadController2 = null;
-        _preloadIndex2 = null;
-        _preloadStream2 = null;
-        _preloadRetries2 = 0;
+        _preloadController2 = _preloadController3;
+        _preloadIndex2 = _preloadIndex3;
+        _preloadStream2 = _preloadStream3;
+        _preloadRetries2 = _preloadRetries3;
+        _preloadController3 = null;
+        _preloadIndex3 = null;
+        _preloadStream3 = null;
+        _preloadRetries3 = 0;
       } else {
         // Preload next if not already preloaded
         await _prefetchDetail(index + 1);
         // ignore: unawaited_futures
         _preloadNext(index + 1);
       }
-      // Always preload index+2
+      // Always preload index+2 and index+3
       await _prefetchDetail(index + 2);
+      await _prefetchDetail(index + 3);
       // ignore: unawaited_futures
       _preloadNext2(index + 2);
+      // ignore: unawaited_futures
+      _preloadNext3(index + 3);
 
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
@@ -397,10 +467,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     // Wait for detail to be fetched before preloading
     await _prefetchDetail(index + 1);
     await _prefetchDetail(index + 2);
+    await _prefetchDetail(index + 3);
     // ignore: unawaited_futures
     _preloadNext(index + 1);
     // ignore: unawaited_futures
     _preloadNext2(index + 2);
+    // ignore: unawaited_futures
+    _preloadNext3(index + 3);
 
     final cap = context.read<AppSettings>().qualityCap;
     final stream =
@@ -499,7 +572,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       final d = await _fetchDetail(url);
       if (!mounted) return;
       _detailCache[index] = d;
-      _detailCache.removeWhere((k, _) => (k - _index).abs() > 2);
+      _detailCache.removeWhere((k, _) => (k - _index).abs() > 3);
     } catch (_) {
       // Ignore errors in prefetch
     } finally {
@@ -530,6 +603,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       p2.pause().catchError((_) {}).whenComplete(() {
         try {
           p2.dispose();
+        } catch (_) {}
+      });
+    }
+
+    final p3 = _preloadController3;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    if (p3 != null) {
+      // ignore: unawaited_futures
+      p3.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p3.dispose();
         } catch (_) {}
       });
     }
@@ -673,6 +759,78 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex2 = index;
     _preloadStream2 = stream;
     _preloadRetries2 = 0;
+    try {
+      await player.pause();
+      player.setVolume(0);
+    } catch (_) {}
+  }
+
+  Future<void> _preloadNext3(int index) async {
+    if (index < 0 || index >= _items.length || index == _index) return;
+    if (_preloadIndex3 == index && _preloadController3 != null) return;
+    final seq = _seq;
+    final detail = _detailCache[index];
+    if (detail == null) return;
+    if (detail.countryBlocked || detail.unavailable) return;
+    final cap = context.read<AppSettings>().qualityCap;
+    final stream =
+        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    if (stream == null) return;
+    if (_preloadIndex3 == index &&
+        _preloadController3 != null &&
+        _preloadStream3?.url == stream.url) {
+      return;
+    }
+    final existing = _preloadController3;
+    final existingIndex = _preloadIndex3;
+    _preloadController3 = null;
+    _preloadIndex3 = null;
+    _preloadStream3 = null;
+    _preloadRetries3 = 0;
+    if (existing != null && existingIndex != index) {
+      // ignore: unawaited_futures
+      existing.pause().catchError((_) {}).whenComplete(() {
+        try {
+          existing.dispose();
+        } catch (_) {}
+      });
+    }
+    if (seq != _seq) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: _headers,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    try {
+      await player.initialize();
+      _preloadRetries3 = 0;
+    } catch (e) {
+      // Retry up to 2 times for transient failures
+      if (_preloadRetries3 < 2 && seq == _seq) {
+        _preloadRetries3++;
+        try {
+          await player.dispose();
+        } catch (_) {}
+        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries3));
+        if (seq == _seq && mounted) {
+          return _preloadNext3(index);
+        }
+      }
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _seq || !mounted) {
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    _preloadController3 = player;
+    _preloadIndex3 = index;
+    _preloadStream3 = stream;
+    _preloadRetries3 = 0;
     try {
       await player.pause();
       player.setVolume(0);
