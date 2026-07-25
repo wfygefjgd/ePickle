@@ -430,7 +430,7 @@ class MitaoApi {
     }
     if (durationSec <= 0) {
       // Try class="duration" or similar
-      final dm4 = RegExp(r'class=["\'].*?duration.*?["\'][^>]*>(\d{1,2}:\d{2}(?::\d{2})?)<').firstMatch(html);
+      final dm4 = RegExp(r'class=["' "'" r'].*?duration.*?["' "'" r'][^>]*>(\d{1,2}:\d{2}(?::\d{2})?)<').firstMatch(html);
       if (dm4 != null) {
         durationSec = _parseDurationText(dm4.group(1) ?? '');
       }
