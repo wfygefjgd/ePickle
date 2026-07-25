@@ -22,159 +22,168 @@ Future<void> showPlayerSettingsSheet(
     ),
     builder: (ctx) {
       return SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 8,
-            right: 8,
-            top: 8,
-            bottom: 16 + MediaQuery.viewInsetsOf(ctx).bottom,
-          ),
-          child: Consumer<AppSettings>(
-            builder: (_, settings, __) {
-              final heights = <int>{
-                0,
-                ...(qualityHeights ?? const [360, 480, 720, 1080]),
-              };
-              final options = heights.toList()..sort();
-              return SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const ListTile(
-                      title: Text('设置',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      dense: true,
-                    ),
-                    SwitchListTile(
-                      title: const Text('跳过片头约 15 秒',
-                          style: TextStyle(color: Colors.white)),
-                      subtitle: const Text(
-                        '跳过片头广告；短视频自动关闭。',
-                        style: TextStyle(color: Colors.white38, fontSize: 12),
-                      ),
-                      activeThumbColor: const Color(0xFFFF6B35),
-                      value: settings.skipIntro,
-                      onChanged: settings.setSkipIntro,
-                    ),
-                    const Divider(color: Colors.white12),
-                    // C: 代理状态一眼懂
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            settings.networkStatusTitle,
-                            style: const TextStyle(
-                              color: Color(0xFFFF6B35),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            settings.networkStatusDetail,
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const ListTile(
-                      title: Text('网络代理',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      subtitle: Text(
-                        '默认跟随系统代理（不写死地址）。读不到则直连。'
-                        '已开 TUN 可关掉此项。列表通但播不动时，可开 TUN 或换 HTTP 代理。',
-                        style: TextStyle(color: Colors.white38, fontSize: 11),
-                      ),
-                      dense: true,
-                    ),
-                    SwitchListTile(
-                      title: const Text('使用系统/本地代理',
-                          style: TextStyle(color: Colors.white)),
-                      subtitle: Text(
-                        settings.proxySummary,
-                        style: const TextStyle(
-                            color: Colors.white38, fontSize: 12),
-                      ),
-                      activeThumbColor: const Color(0xFFFF6B35),
-                      value: settings.proxyEnabled,
-                      onChanged: (v) async {
-                        await settings.setProxyEnabled(v);
-                        onProxyChanged?.call();
-                      },
-                    ),
-                    if (settings.proxyEnabled)
-                      _ProxyEditor(
-                        settings: settings,
-                        onApplied: onProxyChanged,
-                      ),
-                    const Divider(color: Colors.white12),
-                    const ListTile(
-                      title: Text('画质',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      dense: true,
-                    ),
-                    for (final h in options)
-                      ListTile(
-                        title: Text(
-                          h == 0 ? '自动（偏好 ≤720p）' : '${h}p',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        trailing: settings.qualityCap == h
-                            ? const Icon(Icons.check, color: Color(0xFFFF6B35))
-                            : null,
-                        onTap: () async {
-                          Navigator.pop(ctx);
-                          await settings.setQualityCap(h);
-                          onQualityChanged?.call();
-                        },
-                      ),
-                    const SizedBox(height: 16),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: const BorderSide(color: Colors.white24),
-                          minimumSize: const Size(double.infinity, 48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          children: [
+            Padding(
+              padding: EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 8,
+                bottom: 16 + MediaQuery.viewInsetsOf(ctx).bottom,
+              ),
+              child: Consumer<AppSettings>(
+                builder: (_, settings, __) {
+                  final heights = <int>{
+                    0,
+                    ...(qualityHeights ?? const [360, 480, 720, 1080]),
+                  };
+                  final options = heights.toList()..sort();
+                  return SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                        child: const Text('关闭'),
-                      ),
+                        const ListTile(
+                          title: Text('设置',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 13)),
+                          dense: true,
+                        ),
+                        SwitchListTile(
+                          title: const Text('跳过片头',
+                              style: TextStyle(color: Colors.white)),
+                          subtitle: const Text(
+                            '跳过片头广告；短视频自动关闭。',
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 12),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.skipIntro,
+                          onChanged: settings.setSkipIntro,
+                        ),
+                        const Divider(color: Colors.white12),
+                        // C: 代理状态一眼懂
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A2A),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                settings.networkStatusTitle,
+                                style: const TextStyle(
+                                  color: Color(0xFFFF6B35),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                settings.networkStatusDetail,
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const ListTile(
+                          title: Text('网络代理',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 13)),
+                          subtitle: Text(
+                            '默认跟随系统代理（不写死地址）。读不到则直连。'
+                            '已开 TUN 可关掉此项。列表通但播不动时，可开 TUN 或换 HTTP 代理。',
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 11),
+                          ),
+                          dense: true,
+                        ),
+                        SwitchListTile(
+                          title: const Text('使用系统/本地代理',
+                              style: TextStyle(color: Colors.white)),
+                          subtitle: Text(
+                            settings.proxySummary,
+                            style: const TextStyle(
+                                color: Colors.white38, fontSize: 12),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.proxyEnabled,
+                          onChanged: (v) async {
+                            await settings.setProxyEnabled(v);
+                            onProxyChanged?.call();
+                          },
+                        ),
+                        if (settings.proxyEnabled)
+                          _ProxyEditor(
+                            settings: settings,
+                            onApplied: onProxyChanged,
+                          ),
+                        const Divider(color: Colors.white12),
+                        const ListTile(
+                          title: Text('画质',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 13)),
+                          dense: true,
+                        ),
+                        for (final h in options)
+                          ListTile(
+                            title: Text(
+                              h == 0 ? '自动（偏好 ≤720p）' : '${h}p',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            trailing: settings.qualityCap == h
+                                ? const Icon(Icons.check,
+                                    color: Color(0xFFFF6B35))
+                                : null,
+                            onTap: () async {
+                              Navigator.pop(ctx);
+                              await settings.setQualityCap(h);
+                              onQualityChanged?.call();
+                            },
+                          ),
+                        const SizedBox(height: 16),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                  ],
+                  );
+                },
+              ),
+            ),
+            // Floating close button at top-left
+            Positioned(
+              left: 16,
+              top: 56,
+              child: Material(
+                color: Colors.black54,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => Navigator.pop(ctx),
+                  child: const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Icon(Icons.close, color: Colors.white, size: 24),
+                  ),
                 ),
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         ),
       );
     },

@@ -23,6 +23,7 @@ class VideoPlayerPage extends StatelessWidget {
     required this.speedLabel,
     required this.onPageChanged,
     required this.onMute,
+    required this.onFastForward,
     required this.onFullscreen,
     required this.onOpenSettings,
     required this.onSeekPreview,
@@ -45,6 +46,7 @@ class VideoPlayerPage extends StatelessWidget {
 
   final ValueChanged<int> onPageChanged;
   final VoidCallback onMute;
+  final VoidCallback onFastForward;
   final VoidCallback onFullscreen;
   final VoidCallback onOpenSettings;
   final ValueChanged<double> onSeekPreview;
@@ -139,7 +141,11 @@ class VideoPlayerPage extends StatelessWidget {
               right: 10,
               bottom: 56,
               child: SafeArea(
-                child: FeedSideControls(muted: muted, onMute: onMute),
+                child: FeedSideControls(
+                  muted: muted,
+                  onMute: onMute,
+                  onFastForward: onFastForward,
+                ),
               ),
             ),
         ] else if (controller != null || pageLoading) ...[
@@ -180,7 +186,11 @@ class VideoPlayerPage extends StatelessWidget {
             right: 10,
             bottom: 56,
             child: SafeArea(
-              child: FeedSideControls(muted: muted, onMute: onMute),
+              child: FeedSideControls(
+                muted: muted,
+                onMute: onMute,
+                onFastForward: onFastForward,
+              ),
             ),
           ),
           Positioned(

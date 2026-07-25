@@ -1193,6 +1193,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     setState(() {});
   }
 
+  void _fastForward() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final currentPos = c.value.position;
+    final duration = c.value.duration;
+    final newPos = currentPos + const Duration(seconds: 30);
+    if (newPos < duration) {
+      c.seekTo(newPos);
+    } else {
+      c.seekTo(duration);
+    }
+  }
+
   void _openPlayerSettings() {
     final detail = _currentDetail;
     final heights = <int>[];
@@ -1305,6 +1318,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             speedLabel: _speedLabel,
             onPageChanged: _onPageChanged,
             onMute: _toggleMute,
+            onFastForward: _fastForward,
             onFullscreen: _toggleFullscreen,
             onOpenSettings: _openPlayerSettings,
             onSeekPreview: _onSeekPreview,

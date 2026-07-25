@@ -947,6 +947,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     setState(() {});
   }
 
+  void _fastForward() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final currentPos = c.value.position;
+    final duration = c.value.duration;
+    final newPos = currentPos + const Duration(seconds: 30);
+    if (newPos < duration) {
+      c.seekTo(newPos);
+    } else {
+      c.seekTo(duration);
+    }
+  }
+
 
 
   @override
@@ -1075,6 +1088,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                       child: FeedSideControls(
                         muted: _muted,
                         onMute: _toggleMute,
+                        onFastForward: _fastForward,
                       ),
                     ),
                   ),

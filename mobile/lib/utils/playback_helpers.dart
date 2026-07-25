@@ -6,8 +6,8 @@ import '../models/video_item.dart';
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
   /// Skip intro ads based on video duration:
-  /// - Videos >= 10min: skip 20s
-  /// - Videos 2-10min: skip 15s
+  /// - Videos >= 20min: skip 35s
+  /// - Videos < 20min but >= 2min: skip 25s
   /// - Videos < 2min: no skip
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
@@ -20,13 +20,13 @@ class PlaybackHelpers {
     // Videos < 2 minutes: no skip
     if (total < 120) return;
 
-    // Videos >= 10 minutes: skip 20 seconds
     int skipSeconds;
-    if (total >= 600) {
-      skipSeconds = 20;
+    if (total >= 1200) {
+      // Videos >= 20 minutes: skip 35 seconds
+      skipSeconds = 35;
     } else {
-      // Videos 2-10 minutes: skip 15 seconds
-      skipSeconds = 15;
+      // Videos 2-20 minutes: skip 25 seconds
+      skipSeconds = 25;
     }
 
     // Safety: leave at least 5s of content
@@ -174,24 +174,37 @@ class FeedCircleButton extends StatelessWidget {
   }
 }
 
-/// Right-side control: mute only (quality lives in top-right settings).
+/// Right-side control: mute + fast forward (30s).
 /// Fullscreen lives under the title on the left.
 class FeedSideControls extends StatelessWidget {
   const FeedSideControls({
     super.key,
     required this.muted,
     required this.onMute,
+    required this.onFastForward,
   });
 
   final bool muted;
   final VoidCallback onMute;
+  final VoidCallback onFastForward;
 
   @override
   Widget build(BuildContext context) {
-    return FeedCircleButton(
-      icon: muted ? Icons.volume_off : Icons.volume_up,
-      onTap: onMute,
-      size: 24,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FeedCircleButton(
+          icon: muted ? Icons.volume_off : Icons.volume_up,
+          onTap: onMute,
+          size: 24,
+        ),
+        const SizedBox(height: 8),
+        FeedCircleButton(
+          icon: Icons.forward_30,
+          onTap: onFastForward,
+          size: 24,
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/home_shell.dart';
@@ -44,6 +45,12 @@ class PlayerApp extends StatelessWidget {
                 backgroundColor: Color(0xFF1E1E1E),
                 foregroundColor: Colors.white,
                 elevation: 0,
+              ),
+              pageTransitionsTheme: const PageTransitionsTheme(
+                builders: {
+                  TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+                  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                },
               ),
             ),
             home: const HomeShell(),
