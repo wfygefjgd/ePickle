@@ -309,6 +309,7 @@ class _LongPressDraggableButtonState
   Offset? _savedOffset; // 保存的偏移量（相对于默认位置）
   bool _isDragging = false;
   Offset _currentDragOffset = Offset.zero;
+  Offset _dragStartOffset = Offset.zero;
 
   @override
   void initState() {
@@ -346,13 +347,14 @@ class _LongPressDraggableButtonState
         onLongPressStart: (details) {
           setState(() {
             _isDragging = true;
-            _currentDragOffset = _savedOffset ?? Offset.zero;
+            _dragStartOffset = _savedOffset ?? Offset.zero;
+            _currentDragOffset = _dragStartOffset;
           });
         },
         onLongPressMoveUpdate: (details) {
           if (!_isDragging) return;
           setState(() {
-            _currentDragOffset += details.offsetFromOrigin - _currentDragOffset;
+            _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
             // 限制拖动范围
             final size = MediaQuery.of(context).size;
             _currentDragOffset = Offset(
