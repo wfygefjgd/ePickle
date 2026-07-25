@@ -29,7 +29,11 @@ jobs:
 
       - name: Build iOS release (device, no codesign)
         working-directory: mobile
-        run: flutter build ios --release --no-codesign
+        run: |
+          flutter build ios --release --no-codesign || {
+            echo "Direct build failed, trying with export-options-plist"
+            flutter build ipa --release --export-method development --no-codesign
+          }
 
       - name: Package sideload IPA (unsigned)
         working-directory: mobile
