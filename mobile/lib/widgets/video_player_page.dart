@@ -370,7 +370,7 @@ class _LongPressDraggableButtonState
         },
         child: FeedCircleButton(
           icon: widget.icon,
-          onTap: () , // 点击由外层 GestureDetector 处理
+          onTap: () {}, // 点击由外层 GestureDetector 处理
         ),
       ),
     );
