@@ -9,7 +9,7 @@ import '../services/app_settings.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 
-class VideoPlayerPage extends StatelessWidget {
+class VideoPlayerPage extends StatefulWidget {
   const VideoPlayerPage({
     super.key,
     required this.items,
@@ -57,179 +57,233 @@ class VideoPlayerPage extends StatelessWidget {
   final ValueChanged<double> onSeekEnd;
 
   @override
-  Widget build(BuildContext context) {
-    final showAllButtons = context.watch<AppSettings>().showImmersiveButtons;
+  State<VideoPlayerPage> createState() => _VideoPlayerPageState();
+}
 
+class _VideoPlayerPageState extends State<VideoPlayerPage> {
+  bool _showExitButton = false;
+  double? _dragStartX;
+  Duration? _dragStartPosition;
+  Duration? _dragTargetPosition;
+  String _seekPreviewText = '';
+
+  void _onHorizontalDragStart(DragStartDetails details) {
+    if (!widget.immersive) return;
+    final ctrl = widget.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    setState(() {
+      _dragStartX = details.globalPosition.dx;
+      _dragStartPosition = ctrl.value.position;
+      _seekPreviewText = '';
+    });
+  }
+
+  void _onHorizontalDragUpdate(DragUpdateDetails details) {
+    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) return;
+    final ctrl = widget.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    final deltaX = details.globalPosition.dx - _dragStartX!;
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    // 距离映射：拖动屏幕 1/6 宽度 = 30秒
+    final secondsPerScreenWidth = 180.0; // 全屏宽度 = 3分钟
+    final deltaSec = (deltaX / screenWidth * secondsPerScreenWidth).round();
+
+    final newPos = _dragStartPosition! + Duration(seconds: deltaSec);
+    final duration = ctrl.value.duration;
+    final clampedPos = Duration(
+      milliseconds: newPos.inMilliseconds.clamp(0, duration.inMilliseconds),
+    );
+
+    String formatTime(Duration d) {
+      final min = d.inMinutes;
+      final sec = d.inSeconds % 60;
+      return '$min:${sec.toString().padLeft(2, '0')}';
+    }
+
+    setState(() {
+      _dragTargetPosition = clampedPos;
+      if (deltaSec > 0) {
+        _seekPreviewText = '+${deltaSec}秒 → ${formatTime(clampedPos)}';
+      } else if (deltaSec < 0) {
+        _seekPreviewText = '${deltaSec}秒 → ${formatTime(clampedPos)}';
+      } else {
+        _seekPreviewText = formatTime(clampedPos);
+      }
+    });
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) return;
+    final ctrl = widget.controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    // 使用 Update 中计算好的目标位置
+    final targetPos = _dragTargetPosition ?? _dragStartPosition!;
+    ctrl.seekTo(targetPos);
+
+    setState(() {
+      _dragStartX = null;
+      _dragStartPosition = null;
+      _dragTargetPosition = null;
+      _seekPreviewText = '';
+    });
+  }
+
+  void _onTapScreen() {
+    if (!widget.immersive) return;
+    setState(() {
+      _showExitButton = !_showExitButton;
+    });
+
+    if (_showExitButton) {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && _showExitButton) {
+          setState(() {
+            _showExitButton = false;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Stack(
       fit: StackFit.expand,
       children: [
-        PageView.builder(
-          controller: pageCtrl,
-          scrollDirection: Axis.vertical,
-          itemCount: items.length,
-          onPageChanged: onPageChanged,
-          itemBuilder: (_, i) {
-            if (i == currentIndex &&
-                controller != null &&
-                controller!.value.isInitialized) {
-              return ColoredBox(
-                color: Colors.black,
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: controller!.value.aspectRatio,
-                    child: VideoPlayer(controller!),
+        GestureDetector(
+          onTap: _onTapScreen,
+          onHorizontalDragStart: _onHorizontalDragStart,
+          onHorizontalDragUpdate: _onHorizontalDragUpdate,
+          onHorizontalDragEnd: _onHorizontalDragEnd,
+          child: PageView.builder(
+            controller: widget.pageCtrl,
+            scrollDirection: Axis.vertical,
+            itemCount: widget.items.length,
+            onPageChanged: widget.onPageChanged,
+            physics: _dragStartX != null ? const NeverScrollableScrollPhysics() : null,
+            itemBuilder: (_, i) {
+              if (i == widget.currentIndex &&
+                  widget.controller != null &&
+                  widget.controller!.value.isInitialized) {
+                return ColoredBox(
+                  color: Colors.black,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: widget.controller!.value.aspectRatio,
+                      child: VideoPlayer(widget.controller!),
+                    ),
                   ),
+                );
+              }
+              final thumb = widget.items[i].thumb;
+              return Container(
+                color: const Color(0xFF1A1A1A),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (thumb != null && thumb.isNotEmpty)
+                      CachedNetworkImage(
+                        imageUrl: thumb,
+                        httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                        fit: BoxFit.cover,
+                        memCacheWidth: 720,
+                        placeholder: (_, __) =>
+                            const ColoredBox(color: Color(0xFF1A1A1A)),
+                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    if (i == widget.currentIndex && widget.pageLoading)
+                      const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFFF6B35),
+                        ),
+                      ),
+                  ],
                 ),
               );
-            }
-            final thumb = items[i].thumb;
-            return Container(
-              color: const Color(0xFF1A1A1A),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (thumb != null && thumb.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: thumb,
-                      httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-                      fit: BoxFit.cover,
-                      memCacheWidth: 720,
-                      placeholder: (_, __) =>
-                          const ColoredBox(color: Color(0xFF1A1A1A)),
-                      errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                    ),
-                  if (i == currentIndex && pageLoading)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFFF6B35),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
+            },
+          ),
         ),
-        if (immersive) ...[
-          // 全屏模式：根据设置显示按钮
-          if (showAllButtons) ...[
-            // 固定位置的设置按钮
-            Positioned(
-              left: 8,
-              top: 8,
-              child: SafeArea(
-                child: _LongPressDraggableButton(
-                  storageKey: 'settings_button_immersive',
-                  defaultOffset: const Offset(8, 8),
-                  icon: Icons.tune,
-                  onTap: onOpenSettings,
-                ),
+        // 横屏手势进度预览
+        if (widget.immersive && _seekPreviewText.isNotEmpty)
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(8),
               ),
-            ),
-            // 固定位置的全屏按钮
-            Positioned(
-              right: 8,
-              top: 8,
-              child: SafeArea(
-                child: _LongPressDraggableButton(
-                  storageKey: 'fullscreen_button_immersive',
-                  defaultOffset: const Offset(8, 8),
-                  icon: Icons.fullscreen_exit,
-                  onTap: onFullscreen,
+              child: Text(
+                _seekPreviewText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
                 ),
-              ),
-            ),
-            // 固定位置的音量按钮（右边）
-            Positioned(
-              right: 8,
-              bottom: 80,
-              child: SafeArea(
-                child: _LongPressDraggableButton(
-                  storageKey: 'mute_button_immersive',
-                  defaultOffset: const Offset(8, 80),
-                  icon: muted ? Icons.volume_off : Icons.volume_up,
-                  onTap: onMute,
-                ),
-              ),
-            ),
-          ] else ...[
-            // 只显示快进按钮和退出全屏按钮（右上角）
-            Positioned(
-              right: 8,
-              top: 8,
-              child: SafeArea(
-                child: _LongPressDraggableButton(
-                  storageKey: 'fullscreen_button_immersive',
-                  defaultOffset: const Offset(8, 8),
-                  icon: Icons.fullscreen_exit,
-                  onTap: onFullscreen,
-                ),
-              ),
-            ),
-          ],
-          // 快进按钮始终显示（左边）
-          Positioned(
-            left: 8,
-            bottom: 80,
-            child: SafeArea(
-              child: _LongPressDraggableButton(
-                storageKey: 'fastforward_button_immersive',
-                defaultOffset: const Offset(8, 80),
-                icon: Icons.forward_30,
-                onTap: onFastForward,
               ),
             ),
           ),
+        if (widget.immersive) ...[
+          // 横屏：只显示退出按钮（点击屏幕显示/隐藏）
+          if (_showExitButton)
+            Positioned(
+              right: 16,
+              top: 16,
+              child: SafeArea(
+                child: GestureDetector(
+                  onTap: widget.onFullscreen,
+                  child: Icon(
+                    Icons.fullscreen_exit,
+                    color: Colors.white.withOpacity(0.5),
+                    size: 28,
+                    shadows: const [
+                      Shadow(color: Colors.black45, blurRadius: 4),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ] else ...[
           _buildTopBar(),
-          // 固定位置的全屏按钮（左上角）
+          // 竖屏：全屏按钮（半透明，无背景）
           Positioned(
             left: 10,
             top: 8,
             child: SafeArea(
-              child: _LongPressDraggableButton(
+              child: _MinimalButton(
                 storageKey: 'fullscreen_button_normal',
                 defaultOffset: const Offset(10, 8),
                 icon: Icons.fullscreen,
-                onTap: onFullscreen,
+                onTap: widget.onFullscreen,
               ),
             ),
           ),
-          // 固定位置的设置按钮（右上角，与全屏按钮平齐）
-          Positioned(
-            right: 10,
-            top: 8,
-            child: SafeArea(
-              child: _LongPressDraggableButton(
-                storageKey: 'settings_button_normal',
-                defaultOffset: const Offset(10, 8),
-                icon: Icons.tune,
-                onTap: onOpenSettings,
-              ),
-            ),
-          ),
-          // 固定位置的快进按钮（左边）
+          // 竖屏：快进按钮（半透明，无背景）
           Positioned(
             left: 10,
             bottom: 80,
             child: SafeArea(
-              child: _LongPressDraggableButton(
+              child: _MinimalButton(
                 storageKey: 'fastforward_button_normal',
                 defaultOffset: const Offset(10, 80),
                 icon: Icons.forward_30,
-                onTap: onFastForward,
+                onTap: widget.onFastForward,
               ),
             ),
           ),
-          // 固定位置的音量按钮（右边，与快进平齐）
+          // 竖屏：音量按钮（半透明，无背景）
           Positioned(
             right: 10,
             bottom: 80,
             child: SafeArea(
-              child: _LongPressDraggableButton(
+              child: _MinimalButton(
                 storageKey: 'mute_button_normal',
                 defaultOffset: const Offset(10, 80),
-                icon: muted ? Icons.volume_off : Icons.volume_up,
-                onTap: onMute,
+                icon: widget.muted ? Icons.volume_off : Icons.volume_up,
+                onTap: widget.onMute,
               ),
             ),
           ),
@@ -240,12 +294,12 @@ class VideoPlayerPage extends StatelessWidget {
             child: SafeArea(
               child: RepaintBoundary(
                 child: FeedProgressBar(
-                  slider: sliderValue,
-                  curTime: currentTime,
-                  totalTime: totalTime,
-                  onChanged: onSeekPreview,
-                  onChangeStart: (_) => onSeekStart(),
-                  onChangeEnd: onSeekEnd,
+                  slider: widget.sliderValue,
+                  curTime: widget.currentTime,
+                  totalTime: widget.totalTime,
+                  onChanged: widget.onSeekPreview,
+                  onChangeStart: (_) => widget.onSeekStart(),
+                  onChangeEnd: widget.onSeekEnd,
                 ),
               ),
             ),
@@ -256,9 +310,9 @@ class VideoPlayerPage extends StatelessWidget {
   }
 
   Widget _buildTopBar() {
-    final title = titleText.isNotEmpty
-        ? titleText
-        : (currentIndex < items.length ? items[currentIndex].title : '');
+    final title = widget.titleText.isNotEmpty
+        ? widget.titleText
+        : (widget.currentIndex < widget.items.length ? widget.items[widget.currentIndex].title : '');
     return Positioned(
       left: 10,
       right: 10,
@@ -279,7 +333,7 @@ class VideoPlayerPage extends StatelessWidget {
                 ),
               ),
             ),
-            if (speedLabel.isNotEmpty) ...[
+            if (widget.speedLabel.isNotEmpty) ...[
               const SizedBox(width: 8),
               Container(
                 padding:
@@ -289,7 +343,7 @@ class VideoPlayerPage extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  speedLabel,
+                  widget.speedLabel,
                   style: const TextStyle(
                     color: Color(0xFF00E676),
                     fontSize: 10,
@@ -305,9 +359,9 @@ class VideoPlayerPage extends StatelessWidget {
   }
 }
 
-/// 支持长按拖动的按钮组件（默认固定）
-class _LongPressDraggableButton extends StatefulWidget {
-  const _LongPressDraggableButton({
+/// 极简按钮：半透明图标，无背景，支持长按拖动
+class _MinimalButton extends StatefulWidget {
+  const _MinimalButton({
     required this.storageKey,
     required this.defaultOffset,
     required this.icon,
@@ -315,18 +369,16 @@ class _LongPressDraggableButton extends StatefulWidget {
   });
 
   final String storageKey;
-  final Offset defaultOffset; // 相对于 Positioned 的偏移
+  final Offset defaultOffset;
   final IconData icon;
   final VoidCallback onTap;
 
   @override
-  State<_LongPressDraggableButton> createState() =>
-      _LongPressDraggableButtonState();
+  State<_MinimalButton> createState() => _MinimalButtonState();
 }
 
-class _LongPressDraggableButtonState
-    extends State<_LongPressDraggableButton> {
-  Offset? _savedOffset; // 保存的偏移量（相对于默认位置）
+class _MinimalButtonState extends State<_MinimalButton> {
+  Offset? _savedOffset;
   bool _isDragging = false;
   Offset _currentDragOffset = Offset.zero;
   Offset _dragStartOffset = Offset.zero;
@@ -375,17 +427,16 @@ class _LongPressDraggableButtonState
           if (!_isDragging) return;
           setState(() {
             _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
-            // 限制拖动范围：确保按钮不会超出屏幕边界
             final size = MediaQuery.of(context).size;
             final padding = MediaQuery.of(context).padding;
             _currentDragOffset = Offset(
               _currentDragOffset.dx.clamp(
                 -widget.defaultOffset.dx,
-                size.width - widget.defaultOffset.dx - 48 - padding.right,
+                size.width - widget.defaultOffset.dx - 40 - padding.right,
               ),
               _currentDragOffset.dy.clamp(
                 -widget.defaultOffset.dy,
-                size.height - widget.defaultOffset.dy - 48 - padding.bottom,
+                size.height - widget.defaultOffset.dy - 40 - padding.bottom,
               ),
             );
           });
@@ -398,18 +449,17 @@ class _LongPressDraggableButtonState
           _saveOffset(_currentDragOffset);
         },
         child: AnimatedScale(
-          scale: _isDragging ? 1.1 : 1.0,
+          scale: _isDragging ? 1.2 : 1.0,
           duration: const Duration(milliseconds: 150),
-          child: SizedBox(
-            width: 48,
-            height: 48,
-            child: Material(
-              color: _isDragging ? Colors.black87 : Colors.black54,
-              shape: const CircleBorder(),
-              child: Center(
-                child: Icon(widget.icon, color: Colors.white, size: 22),
-              ),
-            ),
+          child: Icon(
+            widget.icon,
+            color: _isDragging
+                ? Colors.white.withOpacity(0.9)
+                : Colors.white.withOpacity(0.5),
+            size: 28,
+            shadows: const [
+              Shadow(color: Colors.black45, blurRadius: 4),
+            ],
           ),
         ),
       ),
