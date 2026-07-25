@@ -213,30 +213,35 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       final chrome = _chrome;
       if (chrome == null) return;
 
-      // 防抖：距离上次方向改变至少 800ms
+      // 防抖：距离上次方向改变至少 1200ms
       final now = DateTime.now();
       if (_lastOrientationChange != null &&
-          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 800)) {
+          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 1200)) {
         return;
       }
 
-      // 检测横屏：x 或 y 轴重力绝对值差异明显
-      // x.abs() > y.abs() 表示横屏（左横或右横都支持）
-      // 阈值提高到 7.5，避免轻微抖动触发
-      final isLandscape = event.x.abs() > event.y.abs() &&
-                          event.x.abs() > 7.5 &&
-                          (event.y.abs() < 5.0);  // y 轴重力小，确保不是倾斜
+      // 检测横屏：x 轴绝对值明显大于 y 轴，且 x 足够大
+      // 阈值提高到 8.5，y 轴必须小于 4.0
+      final xAbs = event.x.abs();
+      final yAbs = event.y.abs();
+      final isLandscape = xAbs > yAbs && xAbs > 8.5 && yAbs < 4.0;
 
       if (isLandscape && !_wasLandscape && !chrome.immersive) {
         // 手机刚横置且当前是竖屏 → 自动进入横屏
+        // 根据 x 的正负判断方向：x > 0 是 landscapeRight，x < 0 是 landscapeLeft
         _wasLandscape = true;
         _lastOrientationChange = now;
-        _toggleFullscreen();
+        final orientation = event.x > 0
+            ? DeviceOrientation.landscapeRight
+            : DeviceOrientation.landscapeLeft;
+        chrome.enterFullscreen(preferredOrientation: orientation);
+        if (mounted) setState(() {});
       } else if (!isLandscape && _wasLandscape && chrome.immersive) {
         // 手机刚竖置且当前是横屏 → 自动退出横屏
         _wasLandscape = false;
         _lastOrientationChange = now;
-        _toggleFullscreen();
+        chrome.exitFullscreen();
+        if (mounted) setState(() {});
       } else if (!isLandscape) {
         _wasLandscape = false;
       } else if (isLandscape) {

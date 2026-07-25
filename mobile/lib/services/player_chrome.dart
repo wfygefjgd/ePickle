@@ -18,7 +18,7 @@ class PlayerChrome extends ChangeNotifier {
     }
   }
 
-  Future<void> enterFullscreen() async {
+  Future<void> enterFullscreen({DeviceOrientation? preferredOrientation}) async {
     if (_immersive) return;
     _immersive = true;
     notifyListeners();
@@ -29,10 +29,15 @@ class PlayerChrome extends ChangeNotifier {
     // emulator GPU deaths when forcing landscape from app code.
     if (!_isAndroid) {
       try {
-        await SystemChrome.setPreferredOrientations(const [
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
+        // 如果指定了方向，强制使用该方向；否则允许两个横屏方向
+        if (preferredOrientation != null) {
+          await SystemChrome.setPreferredOrientations([preferredOrientation]);
+        } else {
+          await SystemChrome.setPreferredOrientations(const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]);
+        }
       } catch (_) {}
     }
   }
@@ -59,11 +64,11 @@ class PlayerChrome extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleFullscreen() async {
+  Future<void> toggleFullscreen({DeviceOrientation? preferredOrientation}) async {
     if (_immersive) {
       await exitFullscreen();
     } else {
-      await enterFullscreen();
+      await enterFullscreen(preferredOrientation: preferredOrientation);
     }
   }
 
