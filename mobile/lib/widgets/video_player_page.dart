@@ -1,13 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
-import '../services/button_positions.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
-import 'draggable_button.dart';
 
 class VideoPlayerPage extends StatelessWidget {
   const VideoPlayerPage({
@@ -108,10 +107,10 @@ class VideoPlayerPage extends StatelessWidget {
           },
         ),
         if (immersive) ...[
-          // 可拖动的设置按钮
-          DraggableButton(
-            buttonKey: 'settings',
-            defaultPosition: const Offset(8, 8),
+          // 固定位置的设置按钮
+          Positioned(
+            left: 8,
+            top: 8,
             child: SafeArea(
               child: Material(
                 color: Colors.black45,
@@ -124,10 +123,10 @@ class VideoPlayerPage extends StatelessWidget {
               ),
             ),
           ),
-          // 可拖动的全屏按钮
-          DraggableButton(
-            buttonKey: 'fullscreen',
-            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 8),
+          // 固定位置的全屏按钮
+          Positioned(
+            right: 8,
+            top: 8,
             child: SafeArea(
               child: Material(
                 color: Colors.black45,
@@ -143,22 +142,14 @@ class VideoPlayerPage extends StatelessWidget {
           ),
           // 可拖动的快进按钮
           if (controller != null || pageLoading)
-            DraggableButton(
-              buttonKey: 'fastforward',
-              defaultPosition: const Offset(10, 500),
-              child: SafeArea(
-                child: FeedCircleButton(
-                  icon: Icons.forward_30,
-                  onTap: onFastForward,
-                  size: 24,
-                ),
-              ),
+            _DraggableFastForward(
+              onTap: onFastForward,
             ),
-          // 可拖动的音量按钮
+          // 固定位置的音量按钮
           if (controller != null || pageLoading)
-            DraggableButton(
-              buttonKey: 'mute',
-              defaultPosition: const Offset(70, 500),
+            Positioned(
+              right: 8,
+              bottom: 80,
               child: SafeArea(
                 child: FeedCircleButton(
                   icon: muted ? Icons.volume_off : Icons.volume_up,
@@ -169,10 +160,10 @@ class VideoPlayerPage extends StatelessWidget {
             ),
         ] else if (controller != null || pageLoading) ...[
           _buildTopBar(),
-          // 可拖动的全屏按钮
-          DraggableButton(
-            buttonKey: 'fullscreen',
-            defaultPosition: const Offset(10, 80),
+          // 固定位置的全屏按钮
+          Positioned(
+            left: 10,
+            top: 80,
             child: SafeArea(
               child: FeedCircleButton(
                 icon: Icons.fullscreen,
@@ -180,10 +171,10 @@ class VideoPlayerPage extends StatelessWidget {
               ),
             ),
           ),
-          // 可拖动的设置按钮
-          DraggableButton(
-            buttonKey: 'settings',
-            defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 80),
+          // 固定位置的设置按钮
+          Positioned(
+            right: 10,
+            top: 80,
             child: SafeArea(
               child: Material(
                 color: Colors.black45,
@@ -198,21 +189,13 @@ class VideoPlayerPage extends StatelessWidget {
             ),
           ),
           // 可拖动的快进按钮
-          DraggableButton(
-            buttonKey: 'fastforward',
-            defaultPosition: const Offset(10, 500),
-            child: SafeArea(
-              child: FeedCircleButton(
-                icon: Icons.forward_30,
-                onTap: onFastForward,
-                size: 24,
-              ),
-            ),
+          _DraggableFastForward(
+            onTap: onFastForward,
           ),
-          // 可拖动的音量按钮
-          DraggableButton(
-            buttonKey: 'mute',
-            defaultPosition: const Offset(70, 500),
+          // 固定位置的音量按钮
+          Positioned(
+            right: 10,
+            bottom: 80,
             child: SafeArea(
               child: FeedCircleButton(
                 icon: muted ? Icons.volume_off : Icons.volume_up,
@@ -287,6 +270,93 @@ class VideoPlayerPage extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 可拖动的快进按钮
+class _DraggableFastForward extends StatefulWidget {
+  const _DraggableFastForward({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_DraggableFastForward> createState() => _DraggableFastForwardState();
+}
+
+class _DraggableFastForwardState extends State<_DraggableFastForward> {
+  Offset _position = const Offset(10, 500);
+  bool _isDragging = false;
+  Offset? _dragStart;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPosition();
+  }
+
+  Future<void> _loadPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final x = prefs.getDouble('fastforward_x') ?? 10.0;
+    final y = prefs.getDouble('fastforward_y') ?? 500.0;
+    if (mounted) {
+      setState(() {
+        _position = Offset(x, y);
+      });
+    }
+  }
+
+  Future<void> _savePosition(Offset pos) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('fastforward_x', pos.dx);
+    await prefs.setDouble('fastforward_y', pos.dy);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Positioned(
+      left: _position.dx,
+      top: _position.dy,
+      child: GestureDetector(
+        onPanStart: (details) {
+          setState(() {
+            _isDragging = true;
+            _dragStart = details.globalPosition;
+          });
+        },
+        onPanUpdate: (details) {
+          setState(() {
+            _position = Offset(
+              (_position.dx + details.delta.dx).clamp(0.0, size.width - 48),
+              (_position.dy + details.delta.dy).clamp(0.0, size.height - 48),
+            );
+          });
+        },
+        onPanEnd: (details) {
+          final totalDrag = _dragStart == null
+              ? 0.0
+              : (details.velocity.pixelsPerSecond.distance);
+
+          setState(() {
+            _isDragging = false;
+          });
+
+          _savePosition(_position);
+
+          // 如果几乎没移动，触发点击
+          if (totalDrag < 50) {
+            widget.onTap();
+          }
+        },
+        child: SafeArea(
+          child: FeedCircleButton(
+            icon: Icons.forward_30,
+            onTap: _isDragging ? () {} : widget.onTap,
+            size: 24,
+          ),
         ),
       ),
     );

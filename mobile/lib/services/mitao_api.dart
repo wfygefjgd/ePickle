@@ -394,6 +394,18 @@ class MitaoApi {
       }
     }
     if (durationSec <= 0) {
+      // Try "XX:XX" or "XX:XX:XX" anywhere in HTML
+      final dm2b = RegExp(r'\b(\d{1,2}):(\d{2}):(\d{2})\b').firstMatch(html);
+      if (dm2b != null) {
+        final h = int.tryParse(dm2b.group(1) ?? '0') ?? 0;
+        final m = int.tryParse(dm2b.group(2) ?? '0') ?? 0;
+        final s = int.tryParse(dm2b.group(3) ?? '0') ?? 0;
+        if (h > 0 || m > 5) { // 至少5分钟才算有效
+          durationSec = h * 3600 + m * 60 + s;
+        }
+      }
+    }
+    if (durationSec <= 0) {
       // Try "XX分XX秒" pattern
       final dm3 = RegExp(r'(\d+)分(\d+)秒').firstMatch(html);
       if (dm3 != null) {
@@ -407,6 +419,27 @@ class MitaoApi {
       final dj = RegExp(r'"duration"["\s:]+["' "'" r']?(\d+)').firstMatch(html);
       if (dj != null) {
         durationSec = int.tryParse(dj.group(1) ?? '') ?? 0;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try vod_duration or duration with colon format anywhere
+      final dj2 = RegExp(r'["\s]duration["\s:]+["' "'" r']?(\d{1,2}:\d{2}(?::\d{2})?)').firstMatch(html);
+      if (dj2 != null) {
+        durationSec = _parseDurationText(dj2.group(1) ?? '');
+      }
+    }
+    if (durationSec <= 0) {
+      // Try class="duration" or similar
+      final dm4 = RegExp(r'class=["\'].*?duration.*?["\'][^>]*>(\d{1,2}:\d{2}(?::\d{2})?)<').firstMatch(html);
+      if (dm4 != null) {
+        durationSec = _parseDurationText(dm4.group(1) ?? '');
+      }
+    }
+    if (durationSec <= 0) {
+      // Try <span> or <div> with time format
+      final dm5 = RegExp(r'<(?:span|div)[^>]*>(\d{1,2}:\d{2}:\d{2})<').firstMatch(html);
+      if (dm5 != null) {
+        durationSec = _parseDurationText(dm5.group(1) ?? '');
       }
     }
 

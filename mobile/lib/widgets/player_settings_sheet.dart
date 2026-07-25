@@ -240,10 +240,11 @@ class _ProxyEditorState extends State<_ProxyEditor> {
     await widget.settings.setProxyPort(p ?? 0);
     widget.onApplied?.call();
     if (mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(widget.settings.proxySummary),
           duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -257,10 +258,11 @@ class _ProxyEditorState extends State<_ProxyEditor> {
     widget.onApplied?.call();
     if (mounted) {
       setState(() {});
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(widget.settings.proxySummary),
           duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }

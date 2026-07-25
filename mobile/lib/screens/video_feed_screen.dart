@@ -1215,10 +1215,24 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final currentPos = c.value.position;
     final duration = c.value.duration;
     final newPos = currentPos + const Duration(seconds: 30);
+
+    _seeking = true;
     if (newPos < duration) {
-      c.seekTo(newPos);
+      c.seekTo(newPos).then((_) {
+        if (mounted) {
+          Future.delayed(const Duration(milliseconds: 120), () {
+            if (mounted) _seeking = false;
+          });
+        }
+      });
     } else {
-      c.seekTo(duration);
+      c.seekTo(duration).then((_) {
+        if (mounted) {
+          Future.delayed(const Duration(milliseconds: 120), () {
+            if (mounted) _seeking = false;
+          });
+        }
+      });
     }
   }
 

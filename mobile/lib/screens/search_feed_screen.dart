@@ -16,6 +16,7 @@ import '../services/player_chrome.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Which backend to use for detail / headers.
 enum SearchSource { ph, x, zhong }
@@ -972,10 +973,24 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final currentPos = c.value.position;
     final duration = c.value.duration;
     final newPos = currentPos + const Duration(seconds: 30);
+
+    _seeking = true;
     if (newPos < duration) {
-      c.seekTo(newPos);
+      c.seekTo(newPos).then((_) {
+        if (mounted) {
+          Future.delayed(const Duration(milliseconds: 120), () {
+            if (mounted) _seeking = false;
+          });
+        }
+      });
     } else {
-      c.seekTo(duration);
+      c.seekTo(duration).then((_) {
+        if (mounted) {
+          Future.delayed(const Duration(milliseconds: 120), () {
+            if (mounted) _seeking = false;
+          });
+        }
+      });
     }
   }
 
@@ -1100,14 +1115,18 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ),
                 ),
                 if (_controller != null || _pageLoading)
+                  _DraggableFastForward(
+                    onTap: _fastForward,
+                  ),
+                if (_controller != null || _pageLoading)
                   Positioned(
-                    left: 10,
-                    bottom: 56,
+                    right: 8,
+                    bottom: 80,
                     child: SafeArea(
-                      child: FeedSideControls(
-                        muted: _muted,
-                        onMute: _toggleMute,
-                        onFastForward: _fastForward,
+                      child: FeedCircleButton(
+                        icon: _muted ? Icons.volume_off : Icons.volume_up,
+                        onTap: _toggleMute,
+                        size: 24,
                       ),
                     ),
                   ),
@@ -1163,14 +1182,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     ),
                   ),
                 ),
+                _DraggableFastForward(
+                  onTap: _fastForward,
+                ),
                 Positioned(
-                  left: 10,
-                  bottom: 56,
+                  right: 10,
+                  bottom: 80,
                   child: SafeArea(
-                    child: FeedSideControls(
-                      muted: _muted,
-                      onMute: _toggleMute,
-                      onFastForward: _fastForward,
+                    child: FeedCircleButton(
+                      icon: _muted ? Icons.volume_off : Icons.volume_up,
+                      onTap: _toggleMute,
+                      size: 24,
                     ),
                   ),
                 ),
@@ -1214,5 +1236,92 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     for (final key in toRemove) {
       _detailCache.remove(key);
     }
+  }
+}
+
+/// 可拖动的快进按钮
+class _DraggableFastForward extends StatefulWidget {
+  const _DraggableFastForward({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_DraggableFastForward> createState() => _DraggableFastForwardState();
+}
+
+class _DraggableFastForwardState extends State<_DraggableFastForward> {
+  Offset _position = const Offset(10, 500);
+  bool _isDragging = false;
+  Offset? _dragStart;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPosition();
+  }
+
+  Future<void> _loadPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final x = prefs.getDouble('search_fastforward_x') ?? 10.0;
+    final y = prefs.getDouble('search_fastforward_y') ?? 500.0;
+    if (mounted) {
+      setState(() {
+        _position = Offset(x, y);
+      });
+    }
+  }
+
+  Future<void> _savePosition(Offset pos) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('search_fastforward_x', pos.dx);
+    await prefs.setDouble('search_fastforward_y', pos.dy);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Positioned(
+      left: _position.dx,
+      top: _position.dy,
+      child: GestureDetector(
+        onPanStart: (details) {
+          setState(() {
+            _isDragging = true;
+            _dragStart = details.globalPosition;
+          });
+        },
+        onPanUpdate: (details) {
+          setState(() {
+            _position = Offset(
+              (_position.dx + details.delta.dx).clamp(0.0, size.width - 48),
+              (_position.dy + details.delta.dy).clamp(0.0, size.height - 48),
+            );
+          });
+        },
+        onPanEnd: (details) {
+          final totalDrag = _dragStart == null
+              ? 0.0
+              : (details.velocity.pixelsPerSecond.distance);
+
+          setState(() {
+            _isDragging = false;
+          });
+
+          _savePosition(_position);
+
+          // 如果几乎没移动，触发点击
+          if (totalDrag < 50) {
+            widget.onTap();
+          }
+        },
+        child: SafeArea(
+          child: FeedCircleButton(
+            icon: Icons.forward_30,
+            onTap: _isDragging ? () {} : widget.onTap,
+            size: 24,
+          ),
+        ),
+      ),
+    );
   }
 }
