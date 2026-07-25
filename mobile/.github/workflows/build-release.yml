@@ -1,14 +1,14 @@
-name: Build and Release APK
+name: Build & Release APK+IPA
 
 on:
   push:
-    branches: [ master, main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
 
@@ -30,30 +30,88 @@ jobs:
     - name: Build APK
       run: flutter build apk --release
 
-    - name: Get version
+    - name: Extract version from tag
       id: version
       run: |
-        VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        if [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+        else
+          VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        fi
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
       with:
-        tag_name: v${{ steps.version.outputs.version }}-${{ steps.version.outputs.date }}
-        release_name: Release v${{ steps.version.outputs.version }} (${{ steps.version.outputs.date }})
+        name: android-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-ios:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Get dependencies
+      run: flutter pub get
+
+    - name: Build IPA
+      run: flutter build ios --release --no-codesign
+
+    - name: Create IPA
+      run: |
+        mkdir Payload
+        cp -r build/ios/iphoneos/Runner.app Payload/
+        zip -r phub-player.ipa Payload
+
+    - name: Upload IPA artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ios-ipa
+        path: phub-player.ipa
+
+  release:
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          echo "tag=v${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+        else
+          VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Download APK
+      uses: actions/download-artifact@v3
+      with:
+        name: android-apk
+
+    - name: Download IPA
+      uses: actions/download-artifact@v3
+      with:
+        name: ios-ipa
+
+    - name: Create or Update Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: v${{ steps.version.outputs.version }}
+        files: |
+          app-release.apk
+          phub-player.ipa
         draft: false
         prerelease: false
-
-    - name: Upload APK to Release
-      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: build/app/outputs/flutter-apk/app-release.apk
-        asset_name: phub-player-v${{ steps.version.outputs.version }}.apk
-        asset_content_type: application/vnd.android.package-archive
