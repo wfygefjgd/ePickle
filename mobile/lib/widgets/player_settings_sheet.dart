@@ -159,6 +159,19 @@ Future<void> showPlayerSettingsSheet(
                             },
                           ),
                         const SizedBox(height: 16),
+                        // Version number display
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              'v1.7.8',
+                              style: TextStyle(
+                                color: Colors.white24,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   );

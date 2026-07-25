@@ -374,12 +374,42 @@ class MitaoApi {
         durationSec = _parseDurationText(ds);
       }
     }
+
+    // Additional fallback: try multiple patterns in raw HTML
     if (durationSec <= 0) {
+      // Try vod_duration field
       final dm = RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)').firstMatch(html);
       if (dm != null) {
         durationSec = int.tryParse(dm.group(1) ?? '') ?? 0;
       }
     }
+    if (durationSec <= 0) {
+      // Try "时长：XX:XX:XX" or "时长：XX分XX秒" patterns
+      final dm2 = RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})').firstMatch(html);
+      if (dm2 != null) {
+        final h = int.tryParse(dm2.group(1) ?? '0') ?? 0;
+        final m = int.tryParse(dm2.group(2) ?? '0') ?? 0;
+        final s = int.tryParse(dm2.group(3) ?? '0') ?? 0;
+        durationSec = h * 3600 + m * 60 + s;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try "XX分XX秒" pattern
+      final dm3 = RegExp(r'(\d+)分(\d+)秒').firstMatch(html);
+      if (dm3 != null) {
+        final m = int.tryParse(dm3.group(1) ?? '0') ?? 0;
+        final s = int.tryParse(dm3.group(2) ?? '0') ?? 0;
+        durationSec = m * 60 + s;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try duration in JSON data
+      final dj = RegExp(r'"duration"["\s:]+["' "'" r']?(\d+)').firstMatch(html);
+      if (dj != null) {
+        durationSec = int.tryParse(dj.group(1) ?? '') ?? 0;
+      }
+    }
+
     if (title.isEmpty) {
       final tm = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)
           .firstMatch(html);

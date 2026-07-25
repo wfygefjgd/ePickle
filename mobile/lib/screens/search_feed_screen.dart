@@ -350,7 +350,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       preloaded.setVolume(_muted ? 0 : 1);
       if (preloadDetail != null) {
         final skip = context.read<AppSettings>().skipIntro;
-        await PlaybackHelpers.skipIntro(preloaded, enabled: skip);
+        final totalSec = preloaded.value.duration.inSeconds;
+        if (totalSec >= 3000) {
+          // >50min: jump to 1min
+          try {
+            await preloaded.seekTo(const Duration(seconds: 60));
+          } catch (_) {}
+        } else {
+          await PlaybackHelpers.skipIntro(preloaded, enabled: skip);
+        }
       }
       if (!mounted || seq != _seq) {
         try {
@@ -523,7 +531,18 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _muted = context.read<AppSettings>().muted;
     player.setVolume(_muted ? 0 : 1);
     final skip = context.read<AppSettings>().skipIntro;
-    await PlaybackHelpers.skipIntro(player, enabled: skip);
+
+    // For videos >50min, skip to 1min mark instead of just the intro
+    final totalSec = player.value.duration.inSeconds;
+    if (totalSec >= 3000) {
+      // >50min: jump to 1min (60s)
+      try {
+        await player.seekTo(const Duration(seconds: 60));
+      } catch (_) {}
+    } else {
+      await PlaybackHelpers.skipIntro(player, enabled: skip);
+    }
+
     if (!mounted || seq != _seq) {
       await player.dispose();
       return;
@@ -1082,7 +1101,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 ),
                 if (_controller != null || _pageLoading)
                   Positioned(
-                    right: 10,
+                    left: 10,
                     bottom: 56,
                     child: SafeArea(
                       child: FeedSideControls(
@@ -1117,7 +1136,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   right: 6,
                   child: SafeArea(
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: 40),
                       child: Material(
                         color: Colors.black45,
                         shape: const CircleBorder(),
@@ -1145,7 +1164,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ),
                 ),
                 Positioned(
-                  right: 10,
+                  left: 10,
                   bottom: 56,
                   child: SafeArea(
                     child: FeedSideControls(

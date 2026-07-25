@@ -133,31 +133,31 @@ class _HomeShellState extends State<HomeShell> {
                         icon: Icon(Icons.local_fire_department_outlined),
                         selectedIcon: Icon(Icons.local_fire_department,
                             color: Color(0xFFFF6B35)),
-                        label: '热',
+                        label: '',
                       ),
                       NavigationDestination(
                         icon: Icon(Icons.public_outlined),
                         selectedIcon:
                             Icon(Icons.public, color: Color(0xFFFF6B35)),
-                        label: '亚',
+                        label: '',
                       ),
                       NavigationDestination(
-                        icon: Icon(Icons.play_circle_outline),
-                        selectedIcon: Icon(Icons.play_circle,
+                        icon: Icon(Icons.cancel_outlined),
+                        selectedIcon: Icon(Icons.cancel,
                             color: Color(0xFFFF6B35)),
-                        label: 'X',
+                        label: '',
                       ),
                       NavigationDestination(
-                        icon: Icon(Icons.subtitles_outlined),
+                        icon: Icon(Icons.category_outlined),
                         selectedIcon:
-                            Icon(Icons.subtitles, color: Color(0xFFFF6B35)),
-                        label: '中',
+                            Icon(Icons.category, color: Color(0xFFFF6B35)),
+                        label: '',
                       ),
                       NavigationDestination(
                         icon: Icon(Icons.search),
                         selectedIcon:
                             Icon(Icons.search, color: Color(0xFFFF6B35)),
-                        label: '搜',
+                        label: '',
                       ),
                     ],
                   ),

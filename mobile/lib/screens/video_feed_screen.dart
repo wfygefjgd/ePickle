@@ -12,6 +12,7 @@ import '../services/phub_api.dart';
 import '../services/translator.dart';
 import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
+import '../services/cache_manager.dart';
 import '../services/feed_list_cache.dart';
 import '../services/player_chrome.dart';
 import '../utils/http_headers.dart';
@@ -973,7 +974,19 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _failStreak = 0;
     _muted = settings.muted;
     player.setVolume(_muted ? 0 : 1);
-    await PlaybackHelpers.skipIntro(player, enabled: settings.skipIntro);
+
+    // For videos >50min, skip to 1min mark instead of just the intro
+    final totalSec = player.value.duration.inSeconds;
+    if (totalSec >= 3000) {
+      // >50min: jump to 1min (60s)
+      try {
+        await player.seekTo(const Duration(seconds: 60));
+      } catch (_) {}
+    } else {
+      // Normal intro skip
+      await PlaybackHelpers.skipIntro(player, enabled: settings.skipIntro);
+    }
+
     if (!mounted || seq != _loadSeq || !_active) {
       await player.dispose();
       return;
@@ -989,6 +1002,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _startProgressTimer();
     WakelockPlus.enable();
     if (mounted) setState(() {});
+
+    // Auto-check cache after video load
+    CacheManager.checkAndCleanIfNeeded();
 
     // Clean up old detail cache to prevent memory growth
     _cleanupDetailCache(index);

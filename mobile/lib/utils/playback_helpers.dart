@@ -6,9 +6,11 @@ import '../models/video_item.dart';
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
   /// Skip intro ads based on video duration:
-  /// - Videos >= 20min: skip 35s
-  /// - Videos < 20min but >= 2min: skip 25s
-  /// - Videos < 2min: no skip
+  /// - < 100s: skip 10s
+  /// - 100s - 10min: skip 15s
+  /// - 10min - 15min: skip 25s
+  /// - 15min - 50min: skip 40s
+  /// - > 50min: skip 70s
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
     bool enabled = true,
@@ -17,16 +19,21 @@ class PlaybackHelpers {
     final dur = ctrl.value.duration;
     final total = dur.inSeconds;
 
-    // Videos < 2 minutes: no skip
-    if (total < 120) return;
-
     int skipSeconds;
-    if (total >= 1200) {
-      // Videos >= 20 minutes: skip 35 seconds
-      skipSeconds = 35;
-    } else {
-      // Videos 2-20 minutes: skip 25 seconds
+    if (total < 100) {
+      skipSeconds = 10;
+    } else if (total < 600) {
+      // 100s - 10min
+      skipSeconds = 15;
+    } else if (total < 900) {
+      // 10min - 15min
       skipSeconds = 25;
+    } else if (total < 3000) {
+      // 15min - 50min
+      skipSeconds = 40;
+    } else {
+      // > 50min
+      skipSeconds = 70;
     }
 
     // Safety: leave at least 5s of content
@@ -174,7 +181,7 @@ class FeedCircleButton extends StatelessWidget {
   }
 }
 
-/// Right-side control: mute + fast forward (30s).
+/// Side controls: fast forward (left) + mute (right), same horizontal line.
 /// Fullscreen lives under the title on the left.
 class FeedSideControls extends StatelessWidget {
   const FeedSideControls({
@@ -190,18 +197,18 @@ class FeedSideControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         FeedCircleButton(
-          icon: muted ? Icons.volume_off : Icons.volume_up,
-          onTap: onMute,
-          size: 24,
-        ),
-        const SizedBox(height: 8),
-        FeedCircleButton(
           icon: Icons.forward_30,
           onTap: onFastForward,
+          size: 24,
+        ),
+        const SizedBox(width: 8),
+        FeedCircleButton(
+          icon: muted ? Icons.volume_off : Icons.volume_up,
+          onTap: onMute,
           size: 24,
         ),
       ],

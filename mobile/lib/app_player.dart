@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/home_shell.dart';
 import 'services/app_settings.dart';
+import 'services/button_positions.dart';
 import 'services/mitao_api.dart';
 import 'services/phub_api.dart';
 import 'services/player_chrome.dart';
@@ -18,44 +19,41 @@ class PlayerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<AppSettings>.value(
-      value: settings,
-      child: ChangeNotifierProvider(
-        create: (_) => PlayerChrome(),
-        child: MultiProvider(
-          providers: [
-            Provider(create: (_) => PhubApi()),
-            Provider(create: (_) => XvideosApi()),
-            Provider(create: (_) => MitaoApi()),
-            Provider(create: (_) => Translator()),
-          ],
-          child: MaterialApp(
-            title: 'PHUB Player',
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              useMaterial3: true,
-              brightness: Brightness.dark,
-              scaffoldBackgroundColor: const Color(0xFF1E1E1E),
-              colorScheme: const ColorScheme.dark(
-                primary: Color(0xFFFF6B35),
-                secondary: Color(0xFFFF6B35),
-                surface: Color(0xFF1E1E1E),
-              ),
-              appBarTheme: const AppBarTheme(
-                backgroundColor: Color(0xFF1E1E1E),
-                foregroundColor: Colors.white,
-                elevation: 0,
-              ),
-              pageTransitionsTheme: const PageTransitionsTheme(
-                builders: {
-                  TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-                  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                },
-              ),
-            ),
-            home: const HomeShell(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AppSettings>.value(value: settings),
+        ChangeNotifierProvider(create: (_) => PlayerChrome()),
+        ChangeNotifierProvider(create: (_) => ButtonPositions()),
+        Provider(create: (_) => PhubApi()),
+        Provider(create: (_) => XvideosApi()),
+        Provider(create: (_) => MitaoApi()),
+        Provider(create: (_) => Translator()),
+      ],
+      child: MaterialApp(
+        title: 'PHUB Player',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFFFF6B35),
+            secondary: Color(0xFFFF6B35),
+            surface: Color(0xFF1E1E1E),
+          ),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1E1E1E),
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+              TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            },
           ),
         ),
+        home: const HomeShell(),
       ),
     );
   }

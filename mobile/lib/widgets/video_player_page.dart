@@ -138,7 +138,7 @@ class VideoPlayerPage extends StatelessWidget {
           ),
           if (controller != null || pageLoading)
             Positioned(
-              right: 10,
+              left: 10,
               bottom: 56,
               child: SafeArea(
                 child: FeedSideControls(
@@ -183,7 +183,7 @@ class VideoPlayerPage extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 10,
+            left: 10,
             bottom: 56,
             child: SafeArea(
               child: FeedSideControls(
