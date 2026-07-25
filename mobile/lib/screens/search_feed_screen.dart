@@ -1322,11 +1322,18 @@ class _LongPressDraggableButtonState
           if (!_isDragging) return;
           setState(() {
             _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
-            // 限制拖动范围
+            // 限制拖动范围：确保按钮不会超出屏幕边界
             final size = MediaQuery.of(context).size;
+            final padding = MediaQuery.of(context).padding;
             _currentDragOffset = Offset(
-              _currentDragOffset.dx.clamp(-size.width + 48, size.width - 48),
-              _currentDragOffset.dy.clamp(-size.height + 48, size.height - 48),
+              _currentDragOffset.dx.clamp(
+                -widget.defaultOffset.dx,
+                size.width - widget.defaultOffset.dx - 48 - padding.right,
+              ),
+              _currentDragOffset.dy.clamp(
+                -widget.defaultOffset.dy,
+                size.height - widget.defaultOffset.dy - 48 - padding.bottom,
+              ),
             );
           });
         },
@@ -1337,15 +1344,15 @@ class _LongPressDraggableButtonState
           });
           _saveOffset(_currentDragOffset);
         },
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Material(
-            color: Colors.black54,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _isDragging ? null : widget.onTap,
+        child: AnimatedScale(
+          scale: _isDragging ? 1.1 : 1.0,
+          duration: const Duration(milliseconds: 150),
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Material(
+              color: _isDragging ? Colors.black87 : Colors.black54,
+              shape: const CircleBorder(),
               child: Center(
                 child: Icon(widget.icon, color: Colors.white, size: 22),
               ),
