@@ -252,20 +252,23 @@ class _ProxyEditorState extends State<_ProxyEditor> {
 
   Future<void> _redetect() async {
     await widget.settings.refreshSystemProxy();
+    if (!mounted) return;
+
     _host.text = widget.settings.proxyHost;
     _port.text =
         widget.settings.proxyPort > 0 ? '${widget.settings.proxyPort}' : '';
     widget.onApplied?.call();
-    if (mounted) {
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(widget.settings.proxySummary),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+
+    setState(() {});
+
+    // Use root context to show SnackBar outside the bottom sheet
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(widget.settings.proxySummary),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override

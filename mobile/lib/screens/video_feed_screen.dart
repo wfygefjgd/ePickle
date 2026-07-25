@@ -1034,11 +1034,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _lastPosMs = 0;
     // 200ms feels smoother than 400ms; skip UI while user is dragging.
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized || _seeking) {
+      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized) {
         _progressTimer?.cancel();
         _progressTimer = null;
         return;
       }
+      // Skip update while seeking, but keep timer alive
+      if (_seeking) return;
+
       final pos = ctrl.value.position;
       final dur = ctrl.value.duration;
       if (dur.inMilliseconds <= 0) return;

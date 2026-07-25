@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/video_item.dart';
@@ -265,6 +266,82 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
+  void _shareCurrentVideo(_Src src) {
+    final items = _results[src] ?? [];
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('该源暂无结果'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // 分享第一个视频的URL
+    final videoUrl = items[0].url;
+
+    // 复制到剪贴板
+    Clipboard.setData(ClipboardData(text: videoUrl));
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '分享视频',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    videoUrl,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '链接已复制到剪贴板',
+                  style: TextStyle(color: Color(0xFF00E676), fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B35),
+                  ),
+                  child: const Text('关闭'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final src = _active;
@@ -285,29 +362,32 @@ class _SearchScreenState extends State<SearchScreen>
           unselectedLabelColor: Colors.white54,
           tabs: [
             for (final s in _Src.values)
-              Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_labels[s]!),
-                    if ((_loading[s] ?? false)) ...[
-                      const SizedBox(width: 6),
-                      const SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: Color(0xFFFF6B35),
+              GestureDetector(
+                onLongPress: () => _shareCurrentVideo(s),
+                child: Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_labels[s]!),
+                      if ((_loading[s] ?? false)) ...[
+                        const SizedBox(width: 6),
+                        const SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: Color(0xFFFF6B35),
+                          ),
                         ),
-                      ),
-                    ] else if ((_results[s] ?? []).isNotEmpty) ...[
-                      const SizedBox(width: 4),
-                      Text(
-                        '${_results[s]!.length}',
-                        style: const TextStyle(fontSize: 11, color: Colors.white38),
-                      ),
+                      ] else if ((_results[s] ?? []).isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          '${_results[s]!.length}',
+                          style: const TextStyle(fontSize: 11, color: Colors.white38),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
           ],

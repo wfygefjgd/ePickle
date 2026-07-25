@@ -442,6 +442,48 @@ class MitaoApi {
         durationSec = _parseDurationText(dm5.group(1) ?? '');
       }
     }
+    if (durationSec <= 0) {
+      // Try <p> tag with time format
+      final dm6 = RegExp(r'<p[^>]*>.*?(\d{1,2}:\d{2}:\d{2}).*?</p>').firstMatch(html);
+      if (dm6 != null) {
+        durationSec = _parseDurationText(dm6.group(1) ?? '');
+      }
+    }
+    if (durationSec <= 0) {
+      // Try meta tag with duration
+      final dm7 = RegExp(r'<meta[^>]*(?:property|name)="(?:video:)?duration"[^>]*content="(\d+)"').firstMatch(html);
+      if (dm7 != null) {
+        durationSec = int.tryParse(dm7.group(1) ?? '') ?? 0;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try video tag with duration attribute
+      final dm8 = RegExp(r'<video[^>]*duration="(\d+)"').firstMatch(html);
+      if (dm8 != null) {
+        durationSec = int.tryParse(dm8.group(1) ?? '') ?? 0;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try data-duration attribute anywhere
+      final dm9 = RegExp(r'data-duration="(\d+)"').firstMatch(html);
+      if (dm9 != null) {
+        durationSec = int.tryParse(dm9.group(1) ?? '') ?? 0;
+      }
+    }
+    if (durationSec <= 0) {
+      // Try "播放时长" or similar Chinese labels
+      final dm10 = RegExp(r'(?:播放时长|时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)').firstMatch(html);
+      if (dm10 != null) {
+        durationSec = _parseDurationText(dm10.group(1) ?? '');
+      }
+    }
+    if (durationSec <= 0) {
+      // Try JavaScript variable like var duration = 1234
+      final dm11 = RegExp(r'(?:var|let|const)\s+duration\s*=\s*(\d+)').firstMatch(html);
+      if (dm11 != null) {
+        durationSec = int.tryParse(dm11.group(1) ?? '') ?? 0;
+      }
+    }
 
     if (title.isEmpty) {
       final tm = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)

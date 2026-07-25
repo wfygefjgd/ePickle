@@ -877,11 +877,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (ctrl == null) return;
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized || _seeking) {
+      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized) {
         _progressTimer?.cancel();
         _progressTimer = null;
         return;
       }
+      // Skip update while seeking, but keep timer alive
+      if (_seeking) return;
+
       final pos = ctrl.value.position;
       final dur = ctrl.value.duration;
       if (dur.inMilliseconds <= 0) return;
@@ -1082,53 +1085,31 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 },
               ),
               if (immersive) ...[
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        tooltip: '设置 / 画质',
-                        icon: const Icon(Icons.tune,
-                            color: Colors.white70, size: 20),
-                        onPressed: _openPlayerSettings,
-                      ),
-                    ),
-                  ),
+                _DraggableButton(
+                  storageKey: 'search_settings_button',
+                  defaultPosition: const Offset(8, 8),
+                  icon: Icons.tune,
+                  tooltip: '设置 / 画质',
+                  onTap: _openPlayerSettings,
                 ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        tooltip: '退出全屏',
-                        icon: const Icon(Icons.fullscreen_exit,
-                            color: Colors.white70, size: 22),
-                        onPressed: _toggleFullscreen,
-                      ),
-                    ),
-                  ),
+                _DraggableButton(
+                  storageKey: 'search_fullscreen_button',
+                  defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 8),
+                  icon: Icons.fullscreen_exit,
+                  tooltip: '退出全屏',
+                  onTap: _toggleFullscreen,
                 ),
                 if (_controller != null || _pageLoading)
                   _DraggableFastForward(
                     onTap: _fastForward,
                   ),
                 if (_controller != null || _pageLoading)
-                  Positioned(
-                    right: 8,
-                    bottom: 80,
-                    child: SafeArea(
-                      child: FeedCircleButton(
-                        icon: _muted ? Icons.volume_off : Icons.volume_up,
-                        onTap: _toggleMute,
-                        size: 24,
-                      ),
-                    ),
+                  _DraggableButton(
+                    storageKey: 'search_mute_button_immersive',
+                    defaultPosition: Offset(MediaQuery.of(context).size.width - 56, MediaQuery.of(context).size.height - 128),
+                    icon: _muted ? Icons.volume_off : Icons.volume_up,
+                    tooltip: '音量',
+                    onTap: _toggleMute,
                   ),
               ] else if (_controller != null || _pageLoading) ...[
                 Positioned(
@@ -1150,51 +1131,29 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     ),
                   ),
                 ),
-                Positioned(
-                  top: 0,
-                  right: 6,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: Material(
-                        color: Colors.black45,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          tooltip: '设置 / 画质',
-                          icon: const Icon(Icons.tune,
-                              color: Colors.white70, size: 20),
-                          onPressed: _openPlayerSettings,
-                        ),
-                      ),
-                    ),
-                  ),
+                _DraggableButton(
+                  storageKey: 'search_settings_button_normal',
+                  defaultPosition: Offset(MediaQuery.of(context).size.width - 56, 40),
+                  icon: Icons.tune,
+                  tooltip: '设置 / 画质',
+                  onTap: _openPlayerSettings,
                 ),
-                Positioned(
-                  left: 10,
-                  top: 0,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: FeedCircleButton(
-                        icon: Icons.fullscreen,
-                        onTap: _toggleFullscreen,
-                      ),
-                    ),
-                  ),
+                _DraggableButton(
+                  storageKey: 'search_fullscreen_button_normal',
+                  defaultPosition: const Offset(10, 40),
+                  icon: Icons.fullscreen,
+                  tooltip: '全屏',
+                  onTap: _toggleFullscreen,
                 ),
                 _DraggableFastForward(
                   onTap: _fastForward,
                 ),
-                Positioned(
-                  right: 10,
-                  bottom: 80,
-                  child: SafeArea(
-                    child: FeedCircleButton(
-                      icon: _muted ? Icons.volume_off : Icons.volume_up,
-                      onTap: _toggleMute,
-                      size: 24,
-                    ),
-                  ),
+                _DraggableButton(
+                  storageKey: 'search_mute_button_normal',
+                  defaultPosition: Offset(MediaQuery.of(context).size.width - 56, MediaQuery.of(context).size.height - 128),
+                  icon: _muted ? Icons.volume_off : Icons.volume_up,
+                  tooltip: '音量',
+                  onTap: _toggleMute,
                 ),
                 Positioned(
                   left: 0,
@@ -1319,6 +1278,116 @@ class _DraggableFastForwardState extends State<_DraggableFastForward> {
             icon: Icons.forward_30,
             onTap: _isDragging ? () {} : widget.onTap,
             size: 24,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 通用可拖动按钮组件
+class _DraggableButton extends StatefulWidget {
+  const _DraggableButton({
+    required this.storageKey,
+    required this.defaultPosition,
+    required this.icon,
+    required this.onTap,
+    this.tooltip,
+  });
+
+  final String storageKey;
+  final Offset defaultPosition;
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? tooltip;
+
+  @override
+  State<_DraggableButton> createState() => _DraggableButtonState();
+}
+
+class _DraggableButtonState extends State<_DraggableButton> {
+  late Offset _position;
+  bool _isDragging = false;
+  Offset? _dragStart;
+
+  @override
+  void initState() {
+    super.initState();
+    _position = widget.defaultPosition;
+    _loadPosition();
+  }
+
+  Future<void> _loadPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final x = prefs.getDouble('${widget.storageKey}_x');
+    final y = prefs.getDouble('${widget.storageKey}_y');
+    if (x != null && y != null && mounted) {
+      setState(() {
+        _position = Offset(x, y);
+      });
+    }
+  }
+
+  Future<void> _savePosition(Offset pos) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('${widget.storageKey}_x', pos.dx);
+    await prefs.setDouble('${widget.storageKey}_y', pos.dy);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Positioned(
+      left: _position.dx,
+      top: _position.dy,
+      child: GestureDetector(
+        onPanStart: (details) {
+          setState(() {
+            _isDragging = true;
+            _dragStart = details.globalPosition;
+          });
+        },
+        onPanUpdate: (details) {
+          setState(() {
+            _position = Offset(
+              (_position.dx + details.delta.dx).clamp(0.0, size.width - 48),
+              (_position.dy + details.delta.dy).clamp(0.0, size.height - 48),
+            );
+          });
+        },
+        onPanEnd: (details) {
+          final totalDrag = _dragStart == null
+              ? 0.0
+              : (details.velocity.pixelsPerSecond.distance);
+
+          setState(() {
+            _isDragging = false;
+          });
+
+          _savePosition(_position);
+
+          // 如果几乎没移动，触发点击
+          if (totalDrag < 50) {
+            widget.onTap();
+          }
+        },
+        child: SafeArea(
+          child: Material(
+            color: Colors.black45,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _isDragging ? null : widget.onTap,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: Icon(
+                  widget.icon,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+              ),
+            ),
           ),
         ),
       ),
