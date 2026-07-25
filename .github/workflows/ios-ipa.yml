@@ -30,10 +30,49 @@ jobs:
       - name: Build iOS release (device, no codesign)
         working-directory: mobile
         run: |
-          flutter build ios --release --no-codesign || {
-            echo "Direct build failed, trying with export-options-plist"
-            flutter build ipa --release --export-method development --no-codesign
-          }
+          # Flutter assemble only (skip validation)
+          flutter build ios --release --no-codesign --config-only
+
+          # Direct xcodebuild without signing
+          cd ios
+          xcodebuild clean archive \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath "$PWD/build/Runner.xcarchive" \
+            -allowProvisioningUpdates \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" | xcpretty || true
+
+          # Extract .app from archive
+          if [ -d "build/Runner.xcarchive/Products/Applications/Runner.app" ]; then
+            mkdir -p ../build/ios/iphoneos
+            cp -r build/Runner.xcarchive/Products/Applications/Runner.app ../build/ios/iphoneos/
+            echo "✅ Runner.app extracted successfully"
+            ls -la ../build/ios/iphoneos/Runner.app
+          else
+            echo "❌ Archive failed, trying direct build"
+            xcodebuild build \
+              -workspace Runner.xcworkspace \
+              -scheme Runner \
+              -configuration Release \
+              -destination generic/platform=iOS \
+              CONFIGURATION_BUILD_DIR="$PWD/../build/ios/iphoneos" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              DEVELOPMENT_TEAM="" | xcpretty || true
+          fi
+
+          cd ..
+          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "❌ Failed to create Runner.app"
+            exit 1
+          fi
+          echo "✅ Build complete"
 
       - name: Package sideload IPA (unsigned)
         working-directory: mobile
