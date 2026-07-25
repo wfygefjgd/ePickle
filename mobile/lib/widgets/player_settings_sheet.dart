@@ -177,7 +177,7 @@ Future<void> showPlayerSettingsSheet(
                           child: Padding(
                             padding: EdgeInsets.only(bottom: 8),
                             child: Text(
-                              'v1.8.7',
+                              'v1.8.8',
                               style: TextStyle(
                                 color: Colors.white24,
                                 fontSize: 11,

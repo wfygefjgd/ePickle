@@ -101,6 +101,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   PlayerChrome? _chrome;
   StreamSubscription<AccelerometerEvent>? _accelSubscription;
   bool _wasLandscape = false;
+  DateTime? _lastOrientationChange;
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
@@ -263,20 +264,33 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       final chrome = _chrome;
       if (chrome == null) return;
 
-      // 检测横屏：x 轴重力大于 y 轴（手机横置）
-      final isLandscape = event.x.abs() > event.y.abs() && event.x.abs() > 6.0;
+      // 防抖：距离上次方向改变至少 800ms
+      final now = DateTime.now();
+      if (_lastOrientationChange != null &&
+          now.difference(_lastOrientationChange!) < const Duration(milliseconds: 800)) {
+        return;
+      }
+
+      // 检测横屏：x 或 y 轴重力绝对值差异明显
+      // x.abs() > y.abs() 表示横屏（左横或右横都支持）
+      // 阈值提高到 7.5，避免轻微抖动触发
+      final isLandscape = event.x.abs() > event.y.abs() &&
+                          event.x.abs() > 7.5 &&
+                          (event.y.abs() < 5.0);  // y 轴重力小，确保不是倾斜
 
       if (isLandscape && !_wasLandscape && !chrome.immersive) {
         // 手机刚横置且当前是竖屏 → 自动进入横屏
         _wasLandscape = true;
+        _lastOrientationChange = now;
         _toggleFullscreen();
       } else if (!isLandscape && _wasLandscape && chrome.immersive) {
         // 手机刚竖置且当前是横屏 → 自动退出横屏
         _wasLandscape = false;
+        _lastOrientationChange = now;
         _toggleFullscreen();
-      } else if (!isLandscape && !_wasLandscape) {
+      } else if (!isLandscape) {
         _wasLandscape = false;
-      } else if (isLandscape && _wasLandscape) {
+      } else if (isLandscape) {
         _wasLandscape = true;
       }
     });
