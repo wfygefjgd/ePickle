@@ -5,7 +5,10 @@ import '../models/video_item.dart';
 
 /// Shared playback helpers for feed / search-feed.
 class PlaybackHelpers {
-  /// Skip ~15s intro ads when [enabled]. Short clips stay near start.
+  /// Skip intro ads based on video duration:
+  /// - Videos >= 10min: skip 20s
+  /// - Videos 2-10min: skip 15s
+  /// - Videos < 2min: no skip
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
     bool enabled = true,
@@ -13,12 +16,24 @@ class PlaybackHelpers {
     if (!enabled || !ctrl.value.isInitialized) return;
     final dur = ctrl.value.duration;
     final total = dur.inSeconds;
-    if (total <= 20) return;
-    // Prefer 15s; leave at least 5s of content
-    final targetSec = total <= 25 ? 8 : 15;
-    if (total - targetSec < 5) return;
+
+    // Videos < 2 minutes: no skip
+    if (total < 120) return;
+
+    // Videos >= 10 minutes: skip 20 seconds
+    int skipSeconds;
+    if (total >= 600) {
+      skipSeconds = 20;
+    } else {
+      // Videos 2-10 minutes: skip 15 seconds
+      skipSeconds = 15;
+    }
+
+    // Safety: leave at least 5s of content
+    if (total - skipSeconds < 5) return;
+
     try {
-      await ctrl.seekTo(Duration(seconds: targetSec));
+      await ctrl.seekTo(Duration(seconds: skipSeconds));
     } catch (_) {}
   }
 

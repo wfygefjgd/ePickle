@@ -75,6 +75,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   StreamQuality? _preloadStream;
   int _preloadRetries = 0;
 
+  VideoPlayerController? _preloadController2;
+  int? _preloadIndex2;
+  StreamQuality? _preloadStream2;
+  int _preloadRetries2 = 0;
+
   late final Map<String, String> _headers = _buildHeaders();
 
   Map<String, String> _buildHeaders() {
@@ -310,6 +315,27 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       WakelockPlus.enable();
       if (mounted) setState(() {});
 
+      // Promote preload2 to preload1
+      if (_preloadController2 != null && _preloadIndex2 == index + 1) {
+        _preloadController = _preloadController2;
+        _preloadIndex = _preloadIndex2;
+        _preloadStream = _preloadStream2;
+        _preloadRetries = _preloadRetries2;
+        _preloadController2 = null;
+        _preloadIndex2 = null;
+        _preloadStream2 = null;
+        _preloadRetries2 = 0;
+      } else {
+        // Preload next if not already preloaded
+        await _prefetchDetail(index + 1);
+        // ignore: unawaited_futures
+        _preloadNext(index + 1);
+      }
+      // Always preload index+2
+      await _prefetchDetail(index + 2);
+      // ignore: unawaited_futures
+      _preloadNext2(index + 2);
+
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
       return;
@@ -367,11 +393,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
 
-    // Start preloading next video immediately after detail is loaded
+    // Start preloading next two videos immediately after detail is loaded
     // Wait for detail to be fetched before preloading
     await _prefetchDetail(index + 1);
+    await _prefetchDetail(index + 2);
     // ignore: unawaited_futures
     _preloadNext(index + 1);
+    // ignore: unawaited_futures
+    _preloadNext2(index + 2);
 
     final cap = context.read<AppSettings>().qualityCap;
     final stream =
@@ -491,6 +520,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
+
+    final p2 = _preloadController2;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    if (p2 != null) {
+      // ignore: unawaited_futures
+      p2.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p2.dispose();
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _preloadNext(int index) async {
@@ -559,6 +601,78 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex = index;
     _preloadStream = stream;
     _preloadRetries = 0;
+    try {
+      await player.pause();
+      player.setVolume(0);
+    } catch (_) {}
+  }
+
+  Future<void> _preloadNext2(int index) async {
+    if (index < 0 || index >= _items.length || index == _index) return;
+    if (_preloadIndex2 == index && _preloadController2 != null) return;
+    final seq = _seq;
+    final detail = _detailCache[index];
+    if (detail == null) return;
+    if (detail.countryBlocked || detail.unavailable) return;
+    final cap = context.read<AppSettings>().qualityCap;
+    final stream =
+        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    if (stream == null) return;
+    if (_preloadIndex2 == index &&
+        _preloadController2 != null &&
+        _preloadStream2?.url == stream.url) {
+      return;
+    }
+    final existing = _preloadController2;
+    final existingIndex = _preloadIndex2;
+    _preloadController2 = null;
+    _preloadIndex2 = null;
+    _preloadStream2 = null;
+    _preloadRetries2 = 0;
+    if (existing != null && existingIndex != index) {
+      // ignore: unawaited_futures
+      existing.pause().catchError((_) {}).whenComplete(() {
+        try {
+          existing.dispose();
+        } catch (_) {}
+      });
+    }
+    if (seq != _seq) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: _headers,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    try {
+      await player.initialize();
+      _preloadRetries2 = 0;
+    } catch (e) {
+      // Retry up to 2 times for transient failures
+      if (_preloadRetries2 < 2 && seq == _seq) {
+        _preloadRetries2++;
+        try {
+          await player.dispose();
+        } catch (_) {}
+        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries2));
+        if (seq == _seq && mounted) {
+          return _preloadNext2(index);
+        }
+      }
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _seq || !mounted) {
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    _preloadController2 = player;
+    _preloadIndex2 = index;
+    _preloadStream2 = stream;
+    _preloadRetries2 = 0;
     try {
       await player.pause();
       player.setVolume(0);
