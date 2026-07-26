@@ -276,32 +276,184 @@ class SourceCatalog {
       'https://www.eporner.com',
       'https://eporner.com',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '热',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '新',
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asian',
-        label: '亚',
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'best',
-        label: '榜',
-        icon: Icons.emoji_events_outlined,
-        iconSelected: Icons.emoji_events,
-      ),
+    tags: _vodTags,
+  );
+
+  static const freeporn = SiteDef(
+    id: 'freeporn',
+    name: 'FreePorn',
+    kind: SiteKind.video,
+    color: 0xFFE65100,
+    letter: 'F',
+    ready: false,
+    mirrors: [
+      'https://www.freeporn.com',
+      'https://freeporn.com',
     ],
+    tags: _vodTags,
+  );
+
+  static const spankbang = SiteDef(
+    id: 'spankbang',
+    name: 'SpankBang',
+    kind: SiteKind.video,
+    color: 0xFFC62828,
+    letter: 'B',
+    ready: false,
+    mirrors: [
+      'https://spankbang.com',
+      'https://www.spankbang.com',
+      'https://spankbang.party',
+    ],
+    tags: _vodTags,
+  );
+
+  static const youporn = SiteDef(
+    id: 'youporn',
+    name: 'YouPorn',
+    kind: SiteKind.video,
+    color: 0xFFAD1457,
+    letter: 'Y',
+    ready: false,
+    mirrors: [
+      'https://www.youporn.com',
+      'https://youporn.com',
+      'https://www.youporngay.com',
+    ],
+    tags: _vodTags,
+  );
+
+  static const redtube = SiteDef(
+    id: 'redtube',
+    name: 'RedTube',
+    kind: SiteKind.video,
+    color: 0xFFB71C1C,
+    letter: 'R',
+    ready: false,
+    mirrors: [
+      'https://www.redtube.com',
+      'https://redtube.com',
+      'https://www.redtube.com.cn',
+    ],
+    tags: _vodTags,
+  );
+
+  static const tnaflix = SiteDef(
+    id: 'tnaflix',
+    name: 'TNAFlix',
+    kind: SiteKind.video,
+    color: 0xFF4A148C,
+    letter: 'T',
+    ready: false,
+    mirrors: [
+      'https://www.tnaflix.com',
+      'https://tnaflix.com',
+    ],
+    tags: _vodTags,
+  );
+
+  static const javmix = SiteDef(
+    id: 'javmix',
+    name: 'JAVMix',
+    kind: SiteKind.video,
+    color: 0xFF00695C,
+    letter: 'J',
+    ready: false,
+    mirrors: [
+      'https://javmix.tv',
+      'https://www.javmix.tv',
+    ],
+    tags: _vodTags,
+  );
+
+  static const javgg = SiteDef(
+    id: 'javgg',
+    name: 'JavGG',
+    kind: SiteKind.video,
+    color: 0xFF283593,
+    letter: 'G',
+    ready: false,
+    mirrors: [
+      'https://javgg.net',
+      'https://www.javgg.net',
+    ],
+    tags: _vodTags,
+  );
+
+  static const av01 = SiteDef(
+    id: 'av01',
+    name: 'AV01',
+    kind: SiteKind.video,
+    color: 0xFF37474F,
+    letter: 'A',
+    ready: false,
+    mirrors: [
+      'https://www.av01.media',
+      'https://www.av01.media/jp',
+      'https://av01.media',
+    ],
+    tags: _vodTags,
+  );
+
+  static const missav = SiteDef(
+    id: 'missav',
+    name: 'MissAV',
+    kind: SiteKind.video,
+    color: 0xFF880E4F,
+    letter: 'M',
+    ready: false,
+    mirrors: [
+      'https://missav.ai',
+      'https://missav.ai/dm247/cn',
+      'https://missav.ws',
+      'https://missav.com',
+    ],
+    tags: _vodTags,
+  );
+
+  static const jable = SiteDef(
+    id: 'jable',
+    name: 'Jable',
+    kind: SiteKind.video,
+    color: 0xFF1A237E,
+    letter: 'J',
+    ready: false,
+    mirrors: [
+      'https://jable.tv',
+      'https://www.jable.tv',
+      'https://jable.com',
+    ],
+    tags: _vodTags,
+  );
+
+  static const mmtv7 = SiteDef(
+    id: '7mmtv',
+    name: '7MMTV',
+    kind: SiteKind.video,
+    color: 0xFFBF360C,
+    letter: '7',
+    ready: false,
+    mirrors: [
+      'https://7mmtv.sx',
+      'https://www.7mmtv.sx',
+      'https://7mmtv.com',
+    ],
+    tags: _vodTags,
+  );
+
+  static const bestjavporn = SiteDef(
+    id: 'bestjavporn',
+    name: 'BestJAVPorn',
+    kind: SiteKind.video,
+    color: 0xFF33691E,
+    letter: 'B',
+    ready: false,
+    mirrors: [
+      'https://www.bestjavporn.com',
+      'https://www.bestjavporn.com/zh',
+      'https://bestjavporn.com',
+    ],
+    tags: _vodTags,
   );
 
   static const stripchat = SiteDef(
@@ -313,36 +465,12 @@ class SourceCatalog {
     searchable: false,
     ready: false,
     mirrors: [
-      'https://stripchat.com',
       'https://zh.stripchat.com',
+      'https://stripchat.com',
+      'https://www.stripchat.com',
       'https://stripchat.global',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '热',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '新',
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asia',
-        label: '亚',
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'tag',
-        label: '标',
-        icon: Icons.sell_outlined,
-        iconSelected: Icons.sell,
-      ),
-    ],
+    tags: _liveTags,
   );
 
   static const chaturbate = SiteDef(
@@ -355,35 +483,11 @@ class SourceCatalog {
     ready: false,
     mirrors: [
       'https://chaturbate.com',
+      'https://www.chaturbate.com',
       'https://zh.chaturbate.com',
       'https://chaturbate.eu',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '热',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '新',
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asia',
-        label: '亚',
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'tag',
-        label: '标',
-        icon: Icons.sell_outlined,
-        iconSelected: Icons.sell,
-      ),
-    ],
+    tags: _liveTags,
   );
 
   static const our55 = SiteDef(
@@ -397,32 +501,7 @@ class SourceCatalog {
       'https://74214.our55.xyz',
       'https://our55.xyz',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '热',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '新',
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asian',
-        label: '亚',
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'rec',
-        label: '推',
-        icon: Icons.recommend_outlined,
-        iconSelected: Icons.recommend,
-      ),
-    ],
+    tags: _vodTags,
   );
 
   static const xqq88 = SiteDef(
@@ -436,33 +515,62 @@ class SourceCatalog {
       'https://www.88xqq.com',
       'https://88xqq.com',
     ],
-    tags: [
-      SiteTag(
-        id: 'hot',
-        label: '热',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department,
-      ),
-      SiteTag(
-        id: 'new',
-        label: '新',
-        icon: Icons.fiber_new_outlined,
-        iconSelected: Icons.fiber_new,
-      ),
-      SiteTag(
-        id: 'asian',
-        label: '亚',
-        icon: Icons.public_outlined,
-        iconSelected: Icons.public,
-      ),
-      SiteTag(
-        id: 'rec',
-        label: '推',
-        icon: Icons.recommend_outlined,
-        iconSelected: Icons.recommend,
-      ),
-    ],
+    tags: _vodTags,
   );
+
+  static const _vodTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '热',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'asian',
+      label: '亚',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+    SiteTag(
+      id: 'best',
+      label: '榜',
+      icon: Icons.emoji_events_outlined,
+      iconSelected: Icons.emoji_events,
+    ),
+  ];
+
+  static const _liveTags = <SiteTag>[
+    SiteTag(
+      id: 'hot',
+      label: '热',
+      icon: Icons.local_fire_department_outlined,
+      iconSelected: Icons.local_fire_department,
+    ),
+    SiteTag(
+      id: 'new',
+      label: '新',
+      icon: Icons.fiber_new_outlined,
+      iconSelected: Icons.fiber_new,
+    ),
+    SiteTag(
+      id: 'asia',
+      label: '亚',
+      icon: Icons.public_outlined,
+      iconSelected: Icons.public,
+    ),
+    SiteTag(
+      id: 'tag',
+      label: '标',
+      icon: Icons.sell_outlined,
+      iconSelected: Icons.sell,
+    ),
+  ];
 
   static const all = <SiteDef>[
     pornhub,
@@ -471,6 +579,18 @@ class SourceCatalog {
     xnxx,
     xhamster,
     eporner,
+    freeporn,
+    spankbang,
+    youporn,
+    redtube,
+    tnaflix,
+    javmix,
+    javgg,
+    av01,
+    missav,
+    jable,
+    mmtv7,
+    bestjavporn,
     our55,
     xqq88,
     stripchat,

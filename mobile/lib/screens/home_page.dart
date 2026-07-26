@@ -184,10 +184,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  static const _previewCount = 8;
+
   @override
   Widget build(BuildContext context) {
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
+    final ready = sites.where((s) => s.ready).toList();
+    final soon = sites.where((s) => !s.ready).toList();
+    final lives = SourceCatalog.liveSites;
     final live = layout.liveSite ?? SourceCatalog.stripchat;
 
     return Scaffold(
@@ -207,14 +212,14 @@ class _HomePageState extends State<HomePage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
                   child: Text(
-                    '网站',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
+                    '可用 (${ready.length})',
+                    style: const TextStyle(color: Colors.white54, fontSize: 13),
                   ),
                 ),
-                for (final s in sites)
+                for (final s in ready)
                   _SiteTile(
                     site: s,
                     onTap: () => _openSite(s),
@@ -222,27 +227,59 @@ class _HomePageState extends State<HomePage> {
                         ? '${s.mirrors.length} 个域名'
                         : null,
                   ),
+                if (soon.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _ExpandableSiteSection(
+                    title: '更多网站 · 即将支持 (${soon.length})',
+                    initiallyExpanded: soon.length <= _previewCount,
+                    children: [
+                      for (final s in soon)
+                        _SiteTile(
+                          site: s,
+                          onTap: () => _openSite(s),
+                          mirrorHint: s.mirrors.isNotEmpty
+                              ? '${s.mirrors.length} 个域名'
+                              : null,
+                        ),
+                    ],
+                  ),
+                ],
                 ListTile(
                   leading: const Icon(Icons.add_circle_outline,
                       color: Color(0xFFFF6B35)),
                   title: const Text(
-                    '添加网站',
+                    '管理网站列表',
                     style: TextStyle(color: Color(0xFFFF6B35)),
+                  ),
+                  subtitle: const Text(
+                    '勾选显示 / 取消隐藏',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
                   ),
                   onTap: _showAddSites,
                 ),
                 const Divider(color: Colors.white12, height: 28),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
-                  child: Text(
-                    '直播 · 搜索',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                ),
-                _SiteTile(
-                  site: live,
-                  subtitle: live.ready ? null : '默认入口 · 适配开发中',
-                  onTap: _openLive,
+                _ExpandableSiteSection(
+                  title: '直播 (${lives.length})',
+                  initiallyExpanded: true,
+                  children: [
+                    for (final s in lives)
+                      _SiteTile(
+                        site: s,
+                        subtitle: s.id == live.id
+                            ? (s.ready ? '默认直播' : '默认入口 · 适配开发中')
+                            : (s.ready ? '点击进入' : '即将支持'),
+                        mirrorHint: s.mirrors.isNotEmpty
+                            ? '${s.mirrors.length} 个域名'
+                            : null,
+                        onTap: () {
+                          if (s.id == live.id) {
+                            _openLive();
+                          } else {
+                            _openSite(s);
+                          }
+                        },
+                      ),
+                  ],
                 ),
                 ListTile(
                   leading: const Icon(Icons.search, color: Colors.white70),
@@ -319,6 +356,74 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ExpandableSiteSection extends StatefulWidget {
+  const _ExpandableSiteSection({
+    required this.title,
+    required this.children,
+    this.initiallyExpanded = false,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final bool initiallyExpanded;
+
+  @override
+  State<_ExpandableSiteSection> createState() => _ExpandableSiteSectionState();
+}
+
+class _ExpandableSiteSectionState extends State<_ExpandableSiteSection> {
+  late bool _open;
+
+  @override
+  void initState() {
+    super.initState();
+    _open = widget.initiallyExpanded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _open ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.white54,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_open) ...[
+          const SizedBox(height: 8),
+          ...widget.children,
+        ],
+        const SizedBox(height: 8),
+      ],
     );
   }
 }

@@ -9,7 +9,7 @@ class LayoutSettings extends ChangeNotifier {
   static const _kLiveId = 'layout_live_id_v1';
   static const _kGlobalSearch = 'layout_global_search_v1';
   static const _kCatalogVer = 'layout_catalog_ver_v1';
-  static const _catalogVer = 2;
+  static const _catalogVer = 3;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);
