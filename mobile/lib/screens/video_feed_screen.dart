@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../models/feed_kind.dart';
 import '../models/video_item.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
@@ -21,12 +22,7 @@ import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
 import '../widgets/video_player_page.dart';
 
-enum VideoFeedKind {
-  hot,
-  asian,
-  x,
-  zhong,
-}
+export '../models/feed_kind.dart';
 
 /// Vertical feed: 1 active + N preloads (Android N=3, iOS N=4).
 class VideoFeedScreen extends StatefulWidget {

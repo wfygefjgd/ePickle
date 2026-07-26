@@ -4,6 +4,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_settings.dart';
+import '../services/layout_settings.dart';
+import '../services/source_catalog.dart';
 
 /// Shared settings sheet: skip intro, proxy, quality (manual only).
 Future<void> showPlayerSettingsSheet(
@@ -11,6 +13,8 @@ Future<void> showPlayerSettingsSheet(
   VoidCallback? onQualityChanged,
   VoidCallback? onProxyChanged,
   List<int>? qualityHeights,
+  bool layoutExtras = false,
+  Future<void> Function()? onRestoreLayout,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -94,6 +98,79 @@ Future<void> showPlayerSettingsSheet(
                           value: settings.autoLowerOnStall,
                           onChanged: settings.setAutoLowerOnStall,
                         ),
+                        if (layoutExtras) ...[
+                          const Divider(color: Colors.white12),
+                          const ListTile(
+                            title: Text('源与布局',
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 13)),
+                            dense: true,
+                          ),
+                          Consumer<LayoutSettings>(
+                            builder: (_, layout, __) {
+                              return Column(
+                                children: [
+                                  SwitchListTile(
+                                    title: const Text('全局搜索',
+                                        style: TextStyle(color: Colors.white)),
+                                    subtitle: const Text(
+                                      '开启后主页搜索默认搜全部已启用网站；关闭时可弹窗确认。',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 12),
+                                    ),
+                                    activeThumbColor: const Color(0xFFFF6B35),
+                                    value: layout.globalSearch,
+                                    onChanged: layout.setGlobalSearch,
+                                  ),
+                                  ListTile(
+                                    title: const Text('默认直播源',
+                                        style: TextStyle(color: Colors.white)),
+                                    subtitle: Text(
+                                      layout.liveSite?.name ?? '未选',
+                                      style: const TextStyle(
+                                          color: Colors.white38, fontSize: 12),
+                                    ),
+                                    trailing: DropdownButton<String>(
+                                      value: layout.liveId,
+                                      dropdownColor: const Color(0xFF2A2A2A),
+                                      underline: const SizedBox.shrink(),
+                                      items: [
+                                        for (final s in SourceCatalog.liveSites)
+                                          DropdownMenuItem(
+                                            value: s.id,
+                                            child: Text(
+                                              s.name,
+                                              style: const TextStyle(
+                                                  color: Colors.white),
+                                            ),
+                                          ),
+                                      ],
+                                      onChanged: (v) {
+                                        if (v != null) layout.setLiveId(v);
+                                      },
+                                    ),
+                                  ),
+                                  ListTile(
+                                    title: const Text('恢复默认源与主页布局',
+                                        style: TextStyle(color: Colors.white)),
+                                    subtitle: const Text(
+                                      '仅恢复网站列表、直播默认、全局搜索开关；不改代理与画质。',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 12),
+                                    ),
+                                    trailing: const Icon(Icons.restore,
+                                        color: Color(0xFFFF6B35)),
+                                    onTap: () async {
+                                      await (onRestoreLayout?.call() ??
+                                          layout.restoreDefaultLayout());
+                                      if (ctx.mounted) Navigator.pop(ctx);
+                                    },
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
                         const Divider(color: Colors.white12),
                         // C: 代理状态一眼懂
                         Container(

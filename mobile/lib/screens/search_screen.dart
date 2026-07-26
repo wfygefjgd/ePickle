@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -15,7 +16,14 @@ import 'search_feed_screen.dart';
 enum _Src { ph, x, zhong }
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({
+    super.key,
+    this.initialQuery,
+    this.forceGlobal = false,
+  });
+
+  final String? initialQuery;
+  final bool forceGlobal;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -81,6 +89,13 @@ class _SearchScreenState extends State<SearchScreen>
     _tab.addListener(() {
       if (!_tab.indexIsChanging) setState(() {});
     });
+    final q = widget.initialQuery?.trim();
+    if (q != null && q.isNotEmpty) {
+      _controller.text = q;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _runAll();
+      });
+    }
   }
 
   @override

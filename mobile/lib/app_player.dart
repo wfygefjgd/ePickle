@@ -2,25 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
-import 'screens/home_shell.dart';
+import 'screens/home_page.dart';
 import 'services/app_settings.dart';
+import 'services/layout_settings.dart';
 import 'services/mitao_api.dart';
 import 'services/phub_api.dart';
 import 'services/player_chrome.dart';
 import 'services/translator.dart';
 import 'services/xvideos_api.dart';
 
-/// Video player shell (feeds + search).
+/// Video player shell (home list + site feeds + search).
 class PlayerApp extends StatelessWidget {
-  const PlayerApp({super.key, required this.settings});
+  const PlayerApp({
+    super.key,
+    required this.settings,
+    required this.layout,
+  });
 
   final AppSettings settings;
+  final LayoutSettings layout;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AppSettings>.value(value: settings),
+        ChangeNotifierProvider<LayoutSettings>.value(value: layout),
         ChangeNotifierProvider(create: (_) => PlayerChrome()),
         Provider(create: (_) => PhubApi()),
         Provider(create: (_) => XvideosApi()),
@@ -51,7 +58,7 @@ class PlayerApp extends StatelessWidget {
             },
           ),
         ),
-        home: const HomeShell(),
+        home: const HomePage(),
       ),
     );
   }
