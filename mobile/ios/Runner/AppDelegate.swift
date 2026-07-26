@@ -223,6 +223,7 @@ private final class StripchatLivePlatformView: NSObject,
   private let webView: WKWebView
   private var muted: Bool
   private var focusTimer: Timer?
+  private var videoRevealed = false
 
   init(frame: CGRect, arguments: Any?) {
     let values = arguments as? [String: Any]
@@ -241,6 +242,7 @@ private final class StripchatLivePlatformView: NSObject,
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.isOpaque = true
+    webView.alpha = 0
     webView.backgroundColor = .black
     webView.scrollView.backgroundColor = .black
     webView.scrollView.isScrollEnabled = false
@@ -307,6 +309,14 @@ private final class StripchatLivePlatformView: NSObject,
       [weak self] _ in
       self?.installVideoFocus()
     }
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    didStartProvisionalNavigation navigation: WKNavigation!
+  ) {
+    videoRevealed = false
+    webView.alpha = 0
   }
 
   func webView(
@@ -440,7 +450,19 @@ private final class StripchatLivePlatformView: NSObject,
         return true;
       })()
       """
-    webView.evaluateJavaScript(script)
+    webView.evaluateJavaScript(script) { [weak self] value, _ in
+      guard let self, !self.videoRevealed else { return }
+      let focused = (value as? Bool) ?? (value as? NSNumber)?.boolValue ?? false
+      guard focused else { return }
+      self.videoRevealed = true
+      UIView.animate(
+        withDuration: 0.18,
+        delay: 0,
+        options: [.beginFromCurrentState, .curveEaseOut]
+      ) {
+        self.webView.alpha = 1
+      }
+    }
   }
 }
 
