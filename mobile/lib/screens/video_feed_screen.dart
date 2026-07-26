@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/feed_kind.dart';
 import '../models/video_item.dart';
+import '../services/generic_site_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/translator.dart';
@@ -17,6 +18,7 @@ import '../services/auto_rotate_controller.dart';
 import '../services/cache_manager.dart';
 import '../services/feed_list_cache.dart';
 import '../services/player_chrome.dart';
+import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
@@ -30,10 +32,15 @@ class VideoFeedScreen extends StatefulWidget {
     super.key,
     this.kind = VideoFeedKind.hot,
     this.autoStart = false,
+    this.site,
+    this.tagId,
   });
 
   final VideoFeedKind kind;
   final bool autoStart;
+  /// When set, non-native sites use [GenericSiteApi].
+  final SiteDef? site;
+  final String? tagId;
 
   @override
   State<VideoFeedScreen> createState() => VideoFeedScreenState();
@@ -134,6 +141,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Map<String, String> _buildHeaders() {
+    final site = widget.site;
+    if (site != null) {
+      final base = site.primaryHost.replaceAll(RegExp(r'/$'), '');
+      return {
+        ...AppHttpHeaders.browser,
+        'Referer': '$base/',
+        'Origin': base,
+      };
+    }
     switch (widget.kind) {
       case VideoFeedKind.x:
         return {
@@ -466,10 +482,24 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  bool get _useGeneric {
+    final s = widget.site;
+    if (s == null) return false;
+    return s.id != 'pornhub' && s.id != 'xvideos' && s.id != 'mitao';
+  }
+
   Future<List<VideoItem>> _fetchBatch({required bool isCold}) {
     // Cold: few URLs, fail fast (less spinner). Warm: more variety.
     final limit = isCold ? 10 : 30;
     final maxUrls = isCold ? 2 : 5;
+    if (_useGeneric && widget.site != null) {
+      return context.read<GenericSiteApi>().fetchFeed(
+            widget.site!,
+            tagId: widget.tagId ?? 'hot',
+            exclude: _seen,
+            limit: limit,
+          );
+    }
     switch (widget.kind) {
       case VideoFeedKind.asian:
         return context.read<PhubApi>().fetchAsian(
@@ -499,13 +529,22 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<VideoDetail> _fetchDetail(String url) {
+    if (_useGeneric && widget.site != null) {
+      return context.read<GenericSiteApi>().getVideoDetail(widget.site!, url);
+    }
     if (url.contains('xvideos.com') || widget.kind == VideoFeedKind.x) {
       return context.read<XvideosApi>().getVideoDetail(url);
     }
     if (url.contains('mitaohk.com') || widget.kind == VideoFeedKind.zhong) {
       return context.read<MitaoApi>().getVideoDetail(url);
     }
-    return context.read<PhubApi>().getVideoDetail(url);
+    if (url.contains('pornhub.com') ||
+        widget.kind == VideoFeedKind.hot ||
+        widget.kind == VideoFeedKind.asian) {
+      return context.read<PhubApi>().getVideoDetail(url);
+    }
+    // Unknown host: try generic custom detail
+    return context.read<GenericSiteApi>().getCustomDetail(url);
   }
 
   Future<void> _loadMore() async {

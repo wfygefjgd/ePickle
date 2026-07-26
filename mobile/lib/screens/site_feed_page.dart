@@ -87,54 +87,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (!site.ready)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _SiteBadge(site: site, size: 56),
-                    const SizedBox(height: 16),
-                    Text(
-                      site.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '该站点适配开发中。\n主页已加入，解析就绪后即可播放。',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white54, height: 1.4),
-                    ),
-                    if (site.mirrors.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        '备用域名 ${site.mirrors.length} 个',
-                        style: const TextStyle(
-                          color: Colors.white38,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...site.mirrors.take(3).map(
-                            (m) => Text(
-                              m.replaceFirst(RegExp(r'^https?://'), ''),
-                              style: const TextStyle(
-                                color: Colors.white24,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                    ],
-                  ],
-                ),
-              ),
-            )
-          else if (tabs.isEmpty)
+          if (tabs.isEmpty)
             const Center(
               child: Text('无标签', style: TextStyle(color: Colors.white54)),
             )
@@ -147,6 +100,8 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                   VideoFeedScreen(
                     key: _keys[i],
                     kind: _kindAt(i),
+                    site: site,
+                    tagId: tabs[i].id,
                     autoStart: false,
                   ),
               ],
@@ -169,7 +124,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
             ),
         ],
       ),
-      bottomNavigationBar: immersive || tabs.isEmpty || !site.ready
+      bottomNavigationBar: immersive || tabs.isEmpty
           ? null
           : RepaintBoundary(
               child: ClipRect(
@@ -203,30 +158,3 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   }
 }
 
-class _SiteBadge extends StatelessWidget {
-  const _SiteBadge({required this.site, this.size = 40});
-
-  final SiteDef site;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Color(site.color),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        site.letter,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: size * 0.4,
-        ),
-      ),
-    );
-  }
-}

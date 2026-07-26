@@ -9,16 +9,19 @@ class LayoutSettings extends ChangeNotifier {
   static const _kLiveId = 'layout_live_id_v1';
   static const _kGlobalSearch = 'layout_global_search_v1';
   static const _kCatalogVer = 'layout_catalog_ver_v1';
-  static const _catalogVer = 3;
+  static const _kCustomUrls = 'layout_custom_urls_v1';
+  static const _catalogVer = 4;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+  List<String> _customUrls = [];
   String _liveId = SourceCatalog.defaultLiveId;
   bool _globalSearch = false;
   bool _ready = false;
 
   bool get ready => _ready;
   List<String> get enabledVideoIds => List.unmodifiable(_enabledVideoIds);
+  List<String> get customUrls => List.unmodifiable(_customUrls);
   String get liveId => _liveId;
   bool get globalSearch => _globalSearch;
 
@@ -27,6 +30,9 @@ class LayoutSettings extends ChangeNotifier {
     for (final id in _enabledVideoIds) {
       final s = SourceCatalog.byId(id);
       if (s != null && s.kind == SiteKind.video) out.add(s);
+    }
+    for (final u in _customUrls) {
+      out.add(SiteDef.customFromUrl(u));
     }
     return out;
   }
@@ -59,14 +65,49 @@ class LayoutSettings extends ChangeNotifier {
         _liveId = live;
       }
       _globalSearch = p.getBool(_kGlobalSearch) ?? false;
+      _customUrls = p.getStringList(_kCustomUrls) ?? [];
     } catch (_) {
       _enabledVideoIds =
           List<String>.from(SourceCatalog.defaultEnabledVideoIds);
       _liveId = SourceCatalog.defaultLiveId;
       _globalSearch = false;
+      _customUrls = [];
     }
     _ready = true;
     notifyListeners();
+  }
+
+  Future<void> addCustomUrl(String raw) async {
+    var u = raw.trim();
+    if (u.isEmpty) return;
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      u = 'https://$u';
+    }
+    final uri = Uri.tryParse(u);
+    if (uri == null || uri.host.isEmpty) return;
+    final normalized = '${uri.scheme}://${uri.host}';
+    if (_customUrls.contains(normalized)) return;
+    // Also skip if already a built-in mirror
+    for (final s in SourceCatalog.all) {
+      for (final m in s.mirrors) {
+        if (m.contains(uri.host)) return;
+      }
+    }
+    _customUrls = [..._customUrls, normalized];
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList(_kCustomUrls, _customUrls);
+    } catch (_) {}
+  }
+
+  Future<void> removeCustomUrl(String url) async {
+    _customUrls = _customUrls.where((e) => e != url).toList();
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList(_kCustomUrls, _customUrls);
+    } catch (_) {}
   }
 
   Future<void> setEnabledVideoIds(List<String> ids) async {
@@ -134,12 +175,14 @@ class LayoutSettings extends ChangeNotifier {
         List<String>.from(SourceCatalog.defaultEnabledVideoIds);
     _liveId = SourceCatalog.defaultLiveId;
     _globalSearch = false;
+    _customUrls = [];
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(_kEnabled, _enabledVideoIds);
       await p.setString(_kLiveId, _liveId);
       await p.setBool(_kGlobalSearch, false);
+      await p.setStringList(_kCustomUrls, _customUrls);
       await p.setInt(_kCatalogVer, _catalogVer);
     } catch (_) {}
   }

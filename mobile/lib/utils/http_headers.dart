@@ -26,6 +26,18 @@ class AppHttpHeaders {
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       };
     }
+    // Best-effort referer from media host
+    try {
+      final uri = Uri.parse(url ?? '');
+      if (uri.hasScheme && uri.host.isNotEmpty) {
+        final origin = '${uri.scheme}://${uri.host}';
+        return {
+          ...browser,
+          'Referer': '$origin/',
+          'Origin': origin,
+        };
+      }
+    } catch (_) {}
     return browser;
   }
 }

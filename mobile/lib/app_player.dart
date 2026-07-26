@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/home_page.dart';
 import 'services/app_settings.dart';
+import 'services/generic_site_api.dart';
 import 'services/layout_settings.dart';
 import 'services/mitao_api.dart';
 import 'services/phub_api.dart';
@@ -32,6 +33,7 @@ class PlayerApp extends StatelessWidget {
         Provider(create: (_) => PhubApi()),
         Provider(create: (_) => XvideosApi()),
         Provider(create: (_) => MitaoApi()),
+        Provider(create: (_) => GenericSiteApi()),
         Provider(create: (_) => Translator()),
       ],
       child: MaterialApp(

@@ -85,6 +85,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _showAddSites() async {
+    final customCtrl = TextEditingController();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
@@ -94,74 +95,133 @@ class _HomePageState extends State<HomePage> {
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Consumer<LayoutSettings>(
-            builder: (_, lay, __) {
-              final enabled = lay.enabledVideoIds.toSet();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      '添加网站',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+            ),
+            child: Consumer<LayoutSettings>(
+              builder: (_, lay, __) {
+                final enabled = lay.enabledVideoIds.toSet();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        '管理网站',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '勾选后显示在主页列表。灰色为即将支持。',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white38, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(ctx).size.height * 0.5,
+                      const SizedBox(height: 8),
+                      const Text(
+                        '勾选内置站，或粘贴自定义网址添加。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white38, fontSize: 12),
                       ),
-                      child: ListView(
-                        shrinkWrap: true,
+                      const SizedBox(height: 12),
+                      Row(
                         children: [
-                          for (final s in SourceCatalog.videoSites)
-                            SwitchListTile(
-                              value: enabled.contains(s.id),
-                              activeThumbColor: const Color(0xFFFF6B35),
-                              title: Text(
-                                s.name,
-                                style: TextStyle(
-                                  color: s.ready ? Colors.white : Colors.white38,
+                          Expanded(
+                            child: TextField(
+                              controller: customCtrl,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 14),
+                              decoration: InputDecoration(
+                                hintText: 'https://example.com',
+                                hintStyle:
+                                    const TextStyle(color: Colors.white38),
+                                filled: true,
+                                fillColor: const Color(0xFF2A2A2A),
+                                isDense: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
                                 ),
                               ),
-                              subtitle: Text(
-                                s.ready ? '可用' : '即将支持',
-                                style: const TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              secondary: _SiteAvatar(site: s, size: 36),
-                              onChanged: (v) => lay.toggleVideoSite(s.id, v),
                             ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF6B35),
+                            ),
+                            onPressed: () async {
+                              await lay.addCustomUrl(customCtrl.text);
+                              customCtrl.clear();
+                            },
+                            child: const Text('添加'),
+                          ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('完成'),
-                    ),
-                  ],
-                ),
-              );
-            },
+                      if (lay.customUrls.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        for (final u in lay.customUrls)
+                          ListTile(
+                            dense: true,
+                            title: Text(
+                              u,
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 13),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.white38),
+                              onPressed: () => lay.removeCustomUrl(u),
+                            ),
+                          ),
+                      ],
+                      const Divider(color: Colors.white12),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.of(ctx).size.height * 0.42,
+                        ),
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final s in SourceCatalog.videoSites)
+                              SwitchListTile(
+                                value: enabled.contains(s.id),
+                                activeThumbColor: const Color(0xFFFF6B35),
+                                title: Text(
+                                  s.name,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                subtitle: Text(
+                                  s.mirrors.isNotEmpty
+                                      ? '${s.mirrors.length} 个域名 · 通用解析'
+                                      : '通用解析',
+                                  style: const TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                secondary: _SiteAvatar(site: s, size: 36),
+                                onChanged: (v) =>
+                                    lay.toggleVideoSite(s.id, v),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('完成'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         );
       },
     );
+    customCtrl.dispose();
     if (mounted) setState(() {});
   }
 
@@ -190,10 +250,14 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
-    final ready = sites.where((s) => s.ready).toList();
-    final soon = sites.where((s) => !s.ready).toList();
+                final builtIn = sites.where((s) => !s.custom).toList();
+    final custom = sites.where((s) => s.custom).toList();
     final lives = SourceCatalog.liveSites;
     final live = layout.liveSite ?? SourceCatalog.stripchat;
+    final head = builtIn.take(_previewCount).toList();
+    final rest = builtIn.length > _previewCount
+        ? builtIn.sublist(_previewCount)
+        : <SiteDef>[];
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -215,11 +279,11 @@ class _HomePageState extends State<HomePage> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
                   child: Text(
-                    '可用 (${ready.length})',
+                    '网站 (${builtIn.length})',
                     style: const TextStyle(color: Colors.white54, fontSize: 13),
                   ),
                 ),
-                for (final s in ready)
+                for (final s in head)
                   _SiteTile(
                     site: s,
                     onTap: () => _openSite(s),
@@ -227,19 +291,32 @@ class _HomePageState extends State<HomePage> {
                         ? '${s.mirrors.length} 个域名'
                         : null,
                   ),
-                if (soon.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                if (rest.isNotEmpty)
                   _ExpandableSiteSection(
-                    title: '更多网站 · 即将支持 (${soon.length})',
-                    initiallyExpanded: soon.length <= _previewCount,
+                    title: '更多网站 (${rest.length})',
+                    initiallyExpanded: false,
                     children: [
-                      for (final s in soon)
+                      for (final s in rest)
                         _SiteTile(
                           site: s,
                           onTap: () => _openSite(s),
                           mirrorHint: s.mirrors.isNotEmpty
                               ? '${s.mirrors.length} 个域名'
                               : null,
+                        ),
+                    ],
+                  ),
+                if (custom.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  _ExpandableSiteSection(
+                    title: '自定义网址 (${custom.length})',
+                    initiallyExpanded: true,
+                    children: [
+                      for (final s in custom)
+                        _SiteTile(
+                          site: s,
+                          onTap: () => _openSite(s),
+                          subtitle: '用户添加 · 通用解析',
                         ),
                     ],
                   ),
