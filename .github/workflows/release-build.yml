@@ -71,13 +71,47 @@ jobs:
 
       - name: Build iOS release (no codesign)
         working-directory: mobile
-        run: flutter build ios --release --no-codesign
+        run: |
+          set -euo pipefail
+          # Flutter may still complain about Development Team; fall back to xcodebuild.
+          flutter build ios --release --no-codesign 2>&1 | tee /tmp/flutter_ios_build.log || true
+          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "Runner.app ready"
+            exit 0
+          fi
+          if [ -d "build/ios/Release-iphoneos/Runner.app" ]; then
+            mkdir -p build/ios/iphoneos
+            cp -R build/ios/Release-iphoneos/Runner.app build/ios/iphoneos/
+            exit 0
+          fi
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            build
+          cd ..
+          if [ -d "build/ios/Release-iphoneos/Runner.app" ] && [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            mkdir -p build/ios/iphoneos
+            cp -R build/ios/Release-iphoneos/Runner.app build/ios/iphoneos/
+          fi
+          test -d "build/ios/iphoneos/Runner.app"
 
       - name: Package sideload IPA
         working-directory: mobile
         run: |
           set -euo pipefail
           SRC="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$SRC" ] && [ -d "build/ios/Release-iphoneos/Runner.app" ]; then
+            mkdir -p build/ios/iphoneos
+            cp -R build/ios/Release-iphoneos/Runner.app build/ios/iphoneos/
+          fi
           test -d "$SRC"
           test -f "$SRC/Runner"
           VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: //;s/+.*//')

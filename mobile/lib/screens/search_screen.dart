@@ -249,7 +249,10 @@ class _SearchScreenState extends State<SearchScreen>
       SearchSource.ph => _Src.ph,
       SearchSource.x => _Src.x,
       SearchSource.zhong => _Src.zhong,
+      // Site-local search uses its own page; no multi-source paging here.
+      SearchSource.generic => null,
     };
+    if (src == null) return const [];
     if (_hasMore[src] == false || _loading[src] == true || _lastQuery.isEmpty) {
       return const [];
     }
