@@ -423,7 +423,7 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(milliseconds: 250)));
   });
 
-  test('Chaturbate tabs request four distinct gender feeds', () async {
+  test('Chaturbate tabs keep female-only distinct categories', () async {
     const base = 'https://live.fixture.test';
     const liveSite = SiteDef(
       id: 'chaturbate',
@@ -436,13 +436,13 @@ void main() {
     );
     final fixtures = <String, _FixtureResponse>{};
     for (final entry in const {
-      'female': 'f',
-      'male': 'm',
-      'couples': 'c',
-      'trans': 't',
+      'female': '&genders=f',
+      'new': '&genders=f&sort_order=new',
+      'asian': '&genders=f&tags=asian',
+      'mature': '&genders=f&tags=mature',
     }.entries) {
       fixtures[
-              '$base/api/ts/roomlist/room-list/?limit=20&offset=0&genders=${entry.value}'] =
+              '$base/api/ts/roomlist/room-list/?limit=20&offset=0${entry.value}'] =
           _FixtureResponse(
         '{"rooms":['
         '{"username":"${entry.key}_room","current_show":"public","is_online":true},'
@@ -464,11 +464,15 @@ void main() {
     expect(adapter.requests, hasLength(4));
     expect(
       adapter.requests.map((request) => request.uri.queryParameters['genders']),
-      containsAll(<String>['f', 'm', 'c', 't']),
+      everyElement('f'),
+    );
+    expect(
+      adapter.requests.map((request) => request.uri.queryParameters['tags']),
+      containsAll(<String?>['asian', 'mature']),
     );
   });
 
-  test('Stripchat feed carries its official HLS playlist into detail',
+  test('Stripchat ignores preview playlist and derives live auto HLS',
       () async {
     const base = 'https://strip.fixture.test';
     const playlist =
@@ -487,6 +491,7 @@ void main() {
       '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=stripRanking':
           const _FixtureResponse(
         '{"models":[{"username":"model-name","streamName":"83306615",'
+        '"isOnline":true,"previewUrl":"https://preview.test/20s.mp4",'
         '"hlsPlaylist":"$playlist"}]}',
       ),
       playlist: const _FixtureResponse('#EXTM3U\n#EXTINF:2,\nsegment.ts'),
@@ -497,7 +502,12 @@ void main() {
     final detail = await api.getVideoDetail(liveSite, feed.single.url);
 
     expect(feed.single.url, '$base/model-name');
-    expect(detail.streams.single.url, playlist);
+    expect(
+      detail.streams.single.url,
+      'https://edge-hls.doppiocdn.com/hls/83306615/master/83306615_auto.m3u8',
+    );
+    expect(detail.streams.single.url, isNot(contains('_240p.m3u8')));
+    expect(detail.streams.single.url, isNot(contains('20s.mp4')));
   });
 
   test('directory-only FreePorn is not enabled as a playable source', () {
@@ -514,6 +524,7 @@ void main() {
         'xvideos',
         'mitao',
         'xnxx',
+        'xhamster',
         'javmix',
       ]),
     );

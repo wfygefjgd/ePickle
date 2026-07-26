@@ -150,7 +150,39 @@ class GenericSiteApi {
     required Map<String, String> headers,
     required Duration timeout,
   }) async {
-    final response = await NativeBrowserHttp.get(
+    var response = await NativeBrowserHttp.get(
+      url,
+      headers: headers,
+      timeout: timeout,
+    );
+    if (response == null || response.statusCode == 403) {
+      response = await NativeBrowserHttp.render(
+        url,
+        headers: headers,
+        timeout: timeout,
+      );
+    }
+    if (response == null ||
+        response.statusCode < 200 ||
+        response.statusCode >= 400 ||
+        response.body.isEmpty) {
+      return null;
+    }
+    if (origin != null && response.cookies.isNotEmpty) {
+      _cookies.putIfAbsent(origin, () => <String, String>{}).addAll(
+            response.cookies,
+          );
+    }
+    return response.body;
+  }
+
+  Future<String?> _nativeRenderHtml(
+    String url, {
+    required String? origin,
+    required Map<String, String> headers,
+    required Duration timeout,
+  }) async {
+    final response = await NativeBrowserHttp.render(
       url,
       headers: headers,
       timeout: timeout,
@@ -163,6 +195,12 @@ class GenericSiteApi {
     }
     if (origin != null && response.cookies.isNotEmpty) {
       _cookies.putIfAbsent(origin, () => <String, String>{}).addAll(
+            response.cookies,
+          );
+    }
+    final finalOrigin = _originOf(response.finalUrl);
+    if (finalOrigin != null && response.cookies.isNotEmpty) {
+      _cookies.putIfAbsent(finalOrigin, () => <String, String>{}).addAll(
             response.cookies,
           );
     }
@@ -313,12 +351,23 @@ class GenericSiteApi {
           'Referer': '$base/',
           if (extraHeaders != null) ...extraHeaders,
         };
-        final html = await _getHtml(
+        var html = await _getHtml(
           url,
           headers: headers,
           timeout: _requestBudget(deadline),
           cancelToken: cancelToken,
         );
+        final staticBlocked = _isBlockedHtml(html);
+        final staticRejected = accept != null && !accept(html, base);
+        if (staticBlocked || staticRejected) {
+          final rendered = await _nativeRenderHtml(
+            url,
+            origin: _originOf(url),
+            headers: headers,
+            timeout: _requestBudget(deadline),
+          );
+          if (rendered != null) html = rendered;
+        }
         if (_isBlockedHtml(html)) {
           throw PhubException('Cloudflare / Cookie 验证页拦截');
         }
@@ -617,17 +666,23 @@ class GenericSiteApi {
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
-    final gender = switch (tagId) {
-      'male' => 'm',
-      'couples' => 'c',
-      'trans' => 't',
-      _ => 'f',
+    final categoryQuery = switch (tagId) {
+      'new' => '&genders=f&sort_order=new',
+      'asian' => '&genders=f&tags=asian',
+      'mature' => '&genders=f&tags=mature',
+      _ => '&genders=f',
+    };
+    final legacyQuery = switch (tagId) {
+      'new' => '&gender=f&sort=new',
+      'asian' => '&gender=f&tag=asian',
+      'mature' => '&gender=f&tag=mature',
+      _ => '&gender=f',
     };
     final endpoints = <String Function(String)>[
       (b) =>
-          '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset&genders=$gender',
+          '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset$categoryQuery',
       (b) =>
-          '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset&gender=$gender',
+          '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset$legacyQuery',
     ];
     for (final pathFn in endpoints) {
       try {
@@ -878,22 +933,60 @@ class GenericSiteApi {
       try {
         final remaining = deadline.difference(DateTime.now());
         if (remaining.inMilliseconds <= 0) break;
-        final html = await _getHtml(
+        final pageHeaders = AppHttpHeaders.forSite(candidate.base);
+        var html = await _getHtml(
           candidate.url,
-          headers: AppHttpHeaders.forSite(candidate.base),
+          headers: pageHeaders,
           timeout: remaining < _requestTimeout ? remaining : _requestTimeout,
         );
         if (_isBlockedHtml(html)) {
-          throw PhubException('页面被拦截或无效');
+          final renderBudget = deadline.difference(DateTime.now());
+          if (renderBudget.inMilliseconds > 0) {
+            final rendered = await _nativeRenderHtml(
+              candidate.url,
+              origin: _originOf(candidate.url),
+              headers: pageHeaders,
+              timeout: renderBudget,
+            );
+            if (rendered != null) html = rendered;
+          }
+          if (_isBlockedHtml(html)) {
+            throw PhubException('页面被拦截或无效');
+          }
         }
         final parseBudget = deadline.difference(DateTime.now());
         if (parseBudget.inMilliseconds <= 0) break;
-        final detail = await _parseVideoDetail(
-          site,
-          candidate.url,
-          html,
-          candidate.base,
-        ).timeout(parseBudget);
+        late VideoDetail detail;
+        try {
+          detail = await _parseVideoDetail(
+            site,
+            candidate.url,
+            html,
+            candidate.base,
+          ).timeout(parseBudget);
+        } catch (parseError) {
+          if (parseError is DioException && CancelToken.isCancel(parseError)) {
+            rethrow;
+          }
+          final renderBudget = deadline.difference(DateTime.now());
+          if (renderBudget.inMilliseconds <= 0) rethrow;
+          final rendered = await _nativeRenderHtml(
+            candidate.url,
+            origin: _originOf(candidate.url),
+            headers: pageHeaders,
+            timeout: renderBudget,
+          );
+          if (rendered == null || rendered == html) rethrow;
+          html = rendered;
+          final renderedParseBudget = deadline.difference(DateTime.now());
+          if (renderedParseBudget.inMilliseconds <= 0) rethrow;
+          detail = await _parseVideoDetail(
+            site,
+            candidate.url,
+            html,
+            candidate.base,
+          ).timeout(renderedParseBudget);
+        }
         if (candidate.mirrorIndex != null) {
           _mirrorIndex[site.id] = candidate.mirrorIndex!;
         }
@@ -920,9 +1013,16 @@ class GenericSiteApi {
     if (site.id == 'stripchat') {
       final streamValue = _liveStreamNames['stripchat:${room.toLowerCase()}'];
       if (streamValue == null || streamValue.isEmpty) return null;
-      final url = streamValue.contains('.m3u8')
-          ? streamValue
-          : 'https://edge-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8';
+      final embeddedName = RegExp(
+        r'/hls/([^/]+)/',
+        caseSensitive: false,
+      ).firstMatch(streamValue)?.group(1);
+      final streamName = embeddedName ?? streamValue;
+      if (!RegExp(r'^[a-zA-Z0-9_-]{3,100}$').hasMatch(streamName)) {
+        return null;
+      }
+      final url =
+          'https://edge-hls.doppiocdn.com/hls/$streamName/master/${streamName}_auto.m3u8';
       return VideoDetail(
         url: pageUrl,
         title: room,
@@ -1807,15 +1907,15 @@ class GenericSiteApi {
               '$b/api/front/models?limit=60&offset=${(p - 1) * 60}&primaryTag=${tagId == 'men' || tagId == 'couples' || tagId == 'trans' ? tagId : 'girls'}&sortBy=stripRanking',
         ];
       case 'chaturbate':
-        final gender = switch (tagId) {
-          'male' => 'm',
-          'couples' => 'c',
-          'trans' => 't',
-          _ => 'f',
+        final categoryQuery = switch (tagId) {
+          'new' => '&genders=f&sort_order=new',
+          'asian' => '&genders=f&tags=asian',
+          'mature' => '&genders=f&tags=mature',
+          _ => '&genders=f',
         };
         return [
           (b) =>
-              '$b/api/ts/roomlist/room-list/?limit=90&offset=${(p - 1) * 90}&genders=$gender',
+              '$b/api/ts/roomlist/room-list/?limit=90&offset=${(p - 1) * 90}$categoryQuery',
         ];
       default:
         return [
@@ -1965,17 +2065,28 @@ class GenericSiteApi {
         ];
         final blocked = falseValue(online) ||
             blockedStatuses.any((value) => status.contains(value));
-        if (!blocked) {
+        final stripchatOnline = site.id != 'stripchat' ||
+            online == true ||
+            online == 1 ||
+            online == '1' ||
+            online == 'true';
+        if (!blocked && stripchatOnline) {
           final key = username.toLowerCase();
-          final streamValue = stringValue(map, const [
-            'hlsPlaylist',
-            'hlsStreamUrl',
-            'hls_source',
-            'hlsSource',
-            'streamName',
-            'stream_name',
-            'hlsStreamName',
-          ]);
+          final streamValue = site.id == 'stripchat'
+              ? stringValue(map, const [
+                  'streamName',
+                  'stream_name',
+                  'hlsStreamName',
+                ])
+              : stringValue(map, const [
+                  'hlsPlaylist',
+                  'hlsStreamUrl',
+                  'hls_source',
+                  'hlsSource',
+                  'streamName',
+                  'stream_name',
+                  'hlsStreamName',
+                ]);
           if (streamValue != null) {
             _liveStreamNames['${site.id}:$key'] = streamValue;
           }
@@ -2532,38 +2643,41 @@ class GenericSiteApi {
 
     // Stripchat / xHamsterLive: doppiocdn HLS by model username
     if (site.id == 'stripchat') {
+      // Stripchat embeds 20-second previews beside its live metadata. Keep
+      // only the room stream name and derive the rolling live master URL.
+      streams.clear();
+
+      void addStripchatStream(String rawValue) {
+        final value = rawValue.replaceAll(r'\/', '/');
+        final embeddedName = RegExp(
+          r'/hls/([^/]+)/',
+          caseSensitive: false,
+        ).firstMatch(value)?.group(1);
+        final name = embeddedName ?? value;
+        if (!RegExp(r'^[a-zA-Z0-9_-]{3,100}$').hasMatch(name)) return;
+        streams.add(
+          StreamQuality(
+            width: 1280,
+            height: 720,
+            url:
+                'https://edge-hls.doppiocdn.com/hls/$name/master/${name}_auto.m3u8',
+          ),
+        );
+      }
+
       for (final m in RegExp(
         r'''https?:\\?/\\?/[^\s"'<>]*\.m3u8[^\s"'<>]*''',
         caseSensitive: false,
       ).allMatches(html)) {
-        final u = m.group(0)!.replaceAll(r'\/', '/');
-        streams.add(StreamQuality(width: 1280, height: 720, url: u));
+        addStripchatStream(m.group(0)!);
       }
       // streamName in initial state
       final sn = RegExp(
-        r'''["'](?:streamName|hlsStreamUrl|hlsPlaylist|hlsUrl|manifestUrl|streamUrl|webcamUrl)["']\s*:\s*["']([^"']+)["']''',
+        r'''["'](?:streamName|stream_name|hlsStreamName)["']\s*:\s*["']([^"']+)["']''',
         caseSensitive: false,
       ).firstMatch(html);
       if (sn != null) {
-        var v = sn.group(1)!.replaceAll(r'\/', '/');
-        if (v.contains('.m3u8')) {
-          if (v.startsWith('//')) v = 'https:$v';
-          if (!v.startsWith('http')) v = _abs(base, v);
-          streams.add(StreamQuality(width: 1280, height: 720, url: v));
-        } else if (room.isNotEmpty || v.isNotEmpty) {
-          final name = v.isNotEmpty ? v : room;
-          // Common doppiocdn edge patterns
-          for (final u in [
-            'https://edge-hls.doppiocdn.com/hls/$name/master/${name}_auto.m3u8',
-            'https://edge-hls.doppiocdn.org/hls/$name/master/${name}_auto.m3u8',
-            'https://media-hls.doppiocdn.com/hls/$name/master/${name}_auto.m3u8',
-            'https://edge-hls.doppiocdn.com/hls/$name/master/$name.m3u8',
-            'https://edge-hls.doppiocdn.org/hls/$name/master/$name.m3u8',
-            'https://media-hls.doppiocdn.com/hls/$name/master/$name.m3u8',
-          ]) {
-            streams.add(StreamQuality(width: 1280, height: 720, url: u));
-          }
-        }
+        addStripchatStream(sn.group(1)!);
       }
 
       // model view API
@@ -2581,36 +2695,14 @@ class GenericSiteApi {
             r'''https?:\\?/\\?/[^\s"'<>]+\.m3u8[^\s"'<>]*''',
             caseSensitive: false,
           ).allMatches(raw)) {
-            streams.add(
-              StreamQuality(
-                width: 1280,
-                height: 720,
-                url: m.group(0)!.replaceAll(r'\/', '/'),
-              ),
-            );
+            addStripchatStream(m.group(0)!);
           }
           final apiField = RegExp(
-            r'''["'](?:streamName|hlsStreamUrl|hlsPlaylist|hlsUrl|manifestUrl|streamUrl|webcamUrl)["']\s*:\s*["']([^"']+)["']''',
+            r'''["'](?:streamName|stream_name|hlsStreamName)["']\s*:\s*["']([^"']+)["']''',
             caseSensitive: false,
           ).firstMatch(raw);
           if (apiField != null) {
-            var value = apiField.group(1)!.replaceAll(r'\/', '/');
-            if (value.contains('.m3u8')) {
-              if (value.startsWith('//')) value = 'https:$value';
-              if (!value.startsWith('http')) value = _abs(base, value);
-              streams.add(
-                StreamQuality(width: 1280, height: 720, url: value),
-              );
-            } else if (value.isNotEmpty) {
-              for (final candidate in [
-                'https://edge-hls.doppiocdn.com/hls/$value/master/${value}_auto.m3u8',
-                'https://edge-hls.doppiocdn.org/hls/$value/master/${value}_auto.m3u8',
-              ]) {
-                streams.add(
-                  StreamQuality(width: 1280, height: 720, url: candidate),
-                );
-              }
-            }
+            addStripchatStream(apiField.group(1)!);
           }
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;

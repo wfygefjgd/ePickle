@@ -136,20 +136,20 @@ class SourceCatalog {
         icon: Icons.woman_outlined,
         iconSelected: Icons.woman),
     SiteTag(
-        id: 'male',
-        label: '\u7537',
-        icon: Icons.man_outlined,
-        iconSelected: Icons.man),
+        id: 'new',
+        label: '\u65b0',
+        icon: Icons.fiber_new_outlined,
+        iconSelected: Icons.fiber_new),
     SiteTag(
-        id: 'couples',
-        label: '\u4f34',
-        icon: Icons.people_outline,
-        iconSelected: Icons.people),
+        id: 'asian',
+        label: '\u4e9a',
+        icon: Icons.public_outlined,
+        iconSelected: Icons.public),
     SiteTag(
-        id: 'trans',
-        label: 'TS',
-        icon: Icons.transgender_outlined,
-        iconSelected: Icons.transgender),
+        id: 'mature',
+        label: '\u719f',
+        icon: Icons.local_fire_department_outlined,
+        iconSelected: Icons.local_fire_department),
   ];
 
   static const stripchatTags = <SiteTag>[
@@ -327,7 +327,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF6A1B9A,
     letter: 'H',
-    ready: false,
+    ready: true,
     mirrors: [
       'https://xhamster.com',
       'https://xhamster.desi',
