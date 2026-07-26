@@ -11,37 +11,50 @@ class PlaybackHelpers {
   /// - 10min - 15min: skip 25s
   /// - 15min - 50min: skip 40s
   /// - > 50min: skip 70s
+  /// Never skip short clips (trailers / broken 9s teasers).
   static Future<void> skipIntro(
     VideoPlayerController ctrl, {
     bool enabled = true,
+    int fallbackDurationSec = 0,
   }) async {
     if (!enabled || !ctrl.value.isInitialized) return;
-    final dur = ctrl.value.duration;
-    final total = dur.inSeconds;
+    var total = ctrl.value.duration.inSeconds;
+    if (total <= 0 && fallbackDurationSec > 0) {
+      total = fallbackDurationSec;
+    }
+    // Short / unknown: do not seek (avoids killing 9s teasers or live)
+    if (total > 0 && total < 45) return;
+    if (total <= 0) return;
 
     int skipSeconds;
     if (total < 100) {
       skipSeconds = 10;
     } else if (total < 600) {
-      // 100s - 10min
       skipSeconds = 15;
     } else if (total < 900) {
-      // 10min - 15min
       skipSeconds = 25;
     } else if (total < 3000) {
-      // 15min - 50min
       skipSeconds = 40;
     } else {
-      // > 50min
       skipSeconds = 70;
     }
 
-    // Safety: leave at least 5s of content
     if (total - skipSeconds < 5) return;
 
     try {
       await ctrl.seekTo(Duration(seconds: skipSeconds));
     } catch (_) {}
+  }
+
+  /// Effective duration for progress UI: player first, then detail metadata.
+  static Duration effectiveDuration(
+    VideoPlayerController ctrl, {
+    int fallbackSec = 0,
+  }) {
+    final d = ctrl.value.duration;
+    if (d.inMilliseconds > 500) return d;
+    if (fallbackSec > 0) return Duration(seconds: fallbackSec);
+    return d;
   }
 
   static StreamQuality? pickStream(VideoDetail detail, int qualityCap) =>

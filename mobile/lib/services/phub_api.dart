@@ -295,9 +295,28 @@ class PhubApi {
       for (final raw in defs) {
         if (raw is! Map) continue;
         final q = Map<String, dynamic>.from(raw);
-        if (q['format'] != 'hls') continue;
-        final videoUrl = q['videoUrl']?.toString();
-        if (videoUrl == null || videoUrl.isEmpty) continue;
+        final videoUrl = q['videoUrl']?.toString() ?? '';
+        if (videoUrl.isEmpty) continue;
+        final low = videoUrl.toLowerCase();
+        // Skip trailers / short teasers that only play ~9s
+        if (low.contains('trailer') ||
+            low.contains('preview') ||
+            low.contains('mediabook') ||
+            RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) {
+          continue;
+        }
+        final format = '${q['format'] ?? ''}'.toLowerCase();
+        // Prefer HLS; still allow mp4 full videos if no quality flag is trailer
+        if (format.isNotEmpty &&
+            format != 'hls' &&
+            format != 'mp4' &&
+            !low.contains('.m3u8') &&
+            !low.contains('.mp4')) {
+          continue;
+        }
+        if (format == 'mp4' && !low.contains('.mp4') && !low.contains('m3u8')) {
+          // keep
+        }
 
         var width = int.tryParse('${q['width'] ?? 0}') ?? 0;
         var height = int.tryParse('${q['height'] ?? 0}') ?? 0;
@@ -311,12 +330,21 @@ class PhubApi {
               ? (height * 9 / 16).round()
               : (height * 16 / 9).round();
         }
-        if (width <= 0 && height <= 0) continue;
+        if (width <= 0 && height <= 0) {
+          height = low.contains('m3u8') ? 720 : 480;
+          width = (height * 16 / 9).round();
+        }
         streams.add(StreamQuality(width: width, height: height, url: videoUrl));
       }
     }
 
-    streams.sort((a, b) => b.pixels.compareTo(a.pixels));
+    // Prefer HLS full streams first
+    streams.sort((a, b) {
+      final ah = a.url.contains('m3u8') ? 1 : 0;
+      final bh = b.url.contains('m3u8') ? 1 : 0;
+      if (ah != bh) return bh.compareTo(ah);
+      return b.pixels.compareTo(a.pixels);
+    });
 
     return VideoDetail(
       url: normalized,

@@ -49,8 +49,8 @@ class AppHttpClient {
 
   static Dio create({
     Map<String, dynamic>? headers,
-    Duration connectTimeout = const Duration(seconds: 12),
-    Duration receiveTimeout = const Duration(seconds: 18),
+    Duration connectTimeout = const Duration(seconds: 18),
+    Duration receiveTimeout = const Duration(seconds: 28),
     CancelToken? cancelToken,
   }) {
     final dio = Dio(
@@ -62,6 +62,7 @@ class AppHttpClient {
           if (headers != null) ...headers,
         },
         followRedirects: true,
+        maxRedirects: 8,
         validateStatus: (s) => s != null && s < 500,
         responseType: ResponseType.plain,
       ),
@@ -82,7 +83,12 @@ class AppHttpClient {
       createHttpClient: () {
         final client = HttpClient();
         client.connectionTimeout = connectTimeout;
+        client.idleTimeout = const Duration(seconds: 30);
+        client.autoUncompress = true;
+        client.userAgent = AppHttpHeaders.userAgent;
         client.findProxy = _findProxy;
+        // Some mirrors use odd certs / intermediate chains.
+        client.badCertificateCallback = (cert, host, port) => true;
         return client;
       },
     );

@@ -329,18 +329,67 @@ class MitaoApi {
   }
 
   Future<VideoDetail> getVideoDetail(String url) async {
-    final html = await _getHtml(url);
-    final m = RegExp(
+    // Prefer play page; detail-only pages sometimes lack player_aaaa.
+    var pageUrl = url;
+    if (pageUrl.contains('/vod/detail/id/')) {
+      final idm = RegExp(r'/vod/detail/id/(\d+)').firstMatch(pageUrl);
+      if (idm != null) {
+        pageUrl =
+            '$base/index.php/vod/play/id/${idm.group(1)}/sid/1/nid/1.html';
+      }
+    }
+
+    String html;
+    try {
+      html = await _getHtml(pageUrl);
+    } catch (_) {
+      html = await _getHtml(url);
+      pageUrl = url;
+    }
+
+    var m = RegExp(
       r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*</script>',
     ).firstMatch(html);
+    m ??= RegExp(
+      r'player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;',
+    ).firstMatch(html);
+    m ??= RegExp(
+      r'player_data\s*=\s*(\{[\s\S]*?\})\s*;',
+    ).firstMatch(html);
+
     if (m == null) {
+      // MacCMS sometimes puts url in MacPlayerConfig
+      final loose = RegExp(
+        r'''["']url["']\s*:\s*["'](https?[^"']+\.(?:m3u8|mp4)[^"']*)["']''',
+        caseSensitive: false,
+      ).firstMatch(html);
+      if (loose != null) {
+        var playUrl = loose.group(1)!.replaceAll(r'\/', '/');
+        playUrl = await _resolvePlayableUrl(playUrl);
+        return VideoDetail(
+          url: pageUrl,
+          title: _titleFromHtml(html) ?? pageUrl,
+          durationSec: await _durationFromM3u8(playUrl),
+          streams: [
+            StreamQuality(width: 1280, height: 720, url: playUrl),
+          ],
+        );
+      }
       throw PhubException('无法解析播放数据');
     }
+
     Map<String, dynamic> data;
     try {
-      data = jsonDecode(m.group(1)!) as Map<String, dynamic>;
+      var raw = m.group(1)!;
+      // player_aaaa JSON may contain unescaped control chars
+      raw = raw.replaceAll(r'\/', '/');
+      data = jsonDecode(raw) as Map<String, dynamic>;
     } catch (e) {
-      throw PhubException('播放 JSON 解析失败: $e');
+      // Fallback: pull url field with regex
+      final um = RegExp(r'''["']url["']\s*:\s*["']([^"']+)["']''')
+          .firstMatch(m.group(1)!);
+      if (um == null) throw PhubException('播放 JSON 解析失败: $e');
+      data = {'url': um.group(1), 'encrypt': 0};
     }
 
     final encrypt = int.tryParse('${data['encrypt']}') ?? 0;
@@ -348,19 +397,29 @@ class MitaoApi {
     if (playUrl.isEmpty) {
       throw PhubException('播放地址为空');
     }
+    playUrl = playUrl.replaceAll(r'\/', '/').replaceAll('&amp;', '&');
     if (encrypt == 1) {
-      // base64
       try {
         playUrl = utf8.decode(base64.decode(playUrl));
       } catch (_) {
         throw PhubException('播放地址解密失败');
       }
     } else if (encrypt == 2) {
-      throw PhubException('暂不支持该加密线路');
+      // escape + base64 (common MacCMS)
+      try {
+        playUrl = utf8.decode(base64.decode(Uri.decodeComponent(playUrl)));
+      } catch (_) {
+        try {
+          playUrl = utf8.decode(base64.decode(playUrl));
+        } catch (_) {
+          throw PhubException('播放地址解密失败(encrypt=2)');
+        }
+      }
     }
     if (!playUrl.startsWith('http')) {
       playUrl = _abs(playUrl);
     }
+    playUrl = await _resolvePlayableUrl(playUrl);
 
     String title = '';
     var durationSec = 0;
@@ -368,127 +427,18 @@ class MitaoApi {
     if (vd is Map) {
       title = (vd['vod_name'] ?? '').toString();
       durationSec = int.tryParse('${vd['vod_duration'] ?? 0}') ?? 0;
-      // sometimes "01:23:45" or "23:45"
       if (durationSec <= 0) {
         final ds = (vd['vod_duration'] ?? vd['duration'] ?? '').toString();
         durationSec = _parseDurationText(ds);
       }
     }
-
-    // Additional fallback: try multiple patterns in raw HTML
+    durationSec = _durationFromHtml(html, durationSec);
     if (durationSec <= 0) {
-      // Try vod_duration field
-      final dm = RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)').firstMatch(html);
-      if (dm != null) {
-        durationSec = int.tryParse(dm.group(1) ?? '') ?? 0;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try "时长：XX:XX:XX" or "时长：XX分XX秒" patterns
-      final dm2 = RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})').firstMatch(html);
-      if (dm2 != null) {
-        final h = int.tryParse(dm2.group(1) ?? '0') ?? 0;
-        final m = int.tryParse(dm2.group(2) ?? '0') ?? 0;
-        final s = int.tryParse(dm2.group(3) ?? '0') ?? 0;
-        durationSec = h * 3600 + m * 60 + s;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try "XX:XX" or "XX:XX:XX" anywhere in HTML
-      final dm2b = RegExp(r'\b(\d{1,2}):(\d{2}):(\d{2})\b').firstMatch(html);
-      if (dm2b != null) {
-        final h = int.tryParse(dm2b.group(1) ?? '0') ?? 0;
-        final m = int.tryParse(dm2b.group(2) ?? '0') ?? 0;
-        final s = int.tryParse(dm2b.group(3) ?? '0') ?? 0;
-        if (h > 0 || m > 5) { // 至少5分钟才算有效
-          durationSec = h * 3600 + m * 60 + s;
-        }
-      }
-    }
-    if (durationSec <= 0) {
-      // Try "XX分XX秒" pattern
-      final dm3 = RegExp(r'(\d+)分(\d+)秒').firstMatch(html);
-      if (dm3 != null) {
-        final m = int.tryParse(dm3.group(1) ?? '0') ?? 0;
-        final s = int.tryParse(dm3.group(2) ?? '0') ?? 0;
-        durationSec = m * 60 + s;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try duration in JSON data
-      final dj = RegExp(r'"duration"["\s:]+["' "'" r']?(\d+)').firstMatch(html);
-      if (dj != null) {
-        durationSec = int.tryParse(dj.group(1) ?? '') ?? 0;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try vod_duration or duration with colon format anywhere
-      final dj2 = RegExp(r'["\s]duration["\s:]+["' "'" r']?(\d{1,2}:\d{2}(?::\d{2})?)').firstMatch(html);
-      if (dj2 != null) {
-        durationSec = _parseDurationText(dj2.group(1) ?? '');
-      }
-    }
-    if (durationSec <= 0) {
-      // Try class="duration" or similar
-      final dm4 = RegExp(r'class=["' "'" r'].*?duration.*?["' "'" r'][^>]*>(\d{1,2}:\d{2}(?::\d{2})?)<').firstMatch(html);
-      if (dm4 != null) {
-        durationSec = _parseDurationText(dm4.group(1) ?? '');
-      }
-    }
-    if (durationSec <= 0) {
-      // Try <span> or <div> with time format
-      final dm5 = RegExp(r'<(?:span|div)[^>]*>(\d{1,2}:\d{2}:\d{2})<').firstMatch(html);
-      if (dm5 != null) {
-        durationSec = _parseDurationText(dm5.group(1) ?? '');
-      }
-    }
-    if (durationSec <= 0) {
-      // Try <p> tag with time format
-      final dm6 = RegExp(r'<p[^>]*>.*?(\d{1,2}:\d{2}:\d{2}).*?</p>').firstMatch(html);
-      if (dm6 != null) {
-        durationSec = _parseDurationText(dm6.group(1) ?? '');
-      }
-    }
-    if (durationSec <= 0) {
-      // Try meta tag with duration
-      final dm7 = RegExp(r'<meta[^>]*(?:property|name)="(?:video:)?duration"[^>]*content="(\d+)"').firstMatch(html);
-      if (dm7 != null) {
-        durationSec = int.tryParse(dm7.group(1) ?? '') ?? 0;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try video tag with duration attribute
-      final dm8 = RegExp(r'<video[^>]*duration="(\d+)"').firstMatch(html);
-      if (dm8 != null) {
-        durationSec = int.tryParse(dm8.group(1) ?? '') ?? 0;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try data-duration attribute anywhere
-      final dm9 = RegExp(r'data-duration="(\d+)"').firstMatch(html);
-      if (dm9 != null) {
-        durationSec = int.tryParse(dm9.group(1) ?? '') ?? 0;
-      }
-    }
-    if (durationSec <= 0) {
-      // Try "播放时长" or similar Chinese labels
-      final dm10 = RegExp(r'(?:播放时长|时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)').firstMatch(html);
-      if (dm10 != null) {
-        durationSec = _parseDurationText(dm10.group(1) ?? '');
-      }
-    }
-    if (durationSec <= 0) {
-      // Try JavaScript variable like var duration = 1234
-      final dm11 = RegExp(r'(?:var|let|const)\s+duration\s*=\s*(\d+)').firstMatch(html);
-      if (dm11 != null) {
-        durationSec = int.tryParse(dm11.group(1) ?? '') ?? 0;
-      }
+      durationSec = await _durationFromM3u8(playUrl);
     }
 
     if (title.isEmpty) {
-      final tm = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)
-          .firstMatch(html);
-      title = (tm?.group(1) ?? '视频').split('-').first.trim();
+      title = _titleFromHtml(html) ?? '视频';
     }
 
     final streams = <StreamQuality>[
@@ -496,11 +446,148 @@ class MitaoApi {
     ];
 
     return VideoDetail(
-      url: url,
-      title: title.isEmpty ? url : title,
+      url: pageUrl,
+      title: title.isEmpty ? pageUrl : title,
       durationSec: durationSec,
       streams: streams,
     );
+  }
+
+  String? _titleFromHtml(String html) {
+    final og = RegExp(
+      r'<meta[^>]+property=["'']og:title["''][^>]+content=["'']([^"'']+)["'']',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (og != null) return og.group(1)!.trim();
+    final tm = RegExp(r'<title>([^<]+)</title>', caseSensitive: false)
+        .firstMatch(html);
+    if (tm != null) {
+      return tm.group(1)!.split(RegExp(r'\s*[-_|–—]\s*')).first.trim();
+    }
+    return null;
+  }
+
+  int _durationFromHtml(String html, int current) {
+    if (current > 0) return current;
+    final patterns = <RegExp>[
+      RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)'),
+      RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
+      RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
+      RegExp(r'data-duration=["''](\d+)["'']'),
+      RegExp(r'"duration"\s*:\s*(\d+)'),
+    ];
+    for (final re in patterns) {
+      final m = re.firstMatch(html);
+      if (m == null) continue;
+      if (m.groupCount >= 3 && m.group(3) != null) {
+        final h = int.tryParse(m.group(1) ?? '0') ?? 0;
+        final mi = int.tryParse(m.group(2) ?? '0') ?? 0;
+        final s = int.tryParse(m.group(3) ?? '0') ?? 0;
+        final t = h * 3600 + mi * 60 + s;
+        if (t > 0) return t;
+      } else {
+        final g = m.group(1) ?? '';
+        final t = _parseDurationText(g);
+        if (t > 0) return t;
+      }
+    }
+    return 0;
+  }
+
+  /// Follow master m3u8 → media playlist; some CDNs need site Referer.
+  Future<String> _resolvePlayableUrl(String playUrl) async {
+    if (!playUrl.toLowerCase().contains('.m3u8')) return playUrl;
+    try {
+      final res = await _dio.get<String>(
+        playUrl,
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: {
+            ...AppHttpHeaders.forMediaUrl(playUrl, pageUrl: base),
+            'Accept': 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*',
+          },
+          receiveTimeout: const Duration(seconds: 12),
+        ),
+      );
+      final body = res.data ?? '';
+      if (!body.contains('#EXTM3U')) return playUrl;
+      // Master playlist: pick highest bandwidth variant
+      if (body.contains('#EXT-X-STREAM-INF')) {
+        final lines = body.split(RegExp(r'\r?\n'));
+        String? best;
+        var bestBw = -1;
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
+          final bw =
+              int.tryParse(RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ??
+                      '') ??
+                  0;
+          if (i + 1 >= lines.length) continue;
+          var next = lines[i + 1].trim();
+          if (next.isEmpty || next.startsWith('#')) continue;
+          if (bw >= bestBw) {
+            bestBw = bw;
+            best = next;
+          }
+        }
+        if (best != null) {
+          return _absUrl(playUrl, best);
+        }
+      }
+    } catch (_) {}
+    return playUrl;
+  }
+
+  String _absUrl(String baseUrl, String ref) {
+    final r = ref.trim();
+    if (r.startsWith('http://') || r.startsWith('https://')) return r;
+    if (r.startsWith('//')) return 'https:$r';
+    final u = Uri.parse(baseUrl);
+    if (r.startsWith('/')) return '${u.scheme}://${u.host}$r';
+    final path = u.path.substring(0, u.path.lastIndexOf('/') + 1);
+    return '${u.scheme}://${u.host}$path$r';
+  }
+
+  /// Sum EXTINF from media playlist so UI has a seek bar even if ExoPlayer
+  /// reports duration=0 for some HLS.
+  Future<int> _durationFromM3u8(String playUrl) async {
+    if (!playUrl.toLowerCase().contains('m3u8')) return 0;
+    try {
+      var url = playUrl;
+      for (var hop = 0; hop < 2; hop++) {
+        final res = await _dio.get<String>(
+          url,
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: AppHttpHeaders.forMediaUrl(url, pageUrl: base),
+            receiveTimeout: const Duration(seconds: 12),
+          ),
+        );
+        final body = res.data ?? '';
+        if (body.contains('#EXT-X-STREAM-INF')) {
+          final lines = body.split(RegExp(r'\r?\n'));
+          for (var i = 0; i < lines.length; i++) {
+            if (lines[i].contains('#EXT-X-STREAM-INF') &&
+                i + 1 < lines.length) {
+              final next = lines[i + 1].trim();
+              if (next.isNotEmpty && !next.startsWith('#')) {
+                url = _absUrl(url, next);
+                break;
+              }
+            }
+          }
+          continue;
+        }
+        var total = 0.0;
+        for (final m in RegExp(r'#EXTINF:([\d.]+)').allMatches(body)) {
+          total += double.tryParse(m.group(1)!) ?? 0;
+        }
+        if (total >= 1) return total.round();
+        break;
+      }
+    } catch (_) {}
+    return 0;
   }
 
   int _parseDurationText(String s) {

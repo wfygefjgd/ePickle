@@ -10,6 +10,7 @@ import 'services/mitao_api.dart';
 import 'services/phub_api.dart';
 import 'services/player_chrome.dart';
 import 'services/translator.dart';
+import 'services/watch_history.dart';
 import 'services/xvideos_api.dart';
 
 /// Video player shell (home list + site feeds + search).
@@ -18,10 +19,12 @@ class PlayerApp extends StatelessWidget {
     super.key,
     required this.settings,
     required this.layout,
+    required this.history,
   });
 
   final AppSettings settings;
   final LayoutSettings layout;
+  final WatchHistory history;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +32,7 @@ class PlayerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<AppSettings>.value(value: settings),
         ChangeNotifierProvider<LayoutSettings>.value(value: layout),
+        ChangeNotifierProvider<WatchHistory>.value(value: history),
         ChangeNotifierProvider(create: (_) => PlayerChrome()),
         Provider(create: (_) => PhubApi()),
         Provider(create: (_) => XvideosApi()),

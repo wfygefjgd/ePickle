@@ -43,8 +43,10 @@ class SearchFeedScreen extends StatefulWidget {
   final SearchSource source;
   final int initialIndex;
   final String title;
+
   /// Returns newly appended items (may be empty when no more).
   final Future<List<VideoItem>> Function()? onLoadMore;
+
   /// Required when [source] is [SearchSource.generic].
   final SiteDef? site;
 
@@ -129,29 +131,25 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Map<String, String> _buildHeaders() {
     switch (widget.source) {
       case SearchSource.x:
-        return {
-          ...AppHttpHeaders.browser,
-          'Referer': 'https://www.xvideos.com/',
-          'Origin': 'https://www.xvideos.com',
-        };
+        return AppHttpHeaders.forMediaUrl(
+          null,
+          pageUrl: 'https://www.xvideos.com',
+        );
       case SearchSource.zhong:
         return {
-          ...AppHttpHeaders.browser,
-          'Referer': 'https://mitaohk.com/',
-          'Origin': 'https://mitaohk.com',
+          ...AppHttpHeaders.forMediaUrl(null, pageUrl: 'https://mitaohk.com'),
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         };
       case SearchSource.ph:
-        return AppHttpHeaders.browser;
+        return AppHttpHeaders.forMediaUrl(
+          null,
+          pageUrl: 'https://www.pornhub.com',
+        );
       case SearchSource.generic:
         final s = widget.site;
         if (s != null) {
           final base = s.primaryHost.replaceAll(RegExp(r'/$'), '');
-          return {
-            ...AppHttpHeaders.browser,
-            'Referer': '$base/',
-            'Origin': base,
-          };
+          return AppHttpHeaders.forMediaUrl(null, pageUrl: base);
         }
         return AppHttpHeaders.browser;
     }
@@ -260,6 +258,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
+
     drop(_preloadController);
     _preloadController = null;
     _preloadIndex = null;
@@ -342,12 +341,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _preloadController4?.pause();
       WakelockPlus.disable();
       _stallTicks = 0;
-      _stallArmedAfterMs =
-          DateTime.now().millisecondsSinceEpoch + 8000;
+      _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
     } else if (state == AppLifecycleState.resumed) {
       _stallTicks = 0;
-      _stallArmedAfterMs =
-          DateTime.now().millisecondsSinceEpoch + 8000;
+      _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
       _autoRotate?.listening = true;
       _autoRotate?.start();
       _controller?.play();
@@ -512,13 +509,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _currentStreamHeight = preloadStream?.height ?? 0;
       _stallTicks = 0;
       _stallLoweredForItem = false;
-      _stallArmedAfterMs =
-          DateTime.now().millisecondsSinceEpoch + 4000;
+      _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
       _muted = context.read<AppSettings>().muted;
       preloaded.setVolume(_muted ? 0 : 1);
       if (preloadDetail != null) {
         final skip = context.read<AppSettings>().skipIntro;
-        await PlaybackHelpers.skipIntro(preloaded, enabled: skip);
+        await PlaybackHelpers.skipIntro(
+          preloaded,
+          enabled: skip,
+          fallbackDurationSec: preloadDetail.durationSec,
+        );
       }
       if (!mounted || seq != _seq) {
         try {
@@ -527,7 +527,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         return;
       }
       _controller = preloaded;
-      final dur = preloaded.value.duration;
+      final dur = PlaybackHelpers.effectiveDuration(
+        preloaded,
+        fallbackSec: preloadDetail?.durationSec ?? 0,
+      );
       setState(() {
         _pageLoading = false;
         _titleText = preloadDetail?.title ?? item.title;
@@ -692,7 +695,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       final next = VideoPlayerController.networkUrl(
         Uri.parse(c.url),
-        httpHeaders: _headers,
+        httpHeaders: {
+          ..._headers,
+          ...AppHttpHeaders.forMediaUrl(c.url, pageUrl: detail.url),
+        },
         videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
       );
       try {
@@ -712,8 +718,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         final net = context.read<AppSettings>();
         final tip = net.proxyEnabled && net.hasProxyEndpoint
             ? (net.proxyType == 'socks5'
-                ? '列表可能已通，播放常不跟 SOCKS。可开 TUN 或改用 HTTP 代理'
-                : '列表可能已通，播放仍失败。可开 TUN 或检查代理是否支持视频')
+                  ? '列表可能已通，播放常不跟 SOCKS。可开 TUN 或改用 HTTP 代理'
+                  : '列表可能已通，播放仍失败。可开 TUN 或检查代理是否支持视频')
             : '播放失败。有列表播不动：开 TUN 或设置 HTTP 代理';
         PlaybackHelpers.toast(
           context,
@@ -733,13 +739,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
     _stallLoweredForItem = false;
-    _stallArmedAfterMs =
-        DateTime.now().millisecondsSinceEpoch + 4000;
+    _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
     _muted = context.read<AppSettings>().muted;
     player.setVolume(_muted ? 0 : 1);
     final skip = context.read<AppSettings>().skipIntro;
 
-    await PlaybackHelpers.skipIntro(player, enabled: skip);
+    await PlaybackHelpers.skipIntro(
+      player,
+      enabled: skip,
+      fallbackDurationSec: detail.durationSec,
+    );
 
     if (!mounted || seq != _seq) {
       await player.dispose();
@@ -747,10 +756,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
     final ready = player;
     _controller = ready;
+    final effDur = PlaybackHelpers.effectiveDuration(
+      ready,
+      fallbackSec: detail.durationSec,
+    );
     setState(() {
       _pageLoading = false;
       _titleText = detail.title;
-      _totalTime = PlaybackHelpers.fmtDuration(ready.value.duration);
+      _totalTime = PlaybackHelpers.fmtDuration(effDur);
     });
     // ignore: unawaited_futures
     _translateTitleOnly(detail.title);
@@ -808,6 +821,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
+
     drop(_preloadController);
     _preloadController = null;
     _preloadIndex = null;
@@ -839,8 +853,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
     final cap = _effectiveQualityCap;
-    final stream =
-        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
     if (_preloadIndex == index &&
         _preloadController != null &&
@@ -864,7 +877,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq) return;
     final player = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: _headers,
+      httpHeaders: {
+        ..._headers,
+        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+      },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
@@ -911,8 +927,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
     final cap = _effectiveQualityCap;
-    final stream =
-        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
     if (_preloadIndex2 == index &&
         _preloadController2 != null &&
@@ -936,7 +951,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq) return;
     final player = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: _headers,
+      httpHeaders: {
+        ..._headers,
+        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+      },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
@@ -983,8 +1001,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
     final cap = _effectiveQualityCap;
-    final stream =
-        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
     if (_preloadIndex3 == index &&
         _preloadController3 != null &&
@@ -1008,7 +1025,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq) return;
     final player = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: _headers,
+      httpHeaders: {
+        ..._headers,
+        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+      },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
@@ -1055,8 +1075,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
     final cap = _effectiveQualityCap;
-    final stream =
-        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    final stream = PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
     if (_preloadIndex4 == index &&
         _preloadController4 != null &&
@@ -1080,7 +1099,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (seq != _seq) return;
     final player = VideoPlayerController.networkUrl(
       Uri.parse(stream.url),
-      httpHeaders: _headers,
+      httpHeaders: {
+        ..._headers,
+        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+      },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
@@ -1119,7 +1141,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
   }
 
-  Future<void> _disposePlayer({int? seqGuard, VideoPlayerController? exclude}) async {
+  Future<void> _disposePlayer({
+    int? seqGuard,
+    VideoPlayerController? exclude,
+  }) async {
     _progressTimer?.cancel();
     _progressTimer = null;
     final c = _controller;
@@ -1151,7 +1176,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (_seeking) return;
 
       final pos = ctrl.value.position;
-      final dur = ctrl.value.duration;
+      final fallback = (_index >= 0 && _detailCache.containsKey(_index))
+          ? (_detailCache[_index]?.durationSec ?? 0)
+          : 0;
+      final dur = PlaybackHelpers.effectiveDuration(
+        ctrl,
+        fallbackSec: fallback,
+      );
       if (dur.inMilliseconds <= 0) return;
       final now = DateTime.now().millisecondsSinceEpoch;
       final posMs = pos.inMilliseconds.toDouble();
@@ -1179,14 +1210,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       lastTickMs = now;
       lastPosMs = posMs;
-      _slider.value =
-          (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+      _slider.value = (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
       _curTime.value = PlaybackHelpers.fmtDuration(pos);
       final t = PlaybackHelpers.fmtDuration(dur);
       if (t != _totalTime && mounted) setState(() => _totalTime = t);
     });
   }
-
 
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
@@ -1213,8 +1242,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _onSeekCommit(double v) async {
     _stallTicks = 0;
-    _stallArmedAfterMs =
-        DateTime.now().millisecondsSinceEpoch + 3000;
+    _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 3000;
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
       _seeking = false;
@@ -1296,7 +1324,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     final chrome = _chrome;
-    if (chrome == null || !chrome.immersive || _dragStartX == null || _dragStartPosition == null) return;
+    if (chrome == null ||
+        !chrome.immersive ||
+        _dragStartX == null ||
+        _dragStartPosition == null)
+      return;
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -1377,11 +1409,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
-    final immersive =
-        context.select<PlayerChrome, bool>((c) => c.immersive);
+    final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
@@ -1412,186 +1442,284 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         body: chrome.wrapBody(
           context,
           GestureDetector(
-          onTap: () {
-            if (_chrome?.immersive == true) {
-              _onTapScreen();
-            } else {
-              final c = _controller;
-              if (c == null || !c.value.isInitialized) return;
-              if (c.value.isPlaying) {
-                c.pause();
+            onTap: () {
+              if (_chrome?.immersive == true) {
+                _onTapScreen();
               } else {
-                c.play();
+                final c = _controller;
+                if (c == null || !c.value.isInitialized) return;
+                if (c.value.isPlaying) {
+                  c.pause();
+                } else {
+                  c.play();
+                }
               }
-            }
-          },
-          onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
-          onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
-          onHorizontalDragStart: _onHorizontalDragStart,
-          onHorizontalDragUpdate: _onHorizontalDragUpdate,
-          onHorizontalDragEnd: _onHorizontalDragEnd,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Landscape: never use PageView — RotatedBox viewport change
-              // maps pixel offset to page 0 (first thumb) while audio keeps
-              // playing the real controller. Portrait: vertical swipe feed.
-              if (immersive)
-                Builder(
-                  builder: (_) {
-                    final c = _controller;
-                    if (c != null && c.value.isInitialized) {
-                      final ar = c.value.aspectRatio;
-                      return ColoredBox(
-                        color: Colors.black,
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio:
-                                (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
-                            child: VideoPlayer(c),
+            },
+            onLongPressStart: (_) => _controller?.setPlaybackSpeed(3.0),
+            onLongPressEnd: (_) => _controller?.setPlaybackSpeed(1.0),
+            onHorizontalDragStart: _onHorizontalDragStart,
+            onHorizontalDragUpdate: _onHorizontalDragUpdate,
+            onHorizontalDragEnd: _onHorizontalDragEnd,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Landscape: never use PageView — RotatedBox viewport change
+                // maps pixel offset to page 0 (first thumb) while audio keeps
+                // playing the real controller. Portrait: vertical swipe feed.
+                if (immersive)
+                  Builder(
+                    builder: (_) {
+                      final c = _controller;
+                      if (c != null && c.value.isInitialized) {
+                        final ar = c.value.aspectRatio;
+                        return ColoredBox(
+                          color: Colors.black,
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: (ar.isFinite && ar > 0.05)
+                                  ? ar
+                                  : (16 / 9),
+                              child: VideoPlayer(c),
+                            ),
                           ),
+                        );
+                      }
+                      final thumb = (_index >= 0 && _index < _items.length)
+                          ? _items[_index].thumb
+                          : null;
+                      return Container(
+                        color: const Color(0xFF1A1A1A),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (thumb != null && thumb.isNotEmpty)
+                              CachedNetworkImage(
+                                imageUrl: thumb,
+                                httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                                fit: BoxFit.cover,
+                                memCacheWidth: 720,
+                                placeholder: (_, __) =>
+                                    const ColoredBox(color: Color(0xFF1A1A1A)),
+                                errorWidget: (_, __, ___) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            if (_pageLoading)
+                              const Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(0xFFFF6B35),
+                                ),
+                              ),
+                          ],
                         ),
                       );
-                    }
-                    final thumb = (_index >= 0 && _index < _items.length)
-                        ? _items[_index].thumb
-                        : null;
-                    return Container(
-                      color: const Color(0xFF1A1A1A),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (thumb != null && thumb.isNotEmpty)
-                            CachedNetworkImage(
-                              imageUrl: thumb,
-                              httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-                              fit: BoxFit.cover,
-                              memCacheWidth: 720,
-                              placeholder: (_, __) =>
-                                  const ColoredBox(color: Color(0xFF1A1A1A)),
-                              errorWidget: (_, __, ___) =>
-                                  const SizedBox.shrink(),
+                    },
+                  )
+                else
+                  PageView.builder(
+                    controller: _pageCtrl,
+                    scrollDirection: Axis.vertical,
+                    itemCount: _items.length,
+                    onPageChanged: _onPageChanged,
+                    itemBuilder: (_, i) {
+                      if (i == _index &&
+                          _controller != null &&
+                          _controller!.value.isInitialized) {
+                        final ar = _controller!.value.aspectRatio;
+                        return ColoredBox(
+                          color: Colors.black,
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: (ar.isFinite && ar > 0.05)
+                                  ? ar
+                                  : (16 / 9),
+                              child: VideoPlayer(_controller!),
                             ),
-                          if (_pageLoading)
-                            const Center(
-                              child: CircularProgressIndicator(
-                                color: Color(0xFFFF6B35),
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                )
-              else
-                PageView.builder(
-                  controller: _pageCtrl,
-                  scrollDirection: Axis.vertical,
-                  itemCount: _items.length,
-                  onPageChanged: _onPageChanged,
-                  itemBuilder: (_, i) {
-                    if (i == _index &&
-                        _controller != null &&
-                        _controller!.value.isInitialized) {
-                      final ar = _controller!.value.aspectRatio;
-                      return ColoredBox(
-                        color: Colors.black,
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio:
-                                (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
-                            child: VideoPlayer(_controller!),
                           ),
+                        );
+                      }
+                      final thumb = _items[i].thumb;
+                      return Container(
+                        color: const Color(0xFF1A1A1A),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (thumb != null && thumb.isNotEmpty)
+                              CachedNetworkImage(
+                                imageUrl: thumb,
+                                httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                                fit: BoxFit.cover,
+                                memCacheWidth: 720,
+                                placeholder: (_, __) =>
+                                    const ColoredBox(color: Color(0xFF1A1A1A)),
+                                errorWidget: (_, __, ___) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            if (i == _index && _pageLoading)
+                              const Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(0xFFFF6B35),
+                                ),
+                              ),
+                          ],
                         ),
                       );
-                    }
-                    final thumb = _items[i].thumb;
-                    return Container(
-                      color: const Color(0xFF1A1A1A),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (thumb != null && thumb.isNotEmpty)
-                            CachedNetworkImage(
-                              imageUrl: thumb,
-                              httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-                              fit: BoxFit.cover,
-                              memCacheWidth: 720,
-                              placeholder: (_, __) =>
-                                  const ColoredBox(color: Color(0xFF1A1A1A)),
-                              errorWidget: (_, __, ___) =>
-                                  const SizedBox.shrink(),
-                            ),
-                          if (i == _index && _pageLoading)
-                            const Center(
-                              child: CircularProgressIndicator(
-                                color: Color(0xFFFF6B35),
-                              ),
-                            ),
-                        ],
+                    },
+                  ),
+                // 横屏手势进度预览
+                if (immersive && _seekPreviewText.isNotEmpty)
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
                       ),
-                    );
-                  },
-                ),
-              // 横屏手势进度预览
-              if (immersive && _seekPreviewText.isNotEmpty)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _seekPreviewText,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _seekPreviewText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              if (immersive) ...[
-                // 横屏：点击屏幕显示/隐藏控制栏
-                if (_showExitButton) ...[
-                  // 退出按钮
+                if (immersive) ...[
+                  // 横屏：点击屏幕显示/隐藏控制栏
+                  if (_showExitButton) ...[
+                    // 退出按钮
+                    Positioned(
+                      right: 16,
+                      top: 16,
+                      child: SafeArea(
+                        child: GestureDetector(
+                          onTap: _toggleFullscreen,
+                          child: Icon(
+                            Icons.fullscreen_exit,
+                            color: Colors.white.withOpacity(0.5),
+                            size: 28,
+                            shadows: const [
+                              Shadow(color: Colors.black45, blurRadius: 4),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 设置按钮
+                    Positioned(
+                      left: 16,
+                      top: 16,
+                      child: SafeArea(
+                        child: GestureDetector(
+                          onTap: _openPlayerSettings,
+                          child: Icon(
+                            Icons.settings,
+                            color: Colors.white.withOpacity(0.5),
+                            size: 28,
+                            shadows: const [
+                              Shadow(color: Colors.black45, blurRadius: 4),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 进度条
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: SafeArea(
+                        child: FeedProgressBar(
+                          slider: _slider,
+                          curTime: _curTime,
+                          totalTime: _totalTime,
+                          onChanged: _onSeekPreview,
+                          onChangeStart: (_) {
+                            _seeking = true;
+                          },
+                          onChangeEnd: (v) {
+                            // ignore: unawaited_futures
+                            _onSeekCommit(v);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ] else ...[
                   Positioned(
-                    right: 16,
-                    top: 16,
+                    left: 12,
+                    right: 56,
+                    top: 8,
                     child: SafeArea(
-                      child: GestureDetector(
+                      child: Text(
+                        _titleText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          shadows: [
+                            Shadow(color: Colors.black87, blurRadius: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 竖屏：全屏按钮（半透明，无背景）
+                  Positioned(
+                    left: 10,
+                    top: 8,
+                    child: SafeArea(
+                      child: _MinimalButton(
+                        storageKey: 'search_fullscreen_button_normal',
+                        defaultOffset: const Offset(10, 8),
+                        icon: Icons.fullscreen,
                         onTap: _toggleFullscreen,
-                        child: Icon(
-                          Icons.fullscreen_exit,
-                          color: Colors.white.withOpacity(0.5),
-                          size: 28,
-                          shadows: const [
-                            Shadow(color: Colors.black45, blurRadius: 4),
-                          ],
-                        ),
                       ),
                     ),
                   ),
-                  // 设置按钮
+                  // 竖屏：设置按钮（半透明，无背景）
                   Positioned(
-                    left: 16,
-                    top: 16,
+                    right: 10,
+                    top: 8,
                     child: SafeArea(
-                      child: GestureDetector(
+                      child: _MinimalButton(
+                        storageKey: 'search_settings_button_normal',
+                        defaultOffset: const Offset(10, 8),
+                        icon: Icons.settings,
                         onTap: _openPlayerSettings,
-                        child: Icon(
-                          Icons.settings,
-                          color: Colors.white.withOpacity(0.5),
-                          size: 28,
-                          shadows: const [
-                            Shadow(color: Colors.black45, blurRadius: 4),
-                          ],
-                        ),
                       ),
                     ),
                   ),
-                  // 进度条
+                  // 竖屏：快进按钮（半透明，无背景）
+                  Positioned(
+                    left: 10,
+                    bottom: 80,
+                    child: SafeArea(
+                      child: _MinimalButton(
+                        storageKey: 'search_fastforward_button_normal',
+                        defaultOffset: const Offset(10, 80),
+                        icon: Icons.forward_30,
+                        onTap: _fastForward,
+                      ),
+                    ),
+                  ),
+                  // 竖屏：音量按钮（半透明，无背景）
+                  Positioned(
+                    right: 10,
+                    bottom: 80,
+                    child: SafeArea(
+                      child: _MinimalButton(
+                        storageKey: 'search_mute_button_normal',
+                        defaultOffset: const Offset(10, 80),
+                        icon: _muted ? Icons.volume_off : Icons.volume_up,
+                        onTap: _toggleMute,
+                      ),
+                    ),
+                  ),
                   Positioned(
                     left: 0,
                     right: 0,
@@ -1613,107 +1741,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     ),
                   ),
                 ],
-              ] else ...[
-                Positioned(
-                  left: 12,
-                  right: 56,
-                  top: 8,
-                  child: SafeArea(
-                    child: Text(
-                      _titleText,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        shadows: [
-                          Shadow(color: Colors.black87, blurRadius: 4)
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                // 竖屏：全屏按钮（半透明，无背景）
-                Positioned(
-                  left: 10,
-                  top: 8,
-                  child: SafeArea(
-                    child: _MinimalButton(
-                      storageKey: 'search_fullscreen_button_normal',
-                      defaultOffset: const Offset(10, 8),
-                      icon: Icons.fullscreen,
-                      onTap: _toggleFullscreen,
-                    ),
-                  ),
-                ),
-                // 竖屏：设置按钮（半透明，无背景）
-                Positioned(
-                  right: 10,
-                  top: 8,
-                  child: SafeArea(
-                    child: _MinimalButton(
-                      storageKey: 'search_settings_button_normal',
-                      defaultOffset: const Offset(10, 8),
-                      icon: Icons.settings,
-                      onTap: _openPlayerSettings,
-                    ),
-                  ),
-                ),
-                // 竖屏：快进按钮（半透明，无背景）
-                Positioned(
-                  left: 10,
-                  bottom: 80,
-                  child: SafeArea(
-                    child: _MinimalButton(
-                      storageKey: 'search_fastforward_button_normal',
-                      defaultOffset: const Offset(10, 80),
-                      icon: Icons.forward_30,
-                      onTap: _fastForward,
-                    ),
-                  ),
-                ),
-                // 竖屏：音量按钮（半透明，无背景）
-                Positioned(
-                  right: 10,
-                  bottom: 80,
-                  child: SafeArea(
-                    child: _MinimalButton(
-                      storageKey: 'search_mute_button_normal',
-                      defaultOffset: const Offset(10, 80),
-                      icon: _muted ? Icons.volume_off : Icons.volume_up,
-                      onTap: _toggleMute,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: SafeArea(
-                    child: FeedProgressBar(
-                      slider: _slider,
-                      curTime: _curTime,
-                      totalTime: _totalTime,
-                      onChanged: _onSeekPreview,
-                      onChangeStart: (_) {
-                        _seeking = true;
-                      },
-                      onChangeEnd: (v) {
-                        // ignore: unawaited_futures
-                        _onSeekCommit(v);
-                      },
-                    ),
-                  ),
-                ),
               ],
-            ],
+            ),
           ),
-        ),
         ),
       ),
     );
   }
-
 
   void _openPlayerSettings() {
     final detail = _detailCache[_index];
@@ -1735,20 +1769,22 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _maybeAutoLowerQuality() async {
     if (!mounted || _stallLowering || _stallLoweredForItem) return;
-    final enabled = _settings?.autoLowerOnStall ??
+    final enabled =
+        _settings?.autoLowerOnStall ??
         context.read<AppSettings>().autoLowerOnStall;
     if (!enabled) return;
     final detail = _detailCache[_index];
     if (detail == null || detail.streams.length < 2) return;
-    final heights =
-        detail.streams.map((s) => s.height).where((h) => h > 0).toSet();
+    final heights = detail.streams
+        .map((s) => s.height)
+        .where((h) => h > 0)
+        .toSet();
     if (heights.length < 2) return;
     final curH = _currentStreamHeight;
     if (curH <= 0) return;
-    final lower = detail.streams
-        .where((s) => s.height > 0 && s.height < curH)
-        .toList()
-      ..sort((a, b) => b.height.compareTo(a.height));
+    final lower =
+        detail.streams.where((s) => s.height > 0 && s.height < curH).toList()
+          ..sort((a, b) => b.height.compareTo(a.height));
     if (lower.isEmpty) return;
     final target = lower.first;
     _stallLowering = true;
@@ -1881,9 +1917,7 @@ class _MinimalButtonState extends State<_MinimalButton> {
                 ? Colors.white.withOpacity(0.9)
                 : Colors.white.withOpacity(0.5),
             size: 28,
-            shadows: const [
-              Shadow(color: Colors.black45, blurRadius: 4),
-            ],
+            shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
           ),
         ),
       ),

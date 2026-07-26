@@ -297,6 +297,8 @@ class SourceCatalog {
     mirrors: [
       'https://www.eporner.com',
       'https://eporner.com',
+      'https://de.eporner.com',
+      'https://fr.eporner.com',
     ],
     tags: vodTags,
   );
@@ -308,9 +310,12 @@ class SourceCatalog {
     color: 0xFFE65100,
     letter: 'F',
     ready: true,
+    // freeporn.com is a hub/landing; use freeporn.xxx / similar tube mirrors.
     mirrors: [
+      'https://www.freeporn.xxx',
+      'https://freeporn.xxx',
+      'https://www.free-porn.xxx',
       'https://www.freeporn.com',
-      'https://freeporn.com',
     ],
     tags: vodTags,
   );
@@ -326,6 +331,8 @@ class SourceCatalog {
       'https://spankbang.com',
       'https://www.spankbang.com',
       'https://spankbang.party',
+      'https://ms.spankbang.com',
+      'https://spankbang.media',
     ],
     tags: vodTags,
   );
@@ -340,6 +347,7 @@ class SourceCatalog {
     mirrors: [
       'https://www.youporn.com',
       'https://youporn.com',
+      'https://www.you-porn.com',
     ],
     tags: vodTags,
   );
@@ -354,6 +362,7 @@ class SourceCatalog {
     mirrors: [
       'https://www.redtube.com',
       'https://redtube.com',
+      'https://www.redtube.net',
     ],
     tags: vodTags,
   );
@@ -382,6 +391,7 @@ class SourceCatalog {
     mirrors: [
       'https://javmix.tv',
       'https://www.javmix.tv',
+      'https://javmix.com',
     ],
     tags: vodTags,
   );
@@ -396,6 +406,8 @@ class SourceCatalog {
     mirrors: [
       'https://javgg.net',
       'https://www.javgg.net',
+      'https://javgg.com',
+      'https://jav.gg',
     ],
     tags: vodTags,
   );
@@ -407,9 +419,12 @@ class SourceCatalog {
     color: 0xFF37474F,
     letter: 'A',
     ready: true,
+    // SPA site; prefer .tv / .xyz which still expose list HTML or API.
     mirrors: [
+      'https://www.av01.tv',
+      'https://av01.tv',
+      'https://www.av01.xyz',
       'https://www.av01.media',
-      'https://www.av01.media/jp',
       'https://av01.media',
     ],
     tags: vodTags,
@@ -424,9 +439,10 @@ class SourceCatalog {
     ready: true,
     mirrors: [
       'https://missav.ai',
-      'https://missav.ai/dm247/cn',
       'https://missav.ws',
       'https://missav.com',
+      'https://missav.live',
+      'https://missav.biz',
     ],
     tags: vodTags,
   );
@@ -441,6 +457,8 @@ class SourceCatalog {
     mirrors: [
       'https://jable.tv',
       'https://www.jable.tv',
+      'https://jable.org',
+      'https://jable.one',
     ],
     tags: vodTags,
   );
@@ -455,6 +473,9 @@ class SourceCatalog {
     mirrors: [
       'https://7mmtv.sx',
       'https://www.7mmtv.sx',
+      'https://7mmtv.tv',
+      'https://7mmtv.com',
+      'https://www.7mmtv.me',
     ],
     tags: vodTags,
   );
@@ -468,8 +489,8 @@ class SourceCatalog {
     ready: true,
     mirrors: [
       'https://www.bestjavporn.com',
-      'https://www.bestjavporn.com/zh',
       'https://bestjavporn.com',
+      'https://www.bestjavporn.com/zh',
     ],
     tags: vodTags,
   );
@@ -481,9 +502,17 @@ class SourceCatalog {
     color: 0xFF455A64,
     letter: 'O',
     ready: true,
+    // Domain rotates via publish pages; video nodes first.
     mirrors: [
       'https://74214.our55.xyz',
-      'https://our55.xyz',
+      'https://74214.b999.homes',
+      'https://74214.a888.homes',
+      'https://d1339.our55.xyz',
+      'https://q0008.our55.xyz',
+      'https://92217.our55.xyz',
+      'https://www.74214.com',
+      'https://www.333671.xyz',
+      'https://www.222061.xyz',
     ],
     tags: vodTags,
   );
@@ -498,6 +527,10 @@ class SourceCatalog {
     mirrors: [
       'https://www.88xqq.com',
       'https://88xqq.com',
+      'https://cccdd.y3880.xyz',
+      'https://cccdd.y3880.win',
+      'https://cccdd.y3880.cc',
+      'https://www.y3880.com',
     ],
     tags: vodTags,
   );
@@ -515,6 +548,7 @@ class SourceCatalog {
       'https://stripchat.com',
       'https://www.stripchat.com',
       'https://stripchat.global',
+      'https://xhamsterlive.com',
     ],
     tags: liveTags,
   );
@@ -532,6 +566,7 @@ class SourceCatalog {
       'https://www.chaturbate.com',
       'https://zh.chaturbate.com',
       'https://chaturbate.eu',
+      'https://chaturbate.global',
     ],
     tags: liveTags,
   );

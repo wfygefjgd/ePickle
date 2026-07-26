@@ -144,6 +144,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     widget.onSeekEnd(ratio);
   }
 
+  void _togglePlayPause() {
+    final c = widget.controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (c.value.isPlaying) {
+      c.pause();
+    } else {
+      c.play();
+    }
+  }
+
   void _onTapScreen() {
     if (widget.immersive) {
       setState(() {
@@ -160,14 +170,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       }
       return;
     }
-    // Portrait: toggle play/pause (inner detector would otherwise swallow parent taps).
-    final c = widget.controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (c.value.isPlaying) {
-      c.pause();
-    } else {
-      c.play();
-    }
+    // Portrait: single tap toggles play/pause.
+    _togglePlayPause();
+  }
+
+  void _onDoubleTapScreen() {
+    // Double-tap always toggles play/pause (portrait + landscape).
+    _togglePlayPause();
   }
 
   Widget _buildActivePlayer() {
@@ -264,6 +273,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       children: [
         GestureDetector(
           onTap: _onTapScreen,
+          onDoubleTap: _onDoubleTapScreen,
           onHorizontalDragStart: _onHorizontalDragStart,
           onHorizontalDragUpdate: _onHorizontalDragUpdate,
           onHorizontalDragEnd: _onHorizontalDragEnd,

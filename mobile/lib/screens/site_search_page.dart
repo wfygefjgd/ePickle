@@ -27,6 +27,9 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
   final _focus = FocusNode();
   List<VideoItem> _items = [];
   bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _page = 0;
   String? _error;
   int _gen = 0;
 
@@ -45,29 +48,64 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
       _loading = true;
       _error = null;
       _items = [];
+      _page = 0;
+      _hasMore = false;
     });
     try {
-      List<VideoItem> list;
-      final site = widget.site;
-      if (site.id == 'pornhub') {
-        list = await context.read<PhubApi>().search(q);
-      } else if (site.id == 'xvideos') {
-        list = await context.read<XvideosApi>().search(q);
-      } else if (site.id == 'mitao') {
-        list = await context.read<MitaoApi>().search(q);
-      } else {
-        list = await context.read<GenericSiteApi>().search(site, q);
-      }
+      final list = await _searchPage(q, 1);
       if (!mounted || gen != _gen) return;
       setState(() {
         _items = list;
         _loading = false;
+        _page = 1;
+        _hasMore = list.isNotEmpty;
         if (list.isEmpty) _error = '无结果';
       });
     } catch (e) {
       if (!mounted || gen != _gen) return;
       setState(() {
         _loading = false;
+        _error = PlaybackHelpers.friendlyError(e);
+      });
+    }
+  }
+
+  Future<List<VideoItem>> _searchPage(String query, int page) {
+    final site = widget.site;
+    if (site.id == 'pornhub') {
+      return context.read<PhubApi>().search(query, page: page);
+    }
+    if (site.id == 'xvideos') {
+      return context.read<XvideosApi>().search(query, page: page);
+    }
+    if (site.id == 'mitao') {
+      return context.read<MitaoApi>().search(query, page: page);
+    }
+    return context.read<GenericSiteApi>().search(site, query, page: page);
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    final q = _ctrl.text.trim();
+    if (q.isEmpty) return;
+    final gen = _gen;
+    final nextPage = _page + 1;
+    setState(() => _loadingMore = true);
+    try {
+      final list = await _searchPage(q, nextPage);
+      if (!mounted || gen != _gen) return;
+      final seen = _items.map((e) => e.viewkey).toSet();
+      final additions = list.where((e) => seen.add(e.viewkey)).toList();
+      setState(() {
+        _items.addAll(additions);
+        _page = nextPage;
+        _hasMore = list.isNotEmpty;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted || gen != _gen) return;
+      setState(() {
+        _loadingMore = false;
         _error = PlaybackHelpers.friendlyError(e);
       });
     }
@@ -97,10 +135,7 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
             SiteLogo(site: site, size: 28),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                '搜索 · ${site.name}',
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: Text('搜索 · ${site.name}', overflow: TextOverflow.ellipsis),
             ),
           ],
         ),
@@ -151,44 +186,60 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
                     child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
                   )
                 : _error != null && _items.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white54),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                  )
+                : _items.isEmpty
+                ? const Center(
+                    child: Text(
+                      '输入关键词搜索本站',
+                      style: TextStyle(color: Colors.white38),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _items.length + (_hasMore ? 1 : 0),
+                    itemBuilder: (_, i) {
+                      if (i == _items.length) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Center(
+                            child: _loadingMore
+                                ? const CircularProgressIndicator(
+                                    color: Color(0xFFFF6B35),
+                                  )
+                                : TextButton.icon(
+                                    onPressed: _loadMore,
+                                    icon: const Icon(Icons.expand_more),
+                                    label: const Text('加载更多'),
+                                  ),
                           ),
-                        ),
-                      )
-                    : _items.isEmpty
-                        ? const Center(
-                            child: Text(
-                              '输入关键词搜索本站',
-                              style: TextStyle(color: Colors.white38),
+                        );
+                      }
+                      return VideoCard(
+                        item: _items[i],
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SearchFeedScreen(
+                                items: List<VideoItem>.from(_items),
+                                source: _feedSource,
+                                initialIndex: i,
+                                title: site.name,
+                                site: site,
+                              ),
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: _items.length,
-                            itemBuilder: (_, i) {
-                              return VideoCard(
-                                item: _items[i],
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => SearchFeedScreen(
-                                        items: List<VideoItem>.from(_items),
-                                        source: _feedSource,
-                                        initialIndex: i,
-                                        title: site.name,
-                                        site: site,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
