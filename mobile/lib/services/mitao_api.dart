@@ -12,11 +12,13 @@ import 'phub_api.dart';
 /// mitaohk.com — 中文字幕分类 (MacCMS type id=2).
 class MitaoApi {
   static const base = 'https://mitaohk.com';
+
   /// 中文字幕
   static const zhongTypeId = 2;
 
-  MitaoApi({Dio? dio})
-      : _dio = dio ??
+  MitaoApi({Dio? dio, CancelToken? cancelToken})
+      : _cancelToken = cancelToken ?? CancelToken(),
+        _dio = dio ??
             AppHttpClient.create(
               headers: {
                 ...AppHttpHeaders.browser,
@@ -24,9 +26,25 @@ class MitaoApi {
                 'Origin': base,
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
               },
-            );
+            ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.cancelToken ??= _cancelToken;
+          handler.next(options);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
+  CancelToken _cancelToken;
+
+  void cancelRequests([String reason = 'cancelled']) {
+    final token = _cancelToken;
+    _cancelToken = CancelToken();
+    if (!token.isCancelled) token.cancel(reason);
+  }
 
   Future<String> _getHtml(String url) async {
     final res = await _dio.get<String>(url);
@@ -220,7 +238,8 @@ class MitaoApi {
       final path =
           '/index.php/vod/play/id/$id/sid/${m.group(2)}/nid/${m.group(3)}.html';
       playPaths.putIfAbsent(id, () => path);
-      if (!titles.containsKey(id) || (thumbs[id] == null || thumbs[id]!.isEmpty)) {
+      if (!titles.containsKey(id) ||
+          (thumbs[id] == null || thumbs[id]!.isEmpty)) {
         final idx = m.start;
         final start = idx > 800 ? idx - 800 : 0;
         final end = (idx + 600).clamp(0, html.length);
@@ -251,8 +270,8 @@ class MitaoApi {
     final ids = {...titles.keys, ...playPaths.keys, ...thumbs.keys};
     for (final id in ids) {
       if (!seen.add(id)) continue;
-      final path = playPaths[id] ??
-          '/index.php/vod/play/id/$id/sid/1/nid/1.html';
+      final path =
+          playPaths[id] ?? '/index.php/vod/play/id/$id/sid/1/nid/1.html';
       var title = titles[id] ?? '';
       if (!_isGoodTitle(title, id)) {
         title = '未命名 $id';
@@ -455,7 +474,12 @@ class MitaoApi {
 
   String? _titleFromHtml(String html) {
     final og = RegExp(
-      r'<meta[^>]+property=["'']og:title["''][^>]+content=["'']([^"'']+)["'']',
+      r'<meta[^>]+property=["'
+      ']og:title["'
+      '][^>]+content=["'
+      ']([^"'
+      ']+)["'
+      ']',
       caseSensitive: false,
     ).firstMatch(html);
     if (og != null) return og.group(1)!.trim();
@@ -473,7 +497,7 @@ class MitaoApi {
       RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)'),
       RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
       RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
-      RegExp(r'data-duration=["''](\d+)["'']'),
+      RegExp(r'data-duration=["' '](\d+)["' ']'),
       RegExp(r'"duration"\s*:\s*(\d+)'),
     ];
     for (final re in patterns) {
@@ -519,10 +543,10 @@ class MitaoApi {
         for (var i = 0; i < lines.length; i++) {
           final line = lines[i].trim();
           if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
-          final bw =
-              int.tryParse(RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ??
+          final bw = int.tryParse(
+                  RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ??
                       '') ??
-                  0;
+              0;
           if (i + 1 >= lines.length) continue;
           var next = lines[i + 1].trim();
           if (next.isEmpty || next.startsWith('#')) continue;

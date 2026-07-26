@@ -12,7 +12,7 @@ import 'source_catalog.dart';
 
 /// Generic HTML scraper with mirror failover for tube / JAV-style sites.
 class GenericSiteApi {
-  static const _requestTimeout = Duration(seconds: 7);
+  static const _requestTimeout = Duration(seconds: 10);
   static const _feedResolveTimeout = Duration(seconds: 16);
   static const _searchResolveTimeout = Duration(seconds: 14);
   static const _detailResolveTimeout = Duration(seconds: 20);
@@ -32,8 +32,25 @@ class GenericSiteApi {
 
   final Dio _dio;
 
+  /// Requests are short-lived, but keeping their individual tokens lets the
+  /// feed screen stop every mirror/API probe as soon as iOS backgrounds it.
+  final Set<CancelToken> _activeRequests = <CancelToken>{};
+
+  void cancelRequests([String reason = 'cancelled']) {
+    final tokens = List<CancelToken>.from(_activeRequests);
+    _activeRequests.clear();
+    for (final token in tokens) {
+      if (!token.isCancelled) token.cancel(reason);
+    }
+  }
+
   /// Per-site last working mirror index (in-memory).
   final Map<String, int> _mirrorIndex = {};
+  final Map<String, Map<String, MirrorHealth>> _mirrorHealth = {};
+
+  List<MirrorHealth> mirrorHealthFor(String siteId) => List.unmodifiable(
+        _mirrorHealth[siteId]?.values ?? const <MirrorHealth>[],
+      );
 
   /// Minimal per-origin cookie store for age gates and session redirects.
   final Map<String, Map<String, String>> _cookies = {};
@@ -51,24 +68,36 @@ class GenericSiteApi {
     String url, {
     Map<String, String>? headers,
     Duration timeout = _requestTimeout,
+    CancelToken? cancelToken,
   }) async {
     final origin = _originOf(url);
     final cookieHeader = origin == null ? null : _cookieHeader(origin);
-    final res = await _dio
-        .get<String>(
-          url,
-          options: Options(
-            responseType: ResponseType.plain,
-            headers: {
-              ...AppHttpHeaders.forSite(origin ?? url),
-              if (cookieHeader != null) 'Cookie': cookieHeader,
-              if (headers != null) ...headers,
-            },
-            followRedirects: true,
-            validateStatus: (s) => s != null && s < 500,
-          ),
-        )
-        .timeout(timeout);
+    final token = cancelToken ?? CancelToken();
+    _activeRequests.add(token);
+    late final Response<String> res;
+    try {
+      res = await _dio
+          .get<String>(
+            url,
+            cancelToken: token,
+            options: Options(
+              responseType: ResponseType.plain,
+              headers: {
+                ...AppHttpHeaders.forSite(origin ?? url),
+                if (cookieHeader != null) 'Cookie': cookieHeader,
+                if (headers != null) ...headers,
+              },
+              followRedirects: true,
+              validateStatus: (s) => s != null && s < 500,
+            ),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      if (!token.isCancelled) token.cancel('request timeout');
+      rethrow;
+    } finally {
+      _activeRequests.remove(token);
+    }
     _storeCookies(origin, res.headers);
     final status = res.statusCode ?? 0;
     if (res.statusCode == 403) {
@@ -116,8 +145,9 @@ class GenericSiteApi {
     final trim = html.trimLeft();
     if (trim.startsWith('{') || trim.startsWith('[')) return false;
     if (html.length < 350) return true;
-    if (low.contains('just a moment') && low.contains('cloudflare'))
+    if (low.contains('just a moment') && low.contains('cloudflare')) {
       return true;
+    }
     if (low.contains('cf-browser-verification')) return true;
     if (low.contains('attention required') && low.contains('cloudflare')) {
       return true;
@@ -133,6 +163,50 @@ class GenericSiteApi {
       return true;
     }
     return false;
+  }
+
+  MirrorFailureKind _failureKind(Object error) {
+    final message = error.toString().toLowerCase();
+    if (error is TimeoutException ||
+        message.contains('timeout') ||
+        message.contains('timed out')) {
+      return MirrorFailureKind.timeout;
+    }
+    if (message.contains('403') || message.contains('forbidden')) {
+      return MirrorFailureKind.forbidden;
+    }
+    if (message.contains('cloudflare') ||
+        message.contains('验证') ||
+        message.contains('拦截')) {
+      return MirrorFailureKind.blocked;
+    }
+    if (message.contains('failed host lookup') ||
+        message.contains('name not resolved') ||
+        message.contains('nodename nor servname') ||
+        message.contains('dns')) {
+      return MirrorFailureKind.dns;
+    }
+    if (message.contains('结构不匹配') || message.contains('解析不到')) {
+      return MirrorFailureKind.structureChanged;
+    }
+    if (message.contains('cancel')) return MirrorFailureKind.cancelled;
+    return MirrorFailureKind.network;
+  }
+
+  void _recordMirror(
+    SiteDef site,
+    String base,
+    Stopwatch watch, {
+    Object? error,
+  }) {
+    final status = MirrorHealth(
+      url: base,
+      checkedAt: DateTime.now(),
+      latency: watch.elapsed,
+      failure: error == null ? null : _failureKind(error),
+      detail: error?.toString(),
+    );
+    _mirrorHealth.putIfAbsent(site.id, () => {})[base] = status;
   }
 
   List<String> _mirrorsFor(SiteDef site) {
@@ -173,12 +247,12 @@ class GenericSiteApi {
     DateTime? deadline,
   }) async {
     final mirrors = _mirrorsFor(site);
-    final start = (_mirrorIndex[site.id] ?? 0).clamp(0, mirrors.length - 1);
-    Object? lastErr;
-    for (var n = 0; n < mirrors.length; n++) {
-      final i = (start + n) % mirrors.length;
+    final preferred = _mirrorIndex[site.id];
+
+    Future<_MirrorProbe> probe(int i, [CancelToken? cancelToken]) async {
       final base = mirrors[i].replaceAll(RegExp(r'/$'), '');
       final url = pathBuilder(base);
+      final watch = Stopwatch()..start();
       try {
         final headers = <String, String>{
           ...AppHttpHeaders.browser,
@@ -189,22 +263,92 @@ class GenericSiteApi {
           url,
           headers: headers,
           timeout: _requestBudget(deadline),
+          cancelToken: cancelToken,
         );
         if (_isBlockedHtml(html)) {
-          lastErr = PhubException('页面被拦截或无效');
-          continue;
+          throw PhubException('Cloudflare / Cookie 验证页拦截');
         }
         if (accept != null && !accept(html, base)) {
-          lastErr = PhubException('${site.name} 页面结构不匹配');
-          continue;
+          throw PhubException('${site.name} 页面结构不匹配');
         }
-        _mirrorIndex[site.id] = i;
-        return _FetchedPage(html: html, url: url, base: base);
+        _recordMirror(site, base, watch);
+        return _MirrorProbe(
+          index: i,
+          page: _FetchedPage(html: html, url: url, base: base),
+        );
       } catch (e) {
-        lastErr = e;
+        _recordMirror(site, base, watch, error: e);
+        return _MirrorProbe(index: i, error: e);
       }
     }
-    throw lastErr ?? PhubException('所有镜像均失败：${site.name}');
+
+    final failures = <Object>[];
+    if (preferred != null && preferred >= 0 && preferred < mirrors.length) {
+      final result = await probe(preferred);
+      if (result.page != null) return result.page!;
+      failures.add(result.error!);
+    }
+
+    final indices = <int>[
+      for (var i = 0; i < mirrors.length; i++)
+        if (i != preferred) i,
+    ];
+    if (indices.isNotEmpty) {
+      // Mirrors are independent hosts. Probe them together so a dead first
+      // domain cannot consume the entire feed deadline.
+      final completer = Completer<_MirrorProbe>();
+      final tokens = <int, CancelToken>{
+        for (final index in indices) index: CancelToken(),
+      };
+      var remaining = indices.length;
+      for (final index in indices) {
+        unawaited(probe(index, tokens[index]).then((result) {
+          if (result.page != null && !completer.isCompleted) {
+            completer.complete(result);
+            for (final entry in tokens.entries) {
+              if (entry.key != index && !entry.value.isCancelled) {
+                entry.value.cancel('another mirror succeeded');
+              }
+            }
+            return;
+          }
+          if (result.error != null) failures.add(result.error!);
+          remaining--;
+          if (remaining == 0 && !completer.isCompleted) {
+            completer.complete(
+              _MirrorProbe(index: -1, error: _bestMirrorError(failures)),
+            );
+          }
+        }));
+      }
+      final result = await completer.future;
+      if (result.page != null) {
+        _mirrorIndex[site.id] = result.index;
+        return result.page!;
+      }
+      if (result.error != null && !failures.contains(result.error)) {
+        failures.add(result.error!);
+      }
+    }
+
+    final best = _bestMirrorError(failures);
+    throw best ?? PhubException('${site.name} 的所有镜像均不可用');
+  }
+
+  Object? _bestMirrorError(List<Object> errors) {
+    if (errors.isEmpty) return null;
+    const priority = <MirrorFailureKind, int>{
+      MirrorFailureKind.forbidden: 0,
+      MirrorFailureKind.blocked: 1,
+      MirrorFailureKind.structureChanged: 2,
+      MirrorFailureKind.dns: 3,
+      MirrorFailureKind.timeout: 4,
+      MirrorFailureKind.network: 5,
+      MirrorFailureKind.cancelled: 6,
+    };
+    errors.sort((a, b) => (priority[_failureKind(a)] ?? 99)
+        .compareTo(priority[_failureKind(b)] ?? 99));
+    return errors.first;
   }
 
   /// Feed list for a site tag (hot/new/asian/best).
@@ -218,6 +362,7 @@ class GenericSiteApi {
     final deadline = DateTime.now().add(_feedResolveTimeout);
     final seen = <String>{...?exclude};
     final results = <VideoItem>[];
+    Object? lastError;
     final safePage = page < 1 ? 1 : page;
 
     // Site-specific API first (more reliable than HTML scrape).
@@ -231,7 +376,9 @@ class GenericSiteApi {
         deadline: deadline,
       );
       results.addAll(api);
-    } catch (_) {}
+    } catch (e) {
+      lastError = e;
+    }
 
     if (results.length < limit) {
       final paths = _listPaths(site, tagId, safePage);
@@ -254,7 +401,8 @@ class GenericSiteApi {
           results.addAll(
             _parseFeedResponse(fetched.html, fetched.base, seen, site),
           );
-        } catch (_) {
+        } catch (e) {
+          lastError = e;
           continue;
         }
       }
@@ -264,7 +412,8 @@ class GenericSiteApi {
       if (DateTime.now().isAfter(deadline)) {
         throw PhubException('${site.name} 列表解析超时，请重试或切换网络');
       }
-      throw PhubException('无法从 ${site.name} 获取列表。\n请确认网络/代理，或该站结构有变。');
+      if (lastError != null) throw lastError;
+      throw PhubException('${site.name} 页面已返回，但解析不到视频列表（页面结构可能已改版）');
     }
     if (results.length > limit) return results.sublist(0, limit);
     return results;
@@ -749,10 +898,19 @@ class GenericSiteApi {
     final thumb = _resolvedThumb(html, url);
     // Resolve site-specific player formats before broad URL matching. This
     // avoids mistaking hover previews and ad assets for the full video.
-    var streams = <StreamQuality>[
-      ..._extractEncryptedSiteStreams(html),
-      ..._extractKvsStreams(html, url),
-    ];
+    var streams = <StreamQuality>[];
+    if (site.id == 'javmix' || site.id == 'javgg') {
+      // KVS main pages expose non-embed get_file URLs which currently return
+      // an error GIF. The iframe carries the playable `embed=true` URL and
+      // the session cookie/referrer required by the media endpoint.
+      streams = await _followEmbeds(html, url, url, depth: 2);
+    }
+    if (streams.isEmpty) {
+      streams = <StreamQuality>[
+        ..._extractEncryptedSiteStreams(html),
+        ..._extractKvsStreams(html, url),
+      ];
+    }
     if (streams.isEmpty) {
       streams = _extractStreams(html, url);
     }
@@ -1148,6 +1306,8 @@ class GenericSiteApi {
   List<StreamQuality> _extractKvsStreams(String html, String base) {
     final out = <StreamQuality>[];
     final seen = <String>{};
+    final origin = _originOf(base);
+    final cookie = origin == null ? null : _cookieHeader(origin);
     for (final match in RegExp(
       r'''(?:video_url|event_reporting2|video_alt_url\d*)\s*:\s*["']([^"']+)["']''',
       caseSensitive: false,
@@ -1173,10 +1333,13 @@ class GenericSiteApi {
           width: 1280,
           height: low.contains('m3u8') ? 720 : 480,
           url: value,
+          referer: base,
+          headers: {if (cookie != null) 'Cookie': cookie},
         ),
       );
     }
-    return out;
+    final embedded = out.where((stream) => stream.url.contains('embed=true'));
+    return embedded.isNotEmpty ? embedded.toList() : out;
   }
 
   /// Our55/88XQQ family encrypts `label$hlsUrl` with DES-ECB-PKCS7. The key
@@ -1192,9 +1355,10 @@ class GenericSiteApi {
 
     final out = <StreamQuality>[];
     final seen = <String>{};
+    final encodedValues = config.group(2)!.replaceAll(r'\/', '/');
     for (final encodedMatch in RegExp(
       r'''["']([A-Za-z0-9+/]{24,}={0,2})["']''',
-    ).allMatches(config.group(2)!)) {
+    ).allMatches(encodedValues)) {
       try {
         final clear = DesEcbPkcs7.decryptBase64Utf8(
           encodedMatch.group(1)!,
@@ -2208,6 +2372,42 @@ class GenericSiteApi {
     }
     return live.isNotEmpty ? live : other;
   }
+}
+
+enum MirrorFailureKind {
+  dns,
+  timeout,
+  forbidden,
+  blocked,
+  structureChanged,
+  network,
+  cancelled,
+}
+
+class MirrorHealth {
+  const MirrorHealth({
+    required this.url,
+    required this.checkedAt,
+    required this.latency,
+    this.failure,
+    this.detail,
+  });
+
+  final String url;
+  final DateTime checkedAt;
+  final Duration latency;
+  final MirrorFailureKind? failure;
+  final String? detail;
+
+  bool get isAvailable => failure == null;
+}
+
+class _MirrorProbe {
+  const _MirrorProbe({required this.index, this.page, this.error});
+
+  final int index;
+  final _FetchedPage? page;
+  final Object? error;
 }
 
 class _FetchedPage {

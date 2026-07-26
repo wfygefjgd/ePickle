@@ -166,6 +166,50 @@ void main() {
     expect(urls, everyElement(isNot(endsWith('.mp4.jpg'))));
   });
 
+  test('prefers KVS embed media and carries its referrer and session cookie',
+      () async {
+    const pageUrl = 'https://fixture.test/video/32176/example/';
+    const embedUrl = 'https://fixture.test/embed/32176';
+    const mediaUrl =
+        'https://fixture.test/get_file/3/hash/32176.mp4/?embed=true';
+    const javSite = SiteDef(
+      id: 'javmix',
+      name: 'JAVMix fixture',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'J',
+      mirrors: ['https://fixture.test'],
+    );
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>video_url: "https://fixture.test/get_file/3/hash/32176.mp4/"</script>
+          <iframe src="$embedUrl"></iframe>
+        '''),
+        headers: const {
+          'set-cookie': ['PHPSESSID=session123; Path=/'],
+        },
+      ),
+      embedUrl: _FixtureResponse(
+        _html('''
+          <script>video_url: "function/0/$mediaUrl"</script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      javSite,
+      pageUrl,
+    );
+    final stream = detail.streams.first;
+
+    expect(stream.url, mediaUrl);
+    expect(stream.referer, embedUrl);
+    expect(stream.headers['Cookie'], contains('PHPSESSID=session123'));
+  });
+
   test('decrypts Our55 DES player data into the full HLS URL', () async {
     const pageUrl = 'https://fixture.test/vod/play/42.html';
     const mediaUrl = 'https://cdn2.shayubf.com/20200222/Tlr76hci/index.m3u8';
@@ -190,6 +234,36 @@ void main() {
     final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
 
     expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
+  });
+
+  test('decrypts Our55 payloads containing JSON-escaped base64 slashes',
+      () async {
+    const pageUrl = 'https://fixture.test/video/current.html';
+    const encrypted =
+        r'2JRsK7P1DMg82YkW7R2L3VoMnVluQ\/MlmuoQ9vWrAqaR6WPNHxIA5de9GRjKvoERxZMhZ9hXSW8VOqWtUV\/55qkagjY8Klnt';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>
+            const config = {
+              video: {
+                id: '0dc2f831bc834dd6a67240a64cffbf6c',
+                data: ["$encrypted"]
+              }
+            };
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      SourceCatalog.our55,
+      pageUrl,
+    );
+
+    expect(detail.streams, isNotEmpty);
+    expect(detail.streams.first.url, contains('.m3u8'));
   });
 
   test('filters Eporner unavailable clip and parses minute duration', () async {
@@ -250,6 +324,69 @@ void main() {
 
     expect(detail.streams.first.url, contains('live_model_42_auto.m3u8'));
   });
+
+  test('races mirrors and records distinct mirror health', () async {
+    const failedBase = 'https://failed.fixture.test';
+    const workingBase = 'https://working.fixture.test';
+    const mirrorSite = SiteDef(
+      id: 'mirror_fixture',
+      name: 'Mirror Fixture',
+      kind: SiteKind.video,
+      tags: [],
+      color: 0,
+      letter: 'M',
+      mirrors: [failedBase, workingBase],
+    );
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      '$failedBase/videos?page=1&sort=hot':
+          const _FixtureResponse('forbidden', statusCode: 403),
+      '$workingBase/videos?page=1&sort=hot': _FixtureResponse(
+        _html('''
+          <a href="/video/fixture-42" title="Working mirror video">
+            <img src="/cover.jpg">
+          </a>
+        '''),
+      ),
+    });
+    final api = GenericSiteApi(dio: dio);
+
+    final feed = await api.fetchFeed(mirrorSite, limit: 1);
+    final health = api.mirrorHealthFor(mirrorSite.id);
+
+    expect(feed, hasLength(1));
+    expect(feed.single.url, '$workingBase/video/fixture-42');
+    expect(
+      health.singleWhere((entry) => entry.url == failedBase).failure,
+      MirrorFailureKind.forbidden,
+    );
+    expect(
+      health.singleWhere((entry) => entry.url == workingBase).isAvailable,
+      isTrue,
+    );
+  });
+
+  test('directory-only FreePorn is not enabled as a playable source', () {
+    expect(SourceCatalog.freeporn.ready, isFalse);
+    expect(SourceCatalog.defaultEnabledVideoIds, isNot(contains('freeporn')));
+  });
+
+  test('catalog exposes the seven verified playable channels', () {
+    expect(
+      SourceCatalog.defaultEnabledVideoIds,
+      unorderedEquals([
+        'pornhub',
+        'xvideos',
+        'mitao',
+        'xnxx',
+        'our55',
+        'xqq88',
+      ]),
+    );
+    expect(SourceCatalog.defaultLiveId, 'chaturbate');
+    expect(SourceCatalog.chaturbate.ready, isTrue);
+    expect(SourceCatalog.stripchat.ready, isFalse);
+  });
 }
 
 String _html(String body) => '<!doctype html><html><head>$body</head><body>'
@@ -259,10 +396,12 @@ class _FixtureResponse {
   const _FixtureResponse(
     this.body, {
     this.headers = const {},
+    this.statusCode = 200,
   });
 
   final String body;
   final Map<String, List<String>> headers;
+  final int statusCode;
 }
 
 class _FixtureAdapter implements HttpClientAdapter {
@@ -284,7 +423,7 @@ class _FixtureAdapter implements HttpClientAdapter {
     }
     return ResponseBody.fromString(
       fixture.body,
-      200,
+      fixture.statusCode,
       headers: fixture.headers,
     );
   }

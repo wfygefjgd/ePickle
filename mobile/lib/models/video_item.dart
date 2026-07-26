@@ -42,11 +42,15 @@ class StreamQuality {
   final int width;
   final int height;
   final String url;
+  final String? referer;
+  final Map<String, String> headers;
 
   const StreamQuality({
     required this.width,
     required this.height,
     required this.url,
+    this.referer,
+    this.headers = const {},
   });
 
   String get label {

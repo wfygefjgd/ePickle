@@ -667,7 +667,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         Uri.parse(c.url),
         httpHeaders: {
           ..._headers,
-          ...AppHttpHeaders.forMediaUrl(c.url, pageUrl: detail.url),
+          ...AppHttpHeaders.forMediaUrl(
+            c.url,
+            pageUrl: c.referer ?? detail.url,
+          ),
+          ...c.headers,
         },
         videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
       );
@@ -877,7 +881,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       Uri.parse(stream.url),
       httpHeaders: {
         ..._headers,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+        ...AppHttpHeaders.forMediaUrl(
+          stream.url,
+          pageUrl: stream.referer ?? detail.url,
+        ),
+        ...stream.headers,
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
@@ -960,7 +968,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       Uri.parse(stream.url),
       httpHeaders: {
         ..._headers,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+        ...AppHttpHeaders.forMediaUrl(
+          stream.url,
+          pageUrl: stream.referer ?? detail.url,
+        ),
+        ...stream.headers,
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
@@ -1043,7 +1055,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       Uri.parse(stream.url),
       httpHeaders: {
         ..._headers,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+        ...AppHttpHeaders.forMediaUrl(
+          stream.url,
+          pageUrl: stream.referer ?? detail.url,
+        ),
+        ...stream.headers,
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
@@ -1126,7 +1142,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       Uri.parse(stream.url),
       httpHeaders: {
         ..._headers,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
+        ...AppHttpHeaders.forMediaUrl(
+          stream.url,
+          pageUrl: stream.referer ?? detail.url,
+        ),
+        ...stream.headers,
       },
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );

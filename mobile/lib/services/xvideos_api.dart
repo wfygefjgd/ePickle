@@ -24,13 +24,18 @@ class XvideosApi {
             );
 
   final Dio _dio;
-  final CancelToken _cancelToken;
+  CancelToken _cancelToken;
 
-  void cancelRequests([String reason = 'cancelled']) => _cancelToken.cancel(reason);
+  void cancelRequests([String reason = 'cancelled']) {
+    final token = _cancelToken;
+    _cancelToken = CancelToken();
+    if (!token.isCancelled) token.cancel(reason);
+  }
 
   Future<String> _getHtml(String url) async {
     final res = await _dio.get<String>(
       url,
+      cancelToken: _cancelToken,
       options: Options(
         responseType: ResponseType.plain,
         headers: {
@@ -136,8 +141,9 @@ class XvideosApi {
       }
     }
 
-    final hardTimeout =
-        maxUrls <= 2 ? const Duration(seconds: 16) : const Duration(seconds: 28);
+    final hardTimeout = maxUrls <= 2
+        ? const Duration(seconds: 16)
+        : const Duration(seconds: 28);
     try {
       await run().timeout(hardTimeout);
     } on TimeoutException {
@@ -167,7 +173,8 @@ class XvideosApi {
       iterable = blocks.skip(1);
     } else {
       // Fallback: split on video hrefs (new layout / search pages)
-      iterable = html.split(RegExp(r'(?=href="(?:https?://(?:www\.)?xvideos\.com)?/video\.[a-zA-Z0-9]+/)'));
+      iterable = html.split(RegExp(
+          r'(?=href="(?:https?://(?:www\.)?xvideos\.com)?/video\.[a-zA-Z0-9]+/)'));
       if (iterable.length <= 1) {
         iterable = html.split(RegExp(r'(?=href="/video\.[a-zA-Z0-9]+/)'));
       }

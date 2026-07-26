@@ -171,11 +171,25 @@ class PlaybackHelpers {
     } else {
       core = s;
     }
+    if (low.contains('结构不匹配') ||
+        low.contains('解析不到') ||
+        low.contains('结构可能已改版')) {
+      return '$core\n\n该频道适配器需要更新；这不是普通代理错误。';
+    }
+    if (low.contains('403') ||
+        low.contains('forbidden') ||
+        low.contains('cloudflare') ||
+        low.contains('cookie') ||
+        low.contains('验证页')) {
+      return '$core\n\n站点拒绝了当前请求或要求浏览器验证，可切换网络/TUN 后重试。';
+    }
+    if (low.contains('failed host lookup') ||
+        low.contains('name not resolved') ||
+        low.contains('dns')) {
+      return '$core\n\n域名无法解析；请检查 DNS、网络或该镜像是否已失效。';
+    }
     return '$core\n\n'
-        '可尝试：\n'
-        '· 设置 → 网络代理 →「重新检测系统代理」\n'
-        '· 或开 TUN / 系统 VPN\n'
-        '· 手动填写代理主机与端口后保存';
+        '可尝试：设置 → 网络代理 → 重新检测系统代理，或启用 TUN / 系统 VPN。';
   }
 
   static String fmtDuration(Duration d) {

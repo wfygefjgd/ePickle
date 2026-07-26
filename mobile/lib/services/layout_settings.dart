@@ -10,7 +10,7 @@ class LayoutSettings extends ChangeNotifier {
   static const _kGlobalSearch = 'layout_global_search_v1';
   static const _kCatalogVer = 'layout_catalog_ver_v1';
   static const _kCustomUrls = 'layout_custom_urls_v1';
-  static const _catalogVer = 4;
+  static const _catalogVer = 5;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);
@@ -29,7 +29,7 @@ class LayoutSettings extends ChangeNotifier {
     final out = <SiteDef>[];
     for (final id in _enabledVideoIds) {
       final s = SourceCatalog.byId(id);
-      if (s != null && s.kind == SiteKind.video) out.add(s);
+      if (s != null && s.kind == SiteKind.video && s.ready) out.add(s);
     }
     for (final u in _customUrls) {
       out.add(SiteDef.customFromUrl(u));
@@ -37,7 +37,10 @@ class LayoutSettings extends ChangeNotifier {
     return out;
   }
 
-  SiteDef? get liveSite => SourceCatalog.byId(_liveId);
+  SiteDef? get liveSite {
+    final site = SourceCatalog.byId(_liveId);
+    return site?.ready == true ? site : SourceCatalog.chaturbate;
+  }
 
   Future<void> load() async {
     try {
@@ -61,7 +64,9 @@ class LayoutSettings extends ChangeNotifier {
         }
       }
       final live = p.getString(_kLiveId);
-      if (live != null && SourceCatalog.byId(live)?.kind == SiteKind.live) {
+      if (live != null &&
+          SourceCatalog.byId(live)?.kind == SiteKind.live &&
+          SourceCatalog.byId(live)?.ready == true) {
         _liveId = live;
       }
       _globalSearch = p.getBool(_kGlobalSearch) ?? false;
@@ -150,7 +155,8 @@ class LayoutSettings extends ChangeNotifier {
   }
 
   Future<void> setLiveId(String id) async {
-    if (SourceCatalog.byId(id)?.kind != SiteKind.live) return;
+    final site = SourceCatalog.byId(id);
+    if (site?.kind != SiteKind.live || site?.ready != true) return;
     _liveId = id;
     notifyListeners();
     try {
@@ -171,8 +177,7 @@ class LayoutSettings extends ChangeNotifier {
 
   /// Restore source + home layout only (not proxy / quality).
   Future<void> restoreDefaultLayout() async {
-    _enabledVideoIds =
-        List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+    _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
     _liveId = SourceCatalog.defaultLiveId;
     _globalSearch = false;
     _customUrls = [];

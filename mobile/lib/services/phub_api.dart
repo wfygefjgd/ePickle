@@ -39,10 +39,14 @@ class PhubApi {
     );
   }
 
-  void cancelRequests([String reason = 'cancelled']) => _cancelToken.cancel(reason);
+  void cancelRequests([String reason = 'cancelled']) {
+    final token = _cancelToken;
+    _cancelToken = CancelToken();
+    if (!token.isCancelled) token.cancel(reason);
+  }
 
   final Dio _dio;
-  final CancelToken _cancelToken;
+  CancelToken _cancelToken;
   final Map<String, String> _cookies = {
     'accessAgeDisclaimerPH': '1',
     'accessAgeDisclaimerUK': '1',
@@ -179,8 +183,9 @@ class PhubApi {
     var failCount = 0;
     // Cold start uses small maxUrls → fewer parallel + shorter timeout.
     final concurrency = maxUrls <= 2 ? 2 : 3;
-    final hardTimeout =
-        maxUrls <= 2 ? const Duration(seconds: 16) : const Duration(seconds: 28);
+    final hardTimeout = maxUrls <= 2
+        ? const Duration(seconds: 16)
+        : const Duration(seconds: 28);
 
     Future<List<VideoItem>> runBatches() async {
       for (var i = 0; i < ordered.length && tried < maxUrls;) {
@@ -244,8 +249,7 @@ class PhubApi {
   Future<List<VideoItem>> search(String query, {int page = 1}) async {
     final q = Uri.encodeQueryComponent(query.trim());
     if (q.isEmpty) return [];
-    final url =
-        'https://www.pornhub.com/video/search?search=$q&page=$page';
+    final url = 'https://www.pornhub.com/video/search?search=$q&page=$page';
     final html = await _getHtml(url);
     return _parseVideoListHtml(html, <String>{});
   }
@@ -269,8 +273,7 @@ class PhubApi {
       desc = ogDesc?.group(1);
     }
     if (desc == null || desc.isEmpty) {
-      final metaDesc = RegExp(
-              r'<meta\s+name="description"\s+content="([^"]+)"',
+      final metaDesc = RegExp(r'<meta\s+name="description"\s+content="([^"]+)"',
               caseSensitive: false)
           .firstMatch(html);
       desc = metaDesc?.group(1);
@@ -278,8 +281,11 @@ class PhubApi {
     // Strip HTML tags
     if (desc != null) {
       desc = desc.replaceAll(RegExp(r'<[^>]+>'), '');
-      desc = desc.replaceAll('&amp;', '&').replaceAll('&#039;', "'")
-          .replaceAll('&quot;', '"').replaceAll('&nbsp;', ' ');
+      desc = desc
+          .replaceAll('&amp;', '&')
+          .replaceAll('&#039;', "'")
+          .replaceAll('&quot;', '"')
+          .replaceAll('&nbsp;', ' ');
       // Filter generic site taglines that are not real descriptions
       if (_isGenericDesc(desc)) desc = null;
     }
@@ -369,15 +375,14 @@ class PhubApi {
         final t = flash['image_url']?.toString();
         if (t != null && t.startsWith('http')) return t;
       }
-      final og =
-          RegExp(r'<meta\s+property="og:image"\s+content="([^"]+)"')
-              .firstMatch(html);
+      final og = RegExp(r'<meta\s+property="og:image"\s+content="([^"]+)"')
+          .firstMatch(html);
       if (og != null) return og.group(1);
       // fallback: first img with http src in the page
-      final imgM =
-          RegExp(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp))"',
-                  caseSensitive: false)
-              .firstMatch(html);
+      final imgM = RegExp(
+              r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp))"',
+              caseSensitive: false)
+          .firstMatch(html);
       return imgM?.group(1);
     } catch (_) {
       return null;
@@ -492,10 +497,10 @@ class PhubApi {
             .firstMatch(chunk);
     if (m != null) return m.group(1);
     // Ultra fallback: any PH CDN image URL anywhere in the chunk
-    final ph =
-        RegExp(r"""https?://[a-z0-9]+\.phncdn\.com/[^"'\s<>)]+\.(?:jpg|jpeg|png|webp)""",
-                caseSensitive: false)
-            .firstMatch(chunk);
+    final ph = RegExp(
+            r"""https?://[a-z0-9]+\.phncdn\.com/[^"'\s<>)]+\.(?:jpg|jpeg|png|webp)""",
+            caseSensitive: false)
+        .firstMatch(chunk);
     return ph?.group(0);
   }
 
@@ -514,10 +519,7 @@ class PhubApi {
       var title = a.attributes['title'] ??
           a.querySelector('img')?.attributes['alt'] ??
           a.text.trim();
-      title = title
-          .replaceAll('&#039;', "'")
-          .replaceAll('&amp;', '&')
-          .trim();
+      title = title.replaceAll('&#039;', "'").replaceAll('&amp;', '&').trim();
       if (title.length < 3) continue;
 
       var dur = '-';

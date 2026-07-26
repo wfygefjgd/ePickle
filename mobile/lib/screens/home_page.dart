@@ -33,7 +33,7 @@ class _HomePageState extends State<HomePage> {
 
   void _openLive() {
     final layout = context.read<LayoutSettings>();
-    final live = layout.liveSite ?? SourceCatalog.stripchat;
+    final live = layout.liveSite ?? SourceCatalog.chaturbate;
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => SiteFeedPage(site: live)),
     );
@@ -160,17 +160,22 @@ class _HomePageState extends State<HomePage> {
                                   style: const TextStyle(color: Colors.white),
                                 ),
                                 subtitle: Text(
-                                  s.mirrors.isNotEmpty
-                                      ? '${s.mirrors.length} 个域名 · 通用解析'
-                                      : '通用解析',
+                                  !s.ready
+                                      ? (s.id == 'freeporn'
+                                          ? '目录跳转站 · 不作为可播放频道'
+                                          : '解析待修复 · 暂不作为可播放频道')
+                                      : (s.mirrors.isNotEmpty
+                                          ? '${s.mirrors.length} 个域名 · 通用解析'
+                                          : '通用解析'),
                                   style: const TextStyle(
                                     color: Colors.white38,
                                     fontSize: 12,
                                   ),
                                 ),
                                 secondary: SiteLogo(site: s, size: 36),
-                                onChanged: (v) =>
-                                    lay.toggleVideoSite(s.id, v),
+                                onChanged: s.ready
+                                    ? (v) => lay.toggleVideoSite(s.id, v)
+                                    : null,
                               ),
                           ],
                         ),
@@ -218,10 +223,10 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
-                final builtIn = sites.where((s) => !s.custom).toList();
+    final builtIn = sites.where((s) => !s.custom).toList();
     final custom = sites.where((s) => s.custom).toList();
     final lives = SourceCatalog.liveSites;
-    final live = layout.liveSite ?? SourceCatalog.stripchat;
+    final live = layout.liveSite ?? SourceCatalog.chaturbate;
     final head = builtIn.take(_previewCount).toList();
     final rest = builtIn.length > _previewCount
         ? builtIn.sublist(_previewCount)
@@ -255,9 +260,8 @@ class _HomePageState extends State<HomePage> {
                   _SiteTile(
                     site: s,
                     onTap: () => _openSite(s),
-                    mirrorHint: s.mirrors.length > 1
-                        ? '${s.mirrors.length} 个域名'
-                        : null,
+                    mirrorHint:
+                        s.mirrors.length > 1 ? '${s.mirrors.length} 个域名' : null,
                   ),
                 if (rest.isNotEmpty)
                   _ExpandableSiteSection(
@@ -316,19 +320,22 @@ class _HomePageState extends State<HomePage> {
                         mirrorHint: s.mirrors.isNotEmpty
                             ? '${s.mirrors.length} 个域名'
                             : null,
-                        onTap: () {
-                          if (s.id == live.id) {
-                            _openLive();
-                          } else {
-                            _openSite(s);
-                          }
-                        },
+                        onTap: s.ready
+                            ? () {
+                                if (s.id == live.id) {
+                                  _openLive();
+                                } else {
+                                  _openSite(s);
+                                }
+                              }
+                            : null,
                       ),
                   ],
                 ),
                 ListTile(
                   leading: const Icon(Icons.search, color: Colors.white70),
-                  title: const Text('搜索', style: TextStyle(color: Colors.white)),
+                  title:
+                      const Text('搜索', style: TextStyle(color: Colors.white)),
                   subtitle: const Text(
                     '打开完整搜索页',
                     style: TextStyle(color: Colors.white38, fontSize: 12),
@@ -355,13 +362,13 @@ class _HomePageState extends State<HomePage> {
                     Expanded(
                       child: TextField(
                         controller: _searchCtrl,
-                        style: const TextStyle(color: Colors.white, fontSize: 15),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 15),
                         textInputAction: TextInputAction.search,
                         onSubmitted: (_) => _onHomeSearch(),
                         decoration: InputDecoration(
-                          hintText: layout.globalSearch
-                              ? '搜索全部已启用网站'
-                              : '搜索（可搜全部网站）',
+                          hintText:
+                              layout.globalSearch ? '搜索全部已启用网站' : '搜索（可搜全部网站）',
                           hintStyle: const TextStyle(color: Colors.white38),
                           filled: true,
                           fillColor: const Color(0xFF2A2A2A),
@@ -482,7 +489,7 @@ class _SiteTile extends StatelessWidget {
   });
 
   final SiteDef site;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String? subtitle;
   final String? mirrorHint;
 

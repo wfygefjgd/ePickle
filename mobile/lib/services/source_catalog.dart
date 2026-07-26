@@ -277,7 +277,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF6A1B9A,
     letter: 'H',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://xhamster.com',
       'https://xhamster.desi',
@@ -293,7 +293,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF00897B,
     letter: 'E',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://www.eporner.com',
       'https://eporner.com',
@@ -309,7 +309,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFFE65100,
     letter: 'F',
-    ready: true,
+    ready: false,
     // This is an outbound video directory. The former .xxx mirrors now lead
     // to domain-sale pages and must not be treated as usable video sources.
     mirrors: ['https://www.freeporn.com'],
@@ -322,7 +322,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFFC62828,
     letter: 'B',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://spankbang.com',
       'https://www.spankbang.com',
@@ -339,7 +339,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFFAD1457,
     letter: 'Y',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://www.youporn.com',
       'https://youporn.com',
@@ -354,7 +354,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFFB71C1C,
     letter: 'R',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://www.redtube.com',
       'https://redtube.com',
@@ -369,7 +369,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF4A148C,
     letter: 'T',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://www.tnaflix.com',
       'https://tnaflix.com',
@@ -383,11 +383,9 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF00695C,
     letter: 'J',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://javmix.com',
-      'https://javmix.tv',
-      'https://www.javmix.tv',
     ],
     tags: vodTags,
   );
@@ -398,12 +396,9 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF283593,
     letter: 'G',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://javgg.com',
-      'https://javgg.net',
-      'https://www.javgg.net',
-      'https://jav.gg',
     ],
     tags: vodTags,
   );
@@ -414,7 +409,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF37474F,
     letter: 'A',
-    ready: true,
+    ready: false,
     // SPA site; prefer .tv / .xyz which still expose list HTML or API.
     mirrors: [
       'https://www.av01.tv',
@@ -432,7 +427,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF880E4F,
     letter: 'M',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://missav.ai',
       'https://missav.ws',
@@ -449,7 +444,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF1A237E,
     letter: 'J',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://jable.tv',
       'https://www.jable.tv',
@@ -464,7 +459,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFFBF360C,
     letter: '7',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://7mmtv.sx',
       'https://www.7mmtv.sx',
@@ -481,7 +476,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF33691E,
     letter: 'B',
-    ready: true,
+    ready: false,
     mirrors: [
       'https://www.bestjavporn.com',
       'https://bestjavporn.com',
@@ -537,7 +532,7 @@ class SourceCatalog {
     color: 0xFFD32F2F,
     letter: 'S',
     searchable: false,
-    ready: true,
+    ready: false,
     mirrors: [
       'https://zh.stripchat.com',
       'https://stripchat.com',
@@ -605,7 +600,7 @@ class SourceCatalog {
       all.where((s) => s.kind == SiteKind.live).toList();
 
   static List<String> get defaultEnabledVideoIds =>
-      videoSites.map((s) => s.id).toList();
+      videoSites.where((s) => s.ready).map((s) => s.id).toList();
 
-  static const defaultLiveId = 'stripchat';
+  static const defaultLiveId = 'chaturbate';
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -28,7 +29,7 @@ import '../widgets/video_player_page.dart';
 
 export '../models/feed_kind.dart';
 
-/// Vertical feed: 1 active + N preloads (Android N=3, iOS N=4).
+/// Vertical feed: one active player plus a small foreground-only preload pool.
 class VideoFeedScreen extends StatefulWidget {
   const VideoFeedScreen({
     super.key,
@@ -71,6 +72,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   StreamQuality? _preloadStream2;
   int _preloadRetries2 = 0;
 
+  // Legacy slots are retained for state migration/cleanup, but the runtime
+  // cap below never schedules them.
   VideoPlayerController? _preloadController3;
   int? _preloadIndex3;
   StreamQuality? _preloadStream3;
@@ -87,6 +90,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _pageLoading = false;
   bool _muted = false;
   bool _active = false;
+  bool _appInForeground = true;
+  int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
   String _speedLabel = '';
@@ -106,11 +111,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _failStreak = 0;
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
+  int _preloadCycle = 0;
   bool _seeking = false;
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
   AutoRotateController? _autoRotate;
   AppSettings? _settings;
+  final Set<VideoPlayerController> _initializingControllers = {};
 
   int _currentStreamHeight = 0;
   int? _sessionQualityCap;
@@ -139,8 +146,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// Next-video preload slots (both platforms: 3).
-  int get _preloadSlotCount => 3;
+  /// iOS keeps one decoder warm; other platforms keep at most two.
+  int get _preloadSlotCount =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 1 : 2;
+
+  bool get _canRun => mounted && _active && _appInForeground;
 
   /// Live list hard cap (window around current index).
   static const _maxLiveItems = 150;
@@ -251,7 +261,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _syncAutoRotateListening() {
     final ar = _autoRotate;
     if (ar == null) return;
-    final on = _active && mounted;
+    final on = _canRun;
     ar.listening = on;
     if (on) {
       ar.start();
@@ -262,7 +272,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _onAutoRotate(AutoRotateAction action, DeviceOrientation? side) {
     final chrome = _chrome;
-    if (!_active || chrome == null || !mounted) {
+    if (!_canRun || chrome == null) {
       _autoRotate?.rejectAction();
       return;
     }
@@ -326,6 +336,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     try {
       c?.dispose();
     } catch (_) {}
+    _disposeInitializingPlayersSync();
     _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
@@ -366,12 +377,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream3 = null;
     _preloadRetries3 = 0;
     if (p3 != null) {
-      // ignore: unawaited_futures
-      p3.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p3.dispose();
-        } catch (_) {}
-      });
+      unawaited(p3.pause().catchError((_) {}).whenComplete(() => p3.dispose()));
     }
 
     final p4 = _preloadController4;
@@ -380,13 +386,55 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream4 = null;
     _preloadRetries4 = 0;
     if (p4 != null) {
-      // ignore: unawaited_futures
-      p4.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p4.dispose();
-        } catch (_) {}
-      });
+      unawaited(p4.pause().catchError((_) {}).whenComplete(() => p4.dispose()));
     }
+  }
+
+  void _disposeInitializingPlayersSync() {
+    final players = List<VideoPlayerController>.from(_initializingControllers);
+    _initializingControllers.clear();
+    for (final player in players) {
+      unawaited(player.dispose().catchError((_) {}));
+    }
+  }
+
+  VideoPlayerController _createNetworkPlayer(
+    StreamQuality stream,
+    String pageUrl,
+  ) {
+    final mediaUrl = stream.url;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(mediaUrl),
+      httpHeaders: {
+        ..._httpHeaders,
+        ...AppHttpHeaders.forMediaUrl(
+          mediaUrl,
+          pageUrl: stream.referer ?? pageUrl,
+        ),
+        ...stream.headers,
+      },
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    _initializingControllers.add(player);
+    return player;
+  }
+
+  void _cancelBackgroundWork() {
+    _preloadCycle++;
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _skipTimer?.cancel();
+    _skipTimer = null;
+    _loadMoreTimer?.cancel();
+    _loadMoreTimer = null;
+    context.read<PhubApi>().cancelRequests('app backgrounded');
+    context.read<XvideosApi>().cancelRequests('app backgrounded');
+    context.read<MitaoApi>().cancelRequests('app backgrounded');
+    context.read<GenericSiteApi>().cancelRequests('app backgrounded');
+    _disposeInitializingPlayersSync();
+    _disposePreloadSync();
   }
 
   Future<void> _toggleFullscreen() async {
@@ -444,28 +492,66 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
+      if (!_appInForeground) return;
+      _appInForeground = false;
+      _lifecycleEpoch++;
+      _loadSeq++;
       _autoRotate?.listening = false;
       _autoRotate?.stop();
-      _controller?.pause();
-      _preloadController?.pause();
-      _preloadController2?.pause();
-      _preloadController3?.pause();
-      _preloadController4?.pause();
+      _cancelBackgroundWork();
+      final controller = _controller;
+      if (controller != null) {
+        unawaited(controller.pause().catchError((_) {}));
+      }
       WakelockPlus.disable();
       // iOS freezes progress in background — never treat as stall on return.
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
-    } else if (state == AppLifecycleState.resumed && _active) {
+    } else if (state == AppLifecycleState.resumed) {
+      _appInForeground = true;
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
+      if (!_active) return;
       _syncAutoRotateListening();
-      _controller?.play();
-      WakelockPlus.enable();
+      final controller = _controller;
+      if (controller != null && controller.value.isInitialized) {
+        unawaited(controller.play().then((_) {
+          if (!_canRun || !identical(controller, _controller)) return;
+          _startProgressTimer();
+          _restartPreloading();
+        }).catchError((_) {}));
+        WakelockPlus.enable();
+      } else if (_items.isNotEmpty) {
+        unawaited(_playIndex(_currentIndex.clamp(0, _items.length - 1)));
+      } else if (!_loadingMore) {
+        unawaited(_loadMore());
+      }
+    }
+  }
+
+  void _restartPreloading() {
+    if (!_canRun || _items.isEmpty) return;
+    final cycle = ++_preloadCycle;
+    unawaited(_runPreloadCycle(cycle));
+  }
+
+  Future<void> _runPreloadCycle(int cycle) async {
+    for (var slot = 0; slot < _preloadSlotCount; slot++) {
+      final index = _currentIndex + slot + 1;
+      if (cycle != _preloadCycle || !_canRun || index >= _items.length) return;
+      await _prefetchDetail(index);
+      if (cycle != _preloadCycle || !_canRun) return;
+      if (slot == 0) {
+        await _preloadNext(index);
+      } else {
+        await _preloadNext2(index);
+      }
     }
   }
 
   void startPlaying() {
     _active = true;
+    if (!_appInForeground) return;
     final immersive = _chrome?.immersive ?? false;
     _autoRotate?.syncLandscapeMode(
       immersive,
@@ -493,14 +579,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _autoRotate?.syncLandscapeMode(false);
     _syncAutoRotateListening();
     _loadSeq++;
-    _progressTimer?.cancel();
-    _progressTimer = null;
+    _lifecycleEpoch++;
+    _cancelBackgroundWork();
     final c = _controller;
     _controller = null;
     try {
       c?.pause();
     } catch (_) {}
-    _disposePreloadSync();
     WakelockPlus.disable();
     if (releasePlayers && c != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -583,7 +668,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _loadMore() async {
-    if (_loadingMore) return;
+    if (_loadingMore || !_appInForeground) return;
+    final lifecycleEpoch = _lifecycleEpoch;
     setState(() {
       _loadingMore = true;
       _error = null;
@@ -593,6 +679,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       var list = await _fetchBatch(isCold: isCold);
       if (list.isEmpty && isCold) {
         list = await _fetchBatch(isCold: false);
+      }
+      if (!mounted || !_appInForeground || lifecycleEpoch != _lifecycleEpoch) {
+        _discardStaleLoad();
+        return;
       }
       final addedStart = _items.length;
       for (final item in list) {
@@ -615,17 +705,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // ignore: unawaited_futures
         _translateItemsRange(translateStart);
       }
-      if (_active && _items.isNotEmpty && _controller == null) {
+      if (_canRun && _items.isNotEmpty && _controller == null) {
         _playIndex(_currentIndex.clamp(0, _items.length - 1));
       }
-      if (isCold && _items.length < 20 && _active) {
+      if (isCold && _items.length < 20 && _canRun) {
         _loadMoreTimer?.cancel();
         _loadMoreTimer = Timer(const Duration(seconds: 1), () {
-          if (mounted && _active) _loadMore();
+          if (_canRun) _loadMore();
         });
       }
     } catch (e) {
       if (!mounted) return;
+      if (!_appInForeground || lifecycleEpoch != _lifecycleEpoch) {
+        _discardStaleLoad();
+        return;
+      }
       setState(() {
         _loading = false;
         _loadingMore = false;
@@ -641,17 +735,28 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  void _discardStaleLoad() {
+    _loading = false;
+    _loadingMore = false;
+    if (!_canRun || _items.isNotEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_canRun && !_loadingMore && _items.isEmpty) {
+        unawaited(_loadMore());
+      }
+    });
+  }
+
   final Set<int> _retried = {};
 
   /// Temporarily disabled auto-skip so failed items stay on screen for debugging.
   void _scheduleSkipToNext(int fromIndex) {
-    if (!_active) return;
+    if (!_canRun) return;
     // One silent retry only — never auto-jump to next video.
     if (!_retried.contains(fromIndex)) {
       _retried.add(fromIndex);
       _retryTimer?.cancel();
       _retryTimer = Timer(const Duration(milliseconds: 800), () {
-        if (!mounted || !_active) return;
+        if (!_canRun) return;
         _playIndex(fromIndex);
       });
       return;
@@ -666,14 +771,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _prefetchDetail(int index) async {
-    if (!_active || index < 0 || index >= _items.length) return;
+    if (!_canRun || index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
     if (_prefetchingIndex == index) return;
     _prefetchingIndex = index;
     final url = _items[index].url;
     try {
       final d = await _fetchDetail(url);
-      if (!mounted || !_active) return;
+      if (!_canRun) return;
       _detailCache[index] = d;
       _detailCache.removeWhere((k, _) => (k - _currentIndex).abs() > 3);
     } catch (_) {
@@ -718,12 +823,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream3 = null;
     _preloadRetries3 = 0;
     if (p3 != null) {
-      // ignore: unawaited_futures
-      p3.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p3.dispose();
-        } catch (_) {}
-      });
+      unawaited(p3.pause().catchError((_) {}).whenComplete(() => p3.dispose()));
     }
 
     final p4 = _preloadController4;
@@ -732,17 +832,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _preloadStream4 = null;
     _preloadRetries4 = 0;
     if (p4 != null) {
-      // ignore: unawaited_futures
-      p4.pause().catchError((_) {}).whenComplete(() {
-        try {
-          p4.dispose();
-        } catch (_) {}
-      });
+      unawaited(p4.pause().catchError((_) {}).whenComplete(() => p4.dispose()));
     }
   }
 
   Future<void> _preloadNext(int index) async {
-    if (!_active ||
+    if (!_canRun ||
         index < 0 ||
         index >= _items.length ||
         index == _currentIndex) {
@@ -775,17 +870,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _loadSeq || !_active) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._httpHeaders,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _loadSeq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -797,14 +886,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       _preloadRetries = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
-      if (_preloadRetries < 2 && seq == _loadSeq && _active) {
+      if (_preloadRetries < 2 && seq == _loadSeq && _canRun) {
         _preloadRetries++;
         try {
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
-        if (seq == _loadSeq && _active && mounted) {
+        if (seq == _loadSeq && _canRun) {
           return _preloadNext(index);
         }
       }
@@ -813,7 +903,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _loadSeq || !_active || mounted == false) {
+    if (seq != _loadSeq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -830,7 +920,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _preloadNext2(int index) async {
-    if (!_active ||
+    if (!_canRun ||
         index < 0 ||
         index >= _items.length ||
         index == _currentIndex) {
@@ -863,17 +953,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _loadSeq || !_active) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._httpHeaders,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _loadSeq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -885,14 +969,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       _preloadRetries2 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
-      if (_preloadRetries2 < 2 && seq == _loadSeq && _active) {
+      if (_preloadRetries2 < 2 && seq == _loadSeq && _canRun) {
         _preloadRetries2++;
         try {
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries2));
-        if (seq == _loadSeq && _active && mounted) {
+        if (seq == _loadSeq && _canRun) {
           return _preloadNext2(index);
         }
       }
@@ -901,7 +986,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _loadSeq || !_active || mounted == false) {
+    if (seq != _loadSeq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -917,8 +1002,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
+  // ignore: unused_element
   Future<void> _preloadNext3(int index) async {
-    if (!_active ||
+    if (!_canRun ||
         index < 0 ||
         index >= _items.length ||
         index == _currentIndex) {
@@ -951,17 +1037,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _loadSeq || !_active) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._httpHeaders,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _loadSeq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -973,14 +1053,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       _preloadRetries3 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
-      if (_preloadRetries3 < 2 && seq == _loadSeq && _active) {
+      if (_preloadRetries3 < 2 && seq == _loadSeq && _canRun) {
         _preloadRetries3++;
         try {
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries3));
-        if (seq == _loadSeq && _active && mounted) {
+        if (seq == _loadSeq && _canRun) {
           return _preloadNext3(index);
         }
       }
@@ -989,7 +1070,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _loadSeq || !_active || mounted == false) {
+    if (seq != _loadSeq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1005,8 +1086,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
+  // ignore: unused_element
   Future<void> _preloadNext4(int index) async {
-    if (!_active ||
+    if (!_canRun ||
         index < 0 ||
         index >= _items.length ||
         index == _currentIndex) {
@@ -1039,17 +1121,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _loadSeq || !_active) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._httpHeaders,
-        ...AppHttpHeaders.forMediaUrl(stream.url, pageUrl: detail.url),
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _loadSeq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -1061,14 +1137,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       _preloadRetries4 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
-      if (_preloadRetries4 < 2 && seq == _loadSeq && _active) {
+      if (_preloadRetries4 < 2 && seq == _loadSeq && _canRun) {
         _preloadRetries4++;
         try {
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
-        if (seq == _loadSeq && _active && mounted) {
+        if (seq == _loadSeq && _canRun) {
           return _preloadNext4(index);
         }
       }
@@ -1077,7 +1154,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _loadSeq || !_active || mounted == false) {
+    if (seq != _loadSeq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1094,7 +1171,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _playIndex(int index) async {
-    if (!_active || index < 0 || index >= _items.length) return;
+    if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
 
@@ -1168,7 +1245,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // ignore: unawaited_futures
         previous.dispose().catchError((_) {});
       }
-      if (!mounted || seq != _loadSeq || !_active) {
+      if (seq != _loadSeq || !_canRun) {
         try {
           await preloaded.dispose();
         } catch (_) {}
@@ -1191,7 +1268,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           fallbackDurationSec: preloadDetail.durationSec,
         );
       }
-      if (!mounted || seq != _loadSeq || !_active) {
+      if (seq != _loadSeq || !_canRun) {
         try {
           await preloaded.dispose();
         } catch (_) {}
@@ -1216,6 +1293,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _translateTitleOnly(preloadDetail.title);
       }
       await preloaded.play();
+      if (seq != _loadSeq || !_canRun) {
+        if (identical(_controller, preloaded)) _controller = null;
+        await preloaded.dispose();
+        return;
+      }
       _recordWatch(item);
       _startProgressTimer();
       WakelockPlus.enable();
@@ -1227,40 +1309,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _preloadIndex = _preloadIndex2;
           _preloadStream = _preloadStream2;
           _preloadRetries = _preloadRetries2;
-          _preloadController2 = _preloadController3;
-          _preloadIndex2 = _preloadIndex3;
-          _preloadStream2 = _preloadStream3;
-          _preloadRetries2 = _preloadRetries3;
-          _preloadController3 = _preloadController4;
-          _preloadIndex3 = _preloadIndex4;
-          _preloadStream3 = _preloadStream4;
-          _preloadRetries3 = _preloadRetries4;
-          _preloadController4 = null;
-          _preloadIndex4 = null;
-          _preloadStream4 = null;
-          _preloadRetries4 = 0;
-        } else {
-          // ignore: unawaited_futures
-          _preloadNext(index + 1);
+          _preloadController2 = null;
+          _preloadIndex2 = null;
+          _preloadStream2 = null;
+          _preloadRetries2 = 0;
         }
-        final n = _preloadSlotCount;
-        if (n >= 2) {
-          // ignore: unawaited_futures
-          _preloadNext2(index + 2);
-        }
-        if (n >= 3) {
-          // ignore: unawaited_futures
-          _preloadNext3(index + 3);
-        }
-        if (n >= 4) {
-          // ignore: unawaited_futures
-          _preloadNext4(index + 4);
-        }
-      } else {
-        // ignore: unawaited_futures
-        _preloadNext(index + 1);
-        unawaited(_prefetchDetail(index + 2));
       }
+      _restartPreloading();
 
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
@@ -1272,7 +1327,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // Tear down previous player completely before creating a new one
     await _disposeController();
 
-    if (!mounted || seq != _loadSeq || !_active) return;
+    if (seq != _loadSeq || !_canRun) return;
     setState(() {
       _pageLoading = true;
       _currentIndex = index;
@@ -1301,7 +1356,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _scheduleSkipToNext(index);
       return;
     }
-    if (!mounted || seq != _loadSeq || !_active) return;
+    if (seq != _loadSeq || !_canRun) return;
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
@@ -1330,21 +1385,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     StreamQuality? stream;
     final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
     for (final c in candidates) {
-      if (!mounted || seq != _loadSeq || !_active) {
+      if (seq != _loadSeq || !_canRun) {
         await player?.dispose();
         return;
       }
-      final next = VideoPlayerController.networkUrl(
-        Uri.parse(c.url),
-        httpHeaders: {
-          ..._httpHeaders,
-          ...AppHttpHeaders.forMediaUrl(c.url, pageUrl: detail.url),
-        },
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-      );
+      final next = _createNetworkPlayer(c, detail.url);
       try {
         final remaining = playerDeadline.difference(DateTime.now());
         if (remaining.inMilliseconds <= 0) {
+          _initializingControllers.remove(next);
           await next.dispose();
           break;
         }
@@ -1353,6 +1402,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                   ? remaining
                   : const Duration(seconds: 12),
             );
+        _initializingControllers.remove(next);
         if (PlaybackHelpers.isLikelyPreview(
           next,
           detail,
@@ -1366,6 +1416,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         stream = c;
         break;
       } catch (_) {
+        _initializingControllers.remove(next);
         try {
           await next.dispose();
         } catch (_) {}
@@ -1376,9 +1427,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         setState(() => _pageLoading = false);
         final tip = settings.proxyEnabled && settings.hasProxyEndpoint
             ? (settings.proxyType == 'socks5'
-                ? '列表可能已通，但播放器常不跟 SOCKS。可开 TUN，或改用 HTTP 代理后重试'
-                : '列表可能已通，播放仍失败。可开 TUN，或检查代理是否支持视频流')
-            : '播放失败。若列表能出、播不动：开 TUN，或设置里配置 HTTP 代理';
+                ? '播放地址初始化失败；播放器可能未走 SOCKS。可开 TUN，或改用 HTTP 代理后重试'
+                : '播放地址已失效或媒体连接被拒绝；可检查代理是否支持视频流')
+            : '播放地址已失效或媒体连接失败；可重试，或启用 TUN 后排除网络限制';
         PlaybackHelpers.toast(
           context,
           tip,
@@ -1388,7 +1439,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       return;
     }
-    if (!mounted || seq != _loadSeq || !_active) {
+    if (seq != _loadSeq || !_canRun) {
       await player.dispose();
       return;
     }
@@ -1408,7 +1459,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       fallbackDurationSec: detail.durationSec,
     );
 
-    if (!mounted || seq != _loadSeq || !_active) {
+    if (seq != _loadSeq || !_canRun) {
       await player.dispose();
       return;
     }
@@ -1425,16 +1476,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
     _translateTitleOnly(detail.title);
     await ready.play();
-    if (_multiPreload) {
-      final n = _preloadSlotCount;
-      unawaited(_preloadNext(index + 1));
-      if (n >= 2) unawaited(_preloadNext2(index + 2));
-      if (n >= 3) unawaited(_preloadNext3(index + 3));
-      if (n >= 4) unawaited(_preloadNext4(index + 4));
-    } else {
-      unawaited(_preloadNext(index + 1));
-      unawaited(_prefetchDetail(index + 2));
+    if (seq != _loadSeq || !_canRun) {
+      if (identical(_controller, ready)) _controller = null;
+      await ready.dispose();
+      return;
     }
+    _restartPreloading();
     _recordWatch(item);
     _startProgressTimer();
     WakelockPlus.enable();
@@ -1502,14 +1549,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _startProgressTimer() {
     final ctrl = _controller;
-    if (ctrl == null) return;
+    if (ctrl == null || !_canRun) return;
     _progressTimer?.cancel();
     _lastBufferedMs = 0;
     _lastTickMs = 0;
     _lastPosMs = 0;
     // 200ms feels smoother than 400ms; skip UI while user is dragging.
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized) {
+      if (!_canRun ||
+          !identical(ctrl, _controller) ||
+          !ctrl.value.isInitialized) {
         _progressTimer?.cancel();
         _progressTimer = null;
         return;
