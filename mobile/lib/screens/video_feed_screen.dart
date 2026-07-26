@@ -613,45 +613,26 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   final Set<int> _retried = {};
 
+  /// Temporarily disabled auto-skip so failed items stay on screen for debugging.
   void _scheduleSkipToNext(int fromIndex) {
     if (!_active) return;
+    // One silent retry only — never auto-jump to next video.
     if (!_retried.contains(fromIndex)) {
       _retried.add(fromIndex);
       _retryTimer?.cancel();
-      _retryTimer = Timer(const Duration(milliseconds: 600), () {
+      _retryTimer = Timer(const Duration(milliseconds: 800), () {
         if (!mounted || !_active) return;
         _playIndex(fromIndex);
       });
       return;
     }
-    _failStreak++;
-    if (_failStreak >= 3) {
-      // Stop auto-skip only — keep _active so user can still swipe/play.
-      _failStreak = 0;
-      if (mounted) {
-        PlaybackHelpers.toast(
-          context,
-          '连续多个视频无法播放。已停止自动跳过，请检查网络或代理后继续滑动',
-          duration: const Duration(seconds: 4),
-        );
-      }
-      return;
+    if (mounted) {
+      PlaybackHelpers.toast(
+        context,
+        '本条无法播放（已停止自动跳过，请手动上下滑）',
+        duration: const Duration(seconds: 3),
+      );
     }
-    if (mounted) PlaybackHelpers.toast(context, '已跳过无法播放的视频');
-    final next = fromIndex + 1;
-    _skipTimer?.cancel();
-    _skipTimer = Timer(const Duration(milliseconds: 400), () {
-      if (!mounted || !_active) return;
-      if (next < _items.length) {
-        if (_pageCtrl.hasClients) {
-          _pageCtrl.jumpToPage(next);
-        } else {
-          _playIndex(next);
-        }
-      } else {
-        _loadMore();
-      }
-    });
   }
 
   Future<void> _prefetchDetail(int index) async {
@@ -1248,14 +1229,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '该视频在当前地区不可用，已跳过');
-      _scheduleSkipToNext(index);
+      PlaybackHelpers.toast(context, '该视频在当前地区不可用（不自动跳过）');
       return;
     }
     if (detail.unavailable) {
       setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '视频不可用，已跳过');
-      _scheduleSkipToNext(index);
+      PlaybackHelpers.toast(context, '视频标记为不可用（不自动跳过）');
       return;
     }
 
@@ -1291,8 +1270,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
       setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '无可用播放地址，已跳过');
-      _scheduleSkipToNext(index);
+      PlaybackHelpers.toast(context, '无可用播放地址（不自动跳过）');
       return;
     }
 

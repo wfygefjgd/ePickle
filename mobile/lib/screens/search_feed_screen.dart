@@ -409,45 +409,24 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   final Set<int> _retried = {};
 
+  /// Temporarily disabled auto-skip for debugging bad streams.
   void _scheduleSkipToNext(int fromIndex) {
     if (!_retried.contains(fromIndex)) {
       _retried.add(fromIndex);
       _retryTimer?.cancel();
-      _retryTimer = Timer(const Duration(milliseconds: 600), () {
+      _retryTimer = Timer(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _playIndex(fromIndex);
       });
       return;
     }
-    _failStreak++;
-    if (_failStreak >= 3) {
-      _failStreak = 0;
-      if (mounted) {
-        PlaybackHelpers.toast(
-          context,
-          '连续多个视频无法播放。已停止自动跳过，请检查网络或代理后继续滑动',
-          duration: const Duration(seconds: 4),
-        );
-      }
-      return;
+    if (mounted) {
+      PlaybackHelpers.toast(
+        context,
+        '本条无法播放（已停止自动跳过，请手动上下滑）',
+        duration: const Duration(seconds: 3),
+      );
     }
-    if (mounted) PlaybackHelpers.toast(context, '已跳过无法播放的视频');
-    final next = fromIndex + 1;
-    _skipTimer?.cancel();
-    _skipTimer = Timer(const Duration(milliseconds: 400), () async {
-      if (!mounted) return;
-      if (next >= _items.length) {
-        await _ensureMoreIfNearEnd(_items.length - 1);
-      }
-      if (!mounted) return;
-      if (next < _items.length) {
-        if (_pageCtrl.hasClients) {
-          _pageCtrl.jumpToPage(next);
-        } else {
-          _playIndex(next);
-        }
-      }
-    });
   }
 
   Future<void> _playIndex(int index) async {
