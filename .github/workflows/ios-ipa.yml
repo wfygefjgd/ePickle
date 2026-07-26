@@ -38,8 +38,10 @@ jobs:
       - name: Build iOS release (device, no codesign)
         working-directory: mobile
         run: |
+          set -euo pipefail
+          rm -rf build/ios
           echo "Generating iOS build files..."
-          flutter build ios --release --no-codesign 2>&1 | tee flutter_build.log || true
+          flutter build ios --release --no-codesign 2>&1 | tee flutter_build.log
 
           echo "Checking if build succeeded despite warning..."
           if [ -d "build/ios/iphoneos/Runner.app" ]; then

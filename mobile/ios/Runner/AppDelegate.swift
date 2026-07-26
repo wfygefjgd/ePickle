@@ -198,7 +198,7 @@ private final class BrowserRenderRequest: NSObject, WKNavigationDelegate {
   func start(in container: UIView?) {
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = .default()
-    configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+    configuration.preferences.javaScriptEnabled = true
     let view = WKWebView(
       frame: CGRect(x: 0, y: 0, width: 2, height: 2),
       configuration: configuration
