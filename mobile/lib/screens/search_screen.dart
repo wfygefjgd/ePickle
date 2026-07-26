@@ -279,8 +279,8 @@ class _SearchScreenState extends State<SearchScreen>
       return;
     }
 
-    // 分享第一个视频的URL
-    final videoUrl = items[0].url;
+    // Share first item of current tab results (list entry point).
+    final videoUrl = items.first.url;
 
     // 复制到剪贴板
     Clipboard.setData(ClipboardData(text: videoUrl));

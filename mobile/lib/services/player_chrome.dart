@@ -1,14 +1,20 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Immersive UI chrome. Avoids aggressive orientation APIs on Android
-/// (can hard-crash Android 15 emulators / GPU host).
+/// Immersive UI chrome. Landscape is primarily **visual** (RotatedBox) so it
+/// still works under iOS Control Center orientation lock. System orientation
+/// is still requested when possible for a cleaner native rotate.
 class PlayerChrome extends ChangeNotifier {
   bool _immersive = false;
+  /// null = portrait; otherwise which way the device is (or was) tilted.
+  DeviceOrientation? _landscapeSide;
 
   bool get immersive => _immersive;
+
+  DeviceOrientation? get landscapeSide => _landscapeSide;
 
   bool get _isAndroid {
     try {
@@ -19,32 +25,38 @@ class PlayerChrome extends ChangeNotifier {
   }
 
   Future<void> enterFullscreen({DeviceOrientation? preferredOrientation}) async {
-    if (_immersive) return;
+    final side = preferredOrientation ??
+        _landscapeSide ??
+        DeviceOrientation.landscapeLeft;
+    final sideChanged = _landscapeSide != side;
+    _landscapeSide = side;
+    if (_immersive) {
+      if (sideChanged) notifyListeners();
+      if (!_isAndroid) {
+        try {
+          await SystemChrome.setPreferredOrientations([side]);
+        } catch (_) {}
+      }
+      return;
+    }
     _immersive = true;
     notifyListeners();
     try {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } catch (_) {}
-    // Only rotate on iOS — Android uses current device orientation to avoid
-    // emulator GPU deaths when forcing landscape from app code.
+    // iOS: request real landscape when lock is off. Android: visual-only
+    // (forced orientation historically crashy on some Android 15 hosts).
     if (!_isAndroid) {
       try {
-        // 如果指定了方向，强制使用该方向；否则允许两个横屏方向
-        if (preferredOrientation != null) {
-          await SystemChrome.setPreferredOrientations([preferredOrientation]);
-        } else {
-          await SystemChrome.setPreferredOrientations(const [
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]);
-        }
+        await SystemChrome.setPreferredOrientations([side]);
       } catch (_) {}
     }
   }
 
   Future<void> exitFullscreen() async {
-    if (!_immersive) return;
+    if (!_immersive && _landscapeSide == null) return;
     _immersive = false;
+    _landscapeSide = null;
     notifyListeners();
     try {
       await SystemChrome.setEnabledSystemUIMode(
@@ -73,8 +85,80 @@ class PlayerChrome extends ChangeNotifier {
   }
 
   Future<void> ensurePortraitChrome() async {
-    if (_immersive) {
+    if (_immersive || _landscapeSide != null) {
       await exitFullscreen();
     }
+  }
+
+  /// Wraps [child] so the picture is landscape even if the OS stays portrait
+  /// (e.g. Control Center portrait lock). If the system already rotated
+  /// (width > height), returns [child] as-is to avoid double rotation.
+  Widget wrapBody(BuildContext context, Widget child) {
+    if (!_immersive) return child;
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    // System already landscape — avoid double rotation.
+    if (size.width > size.height) return child;
+
+    final turns =
+        _landscapeSide == DeviceOrientation.landscapeRight ? 3 : 1;
+    final w = size.height;
+    final h = size.width;
+    // Remap safe insets for the rotated frame (notch / home indicator).
+    final EdgeInsets pad;
+    final EdgeInsets viewPad;
+    if (turns == 1) {
+      // 90° CW: physical top → visual left
+      pad = EdgeInsets.only(
+        left: mq.padding.top,
+        top: mq.padding.left,
+        right: mq.padding.bottom,
+        bottom: mq.padding.right,
+      );
+      viewPad = EdgeInsets.only(
+        left: mq.viewPadding.top,
+        top: mq.viewPadding.left,
+        right: mq.viewPadding.bottom,
+        bottom: mq.viewPadding.right,
+      );
+    } else {
+      // 90° CCW: physical top → visual right
+      pad = EdgeInsets.only(
+        left: mq.padding.bottom,
+        top: mq.padding.right,
+        right: mq.padding.top,
+        bottom: mq.padding.left,
+      );
+      viewPad = EdgeInsets.only(
+        left: mq.viewPadding.bottom,
+        top: mq.viewPadding.right,
+        right: mq.viewPadding.top,
+        bottom: mq.viewPadding.left,
+      );
+    }
+    // OverflowBox lets RotatedBox paint a landscape-sized child inside a
+    // portrait parent without layout overflow / clipping issues.
+    return OverflowBox(
+      minWidth: w,
+      maxWidth: w,
+      minHeight: h,
+      maxHeight: h,
+      alignment: Alignment.center,
+      child: RotatedBox(
+        quarterTurns: turns,
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: MediaQuery(
+            data: mq.copyWith(
+              size: Size(w, h),
+              padding: pad,
+              viewPadding: viewPad,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 }

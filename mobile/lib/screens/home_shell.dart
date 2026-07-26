@@ -6,8 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/feed_list_cache.dart';
 import '../services/player_chrome.dart';
-import '../widgets/player_settings_sheet.dart';
 import 'search_screen.dart';
 import 'video_feed_screen.dart';
 
@@ -21,79 +21,60 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  /// One key per kind so tab switch disposes the old feed (players freed)
+  /// and creates the new one; list/index restored from [FeedListCache].
   final _hotKey = GlobalKey<VideoFeedScreenState>();
   final _asianKey = GlobalKey<VideoFeedScreenState>();
   final _xKey = GlobalKey<VideoFeedScreenState>();
   final _zhongKey = GlobalKey<VideoFeedScreenState>();
 
+  static const _feedKinds = [
+    VideoFeedKind.hot,
+    VideoFeedKind.asian,
+    VideoFeedKind.x,
+    VideoFeedKind.zhong,
+  ];
+
   List<GlobalKey<VideoFeedScreenState>> get _feedKeys =>
       [_hotKey, _asianKey, _xKey, _zhongKey];
 
-  void _openSettings() {
-    showPlayerSettingsSheet(context);
-  }
-
   void _onTabSelected(int i) {
     if (i == _index) return;
-    // Pause/dispose players on all feed tabs (saves memory; list cache kept).
-    for (final k in _feedKeys) {
-      k.currentState?.pausePlayback(releasePlayers: true);
+    final chrome = context.read<PlayerChrome>();
+    if (chrome.immersive) {
+      // ignore: unawaited_futures
+      chrome.exitFullscreen();
     }
+    // Leaving feed: widget unmounted → dispose → FeedListCache keeps list.
     setState(() => _index = i);
-    // Start the newly selected feed after frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _index != i) return;
-      if (i >= 0 && i < _feedKeys.length) {
-        _feedKeys[i].currentState?.startPlaying();
-      }
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _hotKey.currentState?.startPlaying();
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
+    final onFeed = _index >= 0 && _index < _feedKinds.length;
+    final onSearch = _index == _feedKinds.length;
 
     return Scaffold(
       extendBody: true,
+      // Only one feed mounted at a time. Search stays mounted (offstage) so
+      // results/query survive tab switches without 4× feed memory.
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Keep all tabs alive — no white flash / re-fetch on tab switch.
-          IndexedStack(
-            index: _index,
-            sizing: StackFit.expand,
-            children: [
-              VideoFeedScreen(
-                key: _hotKey,
-                kind: VideoFeedKind.hot,
-                autoStart: false,
-              ),
-              VideoFeedScreen(
-                key: _asianKey,
-                kind: VideoFeedKind.asian,
-                autoStart: false,
-              ),
-              VideoFeedScreen(
-                key: _xKey,
-                kind: VideoFeedKind.x,
-                autoStart: false,
-              ),
-              VideoFeedScreen(
-                key: _zhongKey,
-                kind: VideoFeedKind.zhong,
-                autoStart: false,
-              ),
-              const SearchScreen(key: ValueKey('search')),
-            ],
+          if (onFeed)
+            VideoFeedScreen(
+              key: _feedKeys[_index],
+              kind: _feedKinds[_index],
+              autoStart: true,
+            ),
+          Offstage(
+            offstage: !onSearch,
+            child: TickerMode(
+              enabled: onSearch,
+              child: const SearchScreen(key: ValueKey('search')),
+            ),
           ),
         ],
       ),
@@ -167,13 +148,24 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  String? _shareUrlForTab(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= _feedKinds.length) return null;
+    // Active feed: live player index.
+    if (tabIndex == _index) {
+      final live = _feedKeys[tabIndex].currentState?.getCurrentVideoUrl();
+      if (live != null && live.isNotEmpty) return live;
+    }
+    // Inactive / just-left: list snapshot from FeedListCache.
+    final snap = FeedListCache.take(_feedKinds[tabIndex].name);
+    if (snap == null || snap.items.isEmpty) return null;
+    final i = snap.index.clamp(0, snap.items.length - 1);
+    return snap.items[i].url;
+  }
+
   void _showShareDialog(int tabIndex) {
-    if (tabIndex >= _feedKeys.length) return;
+    if (tabIndex >= _feedKinds.length) return;
 
-    final feedState = _feedKeys[tabIndex].currentState;
-    if (feedState == null) return;
-
-    final shareUrl = feedState.getCurrentVideoUrl();
+    final shareUrl = _shareUrlForTab(tabIndex);
     if (shareUrl == null || shareUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -221,7 +213,6 @@ class _HomeShellState extends State<HomeShell> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // iOS 原生分享
                 _ShareOption(
                   icon: Icons.ios_share,
                   label: '分享到其他 APP',
@@ -231,7 +222,6 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
                 const SizedBox(height: 8),
-                // 复制链接
                 _ShareOption(
                   icon: Icons.content_copy,
                   label: '复制链接',
@@ -248,7 +238,6 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
                 const SizedBox(height: 8),
-                // 浏览器打开
                 _ShareOption(
                   icon: Icons.open_in_browser,
                   label: '在浏览器中打开',
@@ -271,7 +260,6 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
                 const SizedBox(height: 8),
-                // 取消按钮
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
                   style: TextButton.styleFrom(

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import 'screens/home_shell.dart';
 import 'services/app_settings.dart';
-import 'services/button_positions.dart';
 import 'services/mitao_api.dart';
 import 'services/phub_api.dart';
 import 'services/player_chrome.dart';
@@ -23,7 +22,6 @@ class PlayerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<AppSettings>.value(value: settings),
         ChangeNotifierProvider(create: (_) => PlayerChrome()),
-        ChangeNotifierProvider(create: (_) => ButtonPositions()),
         Provider(create: (_) => PhubApi()),
         Provider(create: (_) => XvideosApi()),
         Provider(create: (_) => MitaoApi()),

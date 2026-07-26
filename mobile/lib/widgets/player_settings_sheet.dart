@@ -69,6 +69,30 @@ Future<void> showPlayerSettingsSheet(
                           value: settings.skipIntro,
                           onChanged: settings.setSkipIntro,
                         ),
+                        SwitchListTile(
+                          title: const Text('自动横屏',
+                              style: TextStyle(color: Colors.white)),
+                          subtitle: const Text(
+                            '接近完全横置才进、明显竖回才出；抖一下不会转。系统竖屏锁下也会转画面。',
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 12),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.autoRotate,
+                          onChanged: settings.setAutoRotate,
+                        ),
+                        SwitchListTile(
+                          title: const Text('卡顿自动降画质',
+                              style: TextStyle(color: Colors.white)),
+                          subtitle: const Text(
+                            '播放卡顿时自动切更低清晰度（仅本条）。从后台返回会短暂忽略，避免误判。',
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 12),
+                          ),
+                          activeThumbColor: const Color(0xFFFF6B35),
+                          value: settings.autoLowerOnStall,
+                          onChanged: settings.setAutoLowerOnStall,
+                        ),
                         const Divider(color: Colors.white12),
                         // C: 代理状态一眼懂
                         Container(
@@ -164,7 +188,7 @@ Future<void> showPlayerSettingsSheet(
                           child: Padding(
                             padding: EdgeInsets.only(bottom: 8),
                             child: Text(
-                              'v1.9.1',
+                              'v1.9.4',
                               style: TextStyle(
                                 color: Colors.white24,
                                 fontSize: 11,

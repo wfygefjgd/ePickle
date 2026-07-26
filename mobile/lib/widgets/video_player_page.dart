@@ -72,6 +72,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final ctrl = widget.controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
+    widget.onSeekStart();
     setState(() {
       _dragStartX = details.globalPosition.dx;
       _dragStartPosition = ctrl.value.position;
@@ -116,36 +117,56 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
-    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) return;
+    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) {
+      return;
+    }
     final ctrl = widget.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) return;
-
-    // 使用 Update 中计算好的目标位置
     final targetPos = _dragTargetPosition ?? _dragStartPosition!;
-    ctrl.seekTo(targetPos);
-
     setState(() {
       _dragStartX = null;
       _dragStartPosition = null;
       _dragTargetPosition = null;
       _seekPreviewText = '';
     });
+    if (ctrl == null || !ctrl.value.isInitialized) {
+      // Clear parent _seeking (onSeekStart already set it).
+      widget.onSeekEnd(
+        widget.sliderValue.value.clamp(0.0, 1.0),
+      );
+      return;
+    }
+
+    final durMs = ctrl.value.duration.inMilliseconds;
+    final ratio = durMs > 0
+        ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0)
+        : 0.0;
+    // Commit via parent so progress timer / stall arm stay in sync.
+    widget.onSeekEnd(ratio);
   }
 
   void _onTapScreen() {
-    if (!widget.immersive) return;
-    setState(() {
-      _showExitButton = !_showExitButton;
-    });
-
-    if (_showExitButton) {
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted && _showExitButton) {
-          setState(() {
-            _showExitButton = false;
-          });
-        }
+    if (widget.immersive) {
+      setState(() {
+        _showExitButton = !_showExitButton;
       });
+      if (_showExitButton) {
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && _showExitButton) {
+            setState(() {
+              _showExitButton = false;
+            });
+          }
+        });
+      }
+      return;
+    }
+    // Portrait: toggle play/pause (inner detector would otherwise swallow parent taps).
+    final c = widget.controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (c.value.isPlaying) {
+      c.pause();
+    } else {
+      c.play();
     }
   }
 
@@ -169,11 +190,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               if (i == widget.currentIndex &&
                   widget.controller != null &&
                   widget.controller!.value.isInitialized) {
+                final ar = widget.controller!.value.aspectRatio;
                 return ColoredBox(
                   color: Colors.black,
                   child: Center(
                     child: AspectRatio(
-                      aspectRatio: widget.controller!.value.aspectRatio,
+                      // 0 / NaN crashes layout on some streams before metadata.
+                      aspectRatio: (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
                       child: VideoPlayer(widget.controller!),
                     ),
                   ),

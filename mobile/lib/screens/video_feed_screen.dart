@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -12,6 +13,7 @@ import '../services/phub_api.dart';
 import '../services/translator.dart';
 import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
+import '../services/auto_rotate_controller.dart';
 import '../services/cache_manager.dart';
 import '../services/feed_list_cache.dart';
 import '../services/player_chrome.dart';
@@ -27,9 +29,7 @@ enum VideoFeedKind {
   zhong,
 }
 
-/// Vertical feed with one active VideoPlayerController plus one silent
-/// pre-buffered next-video controller for instant swipe (TikTok-style).
-/// Designed for Android stability (ExoPlayer + multi-instance freezes).
+/// Vertical feed: 1 active + N preloads (Android N=3, iOS N=4).
 class VideoFeedScreen extends StatefulWidget {
   const VideoFeedScreen({
     super.key,
@@ -71,6 +71,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   StreamQuality? _preloadStream3;
   int _preloadRetries3 = 0;
 
+  VideoPlayerController? _preloadController4;
+  int? _preloadIndex4;
+  StreamQuality? _preloadStream4;
+  int _preloadRetries4 = 0;
+
   bool _loading = false;
   bool _loadingMore = false;
   bool _pageLoading = false;
@@ -98,8 +103,35 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _seeking = false;
   VideoDetail? _currentDetail;
   PlayerChrome? _chrome;
+  AutoRotateController? _autoRotate;
+  AppSettings? _settings;
+
+  int _currentStreamHeight = 0;
+  int? _sessionQualityCap;
+  int _stallTicks = 0;
+  bool _stallLowering = false;
+  bool _stallLoweredForItem = false;
+  /// Ignore stall until this ms epoch. Long after resume (iOS progress freeze).
+  int _stallArmedAfterMs = 0;
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
+
+  int get _effectiveQualityCap {
+    if (_sessionQualityCap != null) return _sessionQualityCap!;
+    // Prefer cached settings — avoid context.read after dispose / mid-async.
+    return _settings?.qualityCap ?? 0;
+  }
+
+  /// Android: 3 next videos; iOS: 4; others: 1.
+  int get _preloadSlotCount {
+    try {
+      if (Platform.isIOS) return 4;
+      if (Platform.isAndroid) return 3;
+    } catch (_) {}
+    return 1;
+  }
+
+  bool get _multiPreload => _preloadSlotCount > 1;
 
   /// Get current video URL for sharing
   String? getCurrentVideoUrl() {
@@ -160,6 +192,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _loading = false;
     }
     _pageCtrl = PageController(initialPage: _currentIndex);
+    _autoRotate = AutoRotateController(onAction: _onAutoRotate);
+    _settings = context.read<AppSettings>();
+    _autoRotate!.enabled = _settings!.autoRotate;
+    _autoRotate!.listening = false;
+    _settings!.addListener(_onSettingsChanged);
     if (widget.autoStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) startPlaying();
@@ -167,19 +204,66 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  void _onSettingsChanged() {
+    final s = _settings;
+    if (!mounted || s == null) return;
+    _autoRotate?.enabled = s.autoRotate;
+  }
+
+  void _syncAutoRotateListening() {
+    final ar = _autoRotate;
+    if (ar == null) return;
+    final on = _active && mounted;
+    ar.listening = on;
+    if (on) {
+      ar.start();
+    } else {
+      ar.stop();
+    }
+  }
+
+  void _onAutoRotate(AutoRotateAction action, DeviceOrientation? side) {
+    final chrome = _chrome;
+    if (!_active || chrome == null || !mounted) {
+      _autoRotate?.rejectAction();
+      return;
+    }
+    switch (action) {
+      case AutoRotateAction.enterLandscape:
+      case AutoRotateAction.switchSide:
+        _autoRotate?.confirmAction(action, side: side);
+        // ignore: unawaited_futures
+        chrome.enterFullscreen(preferredOrientation: side);
+        if (mounted) setState(() {});
+      case AutoRotateAction.exitLandscape:
+        if (!chrome.immersive) {
+          _autoRotate?.confirmAction(action);
+          return;
+        }
+        _autoRotate?.confirmAction(action);
+        // ignore: unawaited_futures
+        chrome.exitFullscreen();
+        if (mounted) setState(() {});
+    }
+  }
+
   @override
   void dispose() {
     if (_items.isNotEmpty) {
+      final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
         _cacheKey,
         FeedListSnapshot(
           items: List<VideoItem>.from(_items),
           seen: Set<String>.from(_seen),
-          index: _currentIndex,
+          index: idx,
         ),
       );
     }
-    // Do not use context after dispose; cached chrome only
+    _settings?.removeListener(_onSettingsChanged);
+    _settings = null;
+    _autoRotate?.dispose();
+    _autoRotate = null;
     try {
       _chrome?.ensurePortraitChrome();
     } catch (_) {}
@@ -243,10 +327,32 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
+
+    final p4 = _preloadController4;
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
+    if (p4 != null) {
+      // ignore: unawaited_futures
+      p4.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p4.dispose();
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _toggleFullscreen() async {
-    await context.read<PlayerChrome>().toggleFullscreen();
+    final chrome = context.read<PlayerChrome>();
+    if (chrome.immersive) {
+      await chrome.exitFullscreen();
+      _autoRotate?.syncLandscapeMode(false, fromUser: true);
+    } else {
+      final side = _autoRotate?.lastSide;
+      await chrome.enterFullscreen(preferredOrientation: side);
+      _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
+    }
     if (mounted) setState(() {});
   }
 
@@ -255,10 +361,23 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
+      _autoRotate?.listening = false;
+      _autoRotate?.stop();
       _controller?.pause();
       _preloadController?.pause();
+      _preloadController2?.pause();
+      _preloadController3?.pause();
+      _preloadController4?.pause();
       WakelockPlus.disable();
+      // iOS freezes progress in background — never treat as stall on return.
+      _stallTicks = 0;
+      _stallArmedAfterMs =
+          DateTime.now().millisecondsSinceEpoch + 8000;
     } else if (state == AppLifecycleState.resumed && _active) {
+      _stallTicks = 0;
+      _stallArmedAfterMs =
+          DateTime.now().millisecondsSinceEpoch + 8000;
+      _syncAutoRotateListening();
       _controller?.play();
       WakelockPlus.enable();
     }
@@ -266,6 +385,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void startPlaying() {
     _active = true;
+    final immersive = _chrome?.immersive ?? false;
+    _autoRotate?.syncLandscapeMode(
+      immersive,
+      side: immersive ? _chrome?.landscapeSide : null,
+    );
+    _syncAutoRotateListening();
     if (_items.isEmpty) {
       if (!_loadingMore) {
         setState(() => _loading = true);
@@ -284,6 +409,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void pausePlayback({bool releasePlayers = true}) {
     _active = false;
+    _autoRotate?.syncLandscapeMode(false);
+    _syncAutoRotateListening();
     _loadSeq++;
     _progressTimer?.cancel();
     _progressTimer = null;
@@ -416,13 +543,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
     _failStreak++;
     if (_failStreak >= 3) {
-      // Pause auto-play after 3 consecutive failures
+      // Stop auto-skip only — keep _active so user can still swipe/play.
       _failStreak = 0;
-      _active = false;
       if (mounted) {
         PlaybackHelpers.toast(
           context,
-          '连续多个视频无法播放。已暂停自动播放，请检查网络或代理设置',
+          '连续多个视频无法播放。已停止自动跳过，请检查网络或代理后继续滑动',
           duration: const Duration(seconds: 4),
         );
       }
@@ -505,6 +631,20 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
       });
     }
+
+    final p4 = _preloadController4;
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
+    if (p4 != null) {
+      // ignore: unawaited_futures
+      p4.pause().catchError((_) {}).whenComplete(() {
+        try {
+          p4.dispose();
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _preloadNext(int index) async {
@@ -519,7 +659,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
-    final cap = context.read<AppSettings>().qualityCap;
+    final cap = _effectiveQualityCap;
     final stream =
         PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
@@ -596,7 +736,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
-    final cap = context.read<AppSettings>().qualityCap;
+    final cap = _effectiveQualityCap;
     final stream =
         PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
@@ -673,7 +813,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final detail = _detailCache[index];
     if (detail == null) return;
     if (detail.countryBlocked || detail.unavailable) return;
-    final cap = context.read<AppSettings>().qualityCap;
+    final cap = _effectiveQualityCap;
     final stream =
         PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
     if (stream == null) return;
@@ -738,6 +878,83 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     } catch (_) {}
   }
 
+  Future<void> _preloadNext4(int index) async {
+    if (!_active ||
+        index < 0 ||
+        index >= _items.length ||
+        index == _currentIndex) {
+      return;
+    }
+    if (_preloadIndex4 == index && _preloadController4 != null) return;
+    final seq = _loadSeq;
+    final detail = _detailCache[index];
+    if (detail == null) return;
+    if (detail.countryBlocked || detail.unavailable) return;
+    final cap = _effectiveQualityCap;
+    final stream =
+        PlaybackHelpers.pickStream(detail, cap) ?? detail.bestStream;
+    if (stream == null) return;
+    if (_preloadIndex4 == index &&
+        _preloadController4 != null &&
+        _preloadStream4?.url == stream.url) {
+      return;
+    }
+    final existing = _preloadController4;
+    final existingIndex = _preloadIndex4;
+    _preloadController4 = null;
+    _preloadIndex4 = null;
+    _preloadStream4 = null;
+    _preloadRetries4 = 0;
+    if (existing != null && existingIndex != index) {
+      // ignore: unawaited_futures
+      existing.pause().catchError((_) {}).whenComplete(() {
+        try {
+          existing.dispose();
+        } catch (_) {}
+      });
+    }
+    if (seq != _loadSeq || !_active) return;
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: _httpHeaders,
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    try {
+      await player.initialize();
+      _preloadRetries4 = 0;
+    } catch (e) {
+      // Retry up to 2 times for transient failures
+      if (_preloadRetries4 < 2 && seq == _loadSeq && _active) {
+        _preloadRetries4++;
+        try {
+          await player.dispose();
+        } catch (_) {}
+        await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
+        if (seq == _loadSeq && _active && mounted) {
+          return _preloadNext4(index);
+        }
+      }
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    if (seq != _loadSeq || !_active || mounted == false) {
+      try {
+        await player.dispose();
+      } catch (_) {}
+      return;
+    }
+    _preloadController4 = player;
+    _preloadIndex4 = index;
+    _preloadStream4 = stream;
+    _preloadRetries4 = 0;
+    try {
+      await player.pause();
+      player.setVolume(0);
+    } catch (_) {}
+  }
+
   Future<void> _playIndex(int index) async {
     if (!_active || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
@@ -756,20 +973,30 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       preloadDetail = _detailCache[index];
       preloadStream = _preloadStream;
       preloadSlot = 1;
-    } else if (_preloadIndex2 == index &&
+    } else if (_preloadSlotCount >= 2 &&
+        _preloadIndex2 == index &&
         _preloadController2 != null &&
         _preloadController2!.value.isInitialized) {
       preloaded = _preloadController2!;
       preloadDetail = _detailCache[index];
       preloadStream = _preloadStream2;
       preloadSlot = 2;
-    } else if (_preloadIndex3 == index &&
+    } else if (_preloadSlotCount >= 3 &&
+        _preloadIndex3 == index &&
         _preloadController3 != null &&
         _preloadController3!.value.isInitialized) {
       preloaded = _preloadController3!;
       preloadDetail = _detailCache[index];
       preloadStream = _preloadStream3;
       preloadSlot = 3;
+    } else if (_preloadSlotCount >= 4 &&
+        _preloadIndex4 == index &&
+        _preloadController4 != null &&
+        _preloadController4!.value.isInitialized) {
+      preloaded = _preloadController4!;
+      preloadDetail = _detailCache[index];
+      preloadStream = _preloadStream4;
+      preloadSlot = 4;
     }
 
     if (preloaded != null) {
@@ -789,6 +1016,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _preloadController3 = null;
         _preloadIndex3 = null;
         _preloadStream3 = null;
+      } else if (preloadSlot == 4) {
+        _preloadController4 = null;
+        _preloadIndex4 = null;
+        _preloadStream4 = null;
       }
 
       await _disposeController(seqGuard: seq, exclude: preloaded);
@@ -808,6 +1039,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _failStreak = 0;
       _currentDetail = preloadDetail;
       _currentIndex = index;
+      _currentStreamHeight = preloadStream?.height ?? 0;
+      _stallTicks = 0;
+      _stallLoweredForItem = false;
+      _stallArmedAfterMs =
+          DateTime.now().millisecondsSinceEpoch + 4000;
       final settings = context.read<AppSettings>();
       _muted = settings.muted;
       preloaded.setVolume(_muted ? 0 : 1);
@@ -840,33 +1076,51 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       WakelockPlus.enable();
       if (mounted) setState(() {});
 
-      // Promote preload2 to preload1, preload3 to preload2
-      if (_preloadController2 != null && _preloadIndex2 == index + 1) {
-        _preloadController = _preloadController2;
-        _preloadIndex = _preloadIndex2;
-        _preloadStream = _preloadStream2;
-        _preloadRetries = _preloadRetries2;
-        _preloadController2 = _preloadController3;
-        _preloadIndex2 = _preloadIndex3;
-        _preloadStream2 = _preloadStream3;
-        _preloadRetries2 = _preloadRetries3;
-        _preloadController3 = null;
-        _preloadIndex3 = null;
-        _preloadStream3 = null;
-        _preloadRetries3 = 0;
+      if (_multiPreload) {
+        if (_preloadController2 != null && _preloadIndex2 == index + 1) {
+          _preloadController = _preloadController2;
+          _preloadIndex = _preloadIndex2;
+          _preloadStream = _preloadStream2;
+          _preloadRetries = _preloadRetries2;
+          _preloadController2 = _preloadController3;
+          _preloadIndex2 = _preloadIndex3;
+          _preloadStream2 = _preloadStream3;
+          _preloadRetries2 = _preloadRetries3;
+          _preloadController3 = _preloadController4;
+          _preloadIndex3 = _preloadIndex4;
+          _preloadStream3 = _preloadStream4;
+          _preloadRetries3 = _preloadRetries4;
+          _preloadController4 = null;
+          _preloadIndex4 = null;
+          _preloadStream4 = null;
+          _preloadRetries4 = 0;
+        } else {
+          await _prefetchDetail(index + 1);
+          // ignore: unawaited_futures
+          _preloadNext(index + 1);
+        }
+        final n = _preloadSlotCount;
+        for (var k = 2; k <= n + 1; k++) {
+          await _prefetchDetail(index + k - 1);
+        }
+        if (n >= 2) {
+          // ignore: unawaited_futures
+          _preloadNext2(index + 2);
+        }
+        if (n >= 3) {
+          // ignore: unawaited_futures
+          _preloadNext3(index + 3);
+        }
+        if (n >= 4) {
+          // ignore: unawaited_futures
+          _preloadNext4(index + 4);
+        }
       } else {
-        // Preload next if not already preloaded
         await _prefetchDetail(index + 1);
         // ignore: unawaited_futures
         _preloadNext(index + 1);
+        await _prefetchDetail(index + 2);
       }
-      // Always preload index+2 and index+3
-      await _prefetchDetail(index + 2);
-      await _prefetchDetail(index + 3);
-      // ignore: unawaited_futures
-      _preloadNext2(index + 2);
-      // ignore: unawaited_futures
-      _preloadNext3(index + 3);
 
       // Clean up old detail cache to prevent memory growth
       _cleanupDetailCache(index);
@@ -924,22 +1178,35 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final settings = context.read<AppSettings>();
 
-    // Start preloading next three videos immediately after detail is loaded
-    // Wait for detail to be fetched before preloading
-    await _prefetchDetail(index + 1);
-    await _prefetchDetail(index + 2);
-    await _prefetchDetail(index + 3);
-    // ignore: unawaited_futures
-    _preloadNext(index + 1);
-    // ignore: unawaited_futures
-    _preloadNext2(index + 2);
-    // ignore: unawaited_futures
-    _preloadNext3(index + 3);
+    if (_multiPreload) {
+      final n = _preloadSlotCount;
+      for (var k = 1; k <= n; k++) {
+        await _prefetchDetail(index + k);
+      }
+      // ignore: unawaited_futures
+      _preloadNext(index + 1);
+      if (n >= 2) {
+        // ignore: unawaited_futures
+        _preloadNext2(index + 2);
+      }
+      if (n >= 3) {
+        // ignore: unawaited_futures
+        _preloadNext3(index + 3);
+      }
+      if (n >= 4) {
+        // ignore: unawaited_futures
+        _preloadNext4(index + 4);
+      }
+    } else {
+      await _prefetchDetail(index + 1);
+      await _prefetchDetail(index + 2);
+      // ignore: unawaited_futures
+      _preloadNext(index + 1);
+    }
 
-    // Quality: only what user set in settings. No auto fallback / stall switch.
-    final stream =
-        PlaybackHelpers.pickStream(detail, settings.qualityCap) ?? detail.bestStream;
-    if (stream == null) {
+    final cap = _effectiveQualityCap;
+    final candidates = PlaybackHelpers.streamCandidates(detail, cap);
+    if (candidates.isEmpty) {
       setState(() => _pageLoading = false);
       PlaybackHelpers.toast(context, '无可用播放地址，已跳过');
       _scheduleSkipToNext(index);
@@ -947,19 +1214,31 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
 
     _currentDetail = detail;
-    _baseSpeed = _estimateBaseSpeed(stream.height);
 
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: _httpHeaders,
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
-    try {
-      await player.initialize();
-    } catch (_) {
+    VideoPlayerController? player;
+    StreamQuality? stream;
+    for (final c in candidates) {
+      if (!mounted || seq != _loadSeq || !_active) {
+        await player?.dispose();
+        return;
+      }
+      final next = VideoPlayerController.networkUrl(
+        Uri.parse(c.url),
+        httpHeaders: _httpHeaders,
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+      );
       try {
-        await player.dispose();
-      } catch (_) {}
+        await next.initialize();
+        player = next;
+        stream = c;
+        break;
+      } catch (_) {
+        try {
+          await next.dispose();
+        } catch (_) {}
+      }
+    }
+    if (player == null || stream == null) {
       if (mounted && seq == _loadSeq) {
         setState(() => _pageLoading = false);
         final tip = settings.proxyEnabled && settings.hasProxyEndpoint
@@ -978,33 +1257,30 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
 
     _failStreak = 0;
+    _currentStreamHeight = stream.height;
+    _stallTicks = 0;
+    _stallLoweredForItem = false;
+    _stallArmedAfterMs =
+        DateTime.now().millisecondsSinceEpoch + 4000;
     _muted = settings.muted;
     player.setVolume(_muted ? 0 : 1);
+    _baseSpeed = _estimateBaseSpeed(stream.height);
 
-    // For videos >50min, skip to 1min mark instead of just the intro
-    final totalSec = player.value.duration.inSeconds;
-    if (totalSec >= 3000) {
-      // >50min: jump to 1min (60s)
-      try {
-        await player.seekTo(const Duration(seconds: 60));
-      } catch (_) {}
-    } else {
-      // Normal intro skip
-      await PlaybackHelpers.skipIntro(player, enabled: settings.skipIntro);
-    }
+    await PlaybackHelpers.skipIntro(player, enabled: settings.skipIntro);
 
     if (!mounted || seq != _loadSeq || !_active) {
       await player.dispose();
       return;
     }
-    _controller = player;
+    final ready = player;
+    _controller = ready;
     setState(() {
       _pageLoading = false;
       _titleText = detail.title;
-      _totalTime = PlaybackHelpers.fmtDuration(player.value.duration);
+      _totalTime = PlaybackHelpers.fmtDuration(ready.value.duration);
     });
     _translateTitleOnly(detail.title);
-    await player.play();
+    await ready.play();
     _startProgressTimer();
     WakelockPlus.enable();
     if (mounted) setState(() {});
@@ -1020,9 +1296,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _progressTimer?.cancel();
     _progressTimer = null;
     final c = _controller;
-    _controller = null;
     if (c == null || identical(c, exclude)) return;
-    if (seqGuard != null && seqGuard != _loadSeq) return;
+    // Detach only if field still points here (avoid racing a newer play).
+    if (identical(_controller, c)) {
+      _controller = null;
+    }
+    // Always dispose the detached handle — never skip by seqGuard (leak).
     try {
       await c.pause();
     } catch (_) {}
@@ -1071,6 +1350,25 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             if (mounted) setState(() => _speedLabel = label);
           }
         }
+        // Stall: playing but position barely advances.
+        final isPlaying = ctrl.value.isPlaying;
+        final nearEnd = posMs >= dur.inMilliseconds - 800;
+        final armed = now >= _stallArmedAfterMs;
+        if (armed &&
+            isPlaying &&
+            !nearEnd &&
+            dMs >= 150 &&
+            dPlayed < 40 &&
+            posMs > 2000) {
+          _stallTicks++;
+        } else if (dPlayed >= 80) {
+          _stallTicks = 0;
+        }
+        if (_stallTicks >= 14) {
+          _stallTicks = 0;
+          // ignore: unawaited_futures
+          _maybeAutoLowerQuality();
+        }
       }
       _lastBufferedMs = bufMs;
       _lastTickMs = now;
@@ -1089,6 +1387,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   void _onPageChanged(int page) {
     if (page == _currentIndex) return;
+    // Stall auto-lower is per-item only.
+    _sessionQualityCap = null;
+    _stallLoweredForItem = false;
+    _stallTicks = 0;
     _retried.removeWhere((i) => (i - page).abs() > 3);
     // Hard switch: dispose old, play new only
     _playIndex(page);
@@ -1177,6 +1479,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Seek after drag/tap ends; keep [_seeking] until player position settles.
   Future<void> _onSeekCommit(double v) async {
+    // Buffer refill after seek is normal — not a stall.
+    _stallTicks = 0;
+    _stallArmedAfterMs =
+        DateTime.now().millisecondsSinceEpoch + 3000;
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
       _seeking = false;
@@ -1245,6 +1551,39 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  Future<void> _maybeAutoLowerQuality() async {
+    if (!mounted || _stallLowering || _stallLoweredForItem) return;
+    final enabled = _settings?.autoLowerOnStall ??
+        context.read<AppSettings>().autoLowerOnStall;
+    if (!enabled) return;
+    final detail = _currentDetail;
+    if (detail == null || detail.streams.isEmpty) return;
+    final curH = _currentStreamHeight;
+    if (curH <= 0) return;
+    final lower = detail.streams
+        .where((s) => s.height > 0 && s.height < curH)
+        .toList()
+      ..sort((a, b) => b.height.compareTo(a.height));
+    if (lower.isEmpty) return;
+
+    final target = lower.first;
+    _stallLowering = true;
+    _stallLoweredForItem = true;
+    _sessionQualityCap = target.height;
+    try {
+      if (mounted) {
+        PlaybackHelpers.toast(
+          context,
+          '卡顿，已自动降至 ${target.label}（仅本条）',
+          duration: const Duration(seconds: 2),
+        );
+      }
+      if (mounted) await _playIndex(_currentIndex);
+    } finally {
+      _stallLowering = false;
+    }
+  }
+
   void _openPlayerSettings() {
     final detail = _currentDetail;
     final heights = <int>[];
@@ -1257,7 +1596,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       context,
       qualityHeights: heights.isEmpty ? null : heights,
       onQualityChanged: () {
-        // Manual only: re-open current with new quality from settings.
+        _sessionQualityCap = null;
         if (mounted) _playIndex(_currentIndex);
       },
     );
@@ -1321,16 +1660,23 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
 
+    final chrome = context.read<PlayerChrome>();
     return PopScope(
       canPop: !immersive,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && immersive) {
-          context.read<PlayerChrome>().exitFullscreen();
+          // ignore: unawaited_futures
+          chrome.exitFullscreen().then((_) {
+            _autoRotate?.syncLandscapeMode(false, fromUser: true);
+            if (mounted) setState(() {});
+          });
         }
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: GestureDetector(
+        body: chrome.wrapBody(
+          context,
+          GestureDetector(
           onTap: () {
             final c = _controller;
             if (c == null || !c.value.isInitialized) return;
@@ -1363,6 +1709,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             onSeekPreview: _onSeekPreview,
             onSeekStart: () => _seeking = true,
             onSeekEnd: _onSeekCommit,
+          ),
           ),
         ),
       ),

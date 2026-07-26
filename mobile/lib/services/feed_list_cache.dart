@@ -5,7 +5,10 @@ class FeedListCache {
   FeedListCache._();
   static final Map<String, FeedListSnapshot> _map = {};
 
+  /// Peek without removing (name kept for call sites).
   static FeedListSnapshot? take(String kind) => _map[kind];
+
+  static FeedListSnapshot? peek(String kind) => _map[kind];
 
   static void put(String kind, FeedListSnapshot snap) {
     if (snap.items.isEmpty) return;
