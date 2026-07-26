@@ -169,10 +169,10 @@ class SourceCatalog {
         icon: Icons.people_outline,
         iconSelected: Icons.people),
     SiteTag(
-        id: 'trans',
-        label: 'TS',
-        icon: Icons.transgender_outlined,
-        iconSelected: Icons.transgender),
+        id: 'asian',
+        label: '\u4e9a',
+        icon: Icons.public_outlined,
+        iconSelected: Icons.public),
   ];
 
   static const pornhub = SiteDef(

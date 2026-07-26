@@ -720,17 +720,17 @@ class GenericSiteApi {
     final offset = (page - 1) * limit;
     final primaryTag = switch (tagId) {
       'couples' => 'couples',
-      'trans' => 'trans',
       _ => 'girls',
     };
     final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
+    final tagFilter = tagId == 'asian' ? '&tags=asian' : '';
     final endpoints = <String Function(String)>[
       (b) =>
-          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy$tagFilter',
       (b) =>
-          '$b/api/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy$tagFilter',
       (b) =>
-          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy',
+          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag&sortBy=$sortBy$tagFilter',
     ];
     for (final pathFn in endpoints) {
       try {
@@ -1891,12 +1891,12 @@ class GenericSiteApi {
           (b) => '$b/videos/$p',
         ];
       case 'stripchat':
-        final primaryTag =
-            tagId == 'couples' || tagId == 'trans' ? tagId : 'girls';
+        final primaryTag = tagId == 'couples' ? tagId : 'girls';
         final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
+        final tagFilter = tagId == 'asian' ? '&tags=asian' : '';
         return [
           (b) =>
-              '$b/api/front/models?limit=60&offset=${(p - 1) * 60}&primaryTag=$primaryTag&sortBy=$sortBy',
+              '$b/api/front/models?limit=60&offset=${(p - 1) * 60}&primaryTag=$primaryTag&sortBy=$sortBy$tagFilter',
         ];
       case 'chaturbate':
         final categoryQuery = switch (tagId) {

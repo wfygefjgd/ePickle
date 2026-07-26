@@ -562,10 +562,12 @@ void main() {
       'girls',
       'new',
       'couples',
-      'trans',
+      'asian',
     ]);
     expect(SourceCatalog.stripchatTags.map((tag) => tag.id),
         isNot(contains('men')));
+    expect(SourceCatalog.stripchatTags.map((tag) => tag.id),
+        isNot(contains('trans')));
 
     const base = 'https://strip-new.fixture.test';
     const liveSite = SiteDef(
@@ -595,6 +597,37 @@ void main() {
     expect(feed.single.url, '$base/new-girl-room');
     expect(adapter.requests.single.uri.queryParameters['primaryTag'], 'girls');
     expect(adapter.requests.single.uri.queryParameters['sortBy'], 'newModels');
+  });
+
+  test('Stripchat Asian tab stays in the girls category', () async {
+    const base = 'https://strip-asian.fixture.test';
+    const liveSite = SiteDef(
+      id: 'stripchat',
+      name: 'Strip fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.stripchatTags,
+      color: 0,
+      letter: 'S',
+      mirrors: [base],
+    );
+    final dio = Dio();
+    final adapter = _FixtureAdapter({
+      '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=stripRanking&tags=asian':
+          const _FixtureResponse(
+        '{"models":[{"username":"asian-girl-room","isOnline":true}]}',
+      ),
+    });
+    dio.httpClientAdapter = adapter;
+
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      liveSite,
+      tagId: 'asian',
+      limit: 1,
+    );
+
+    expect(feed.single.url, '$base/asian-girl-room');
+    expect(adapter.requests.single.uri.queryParameters['primaryTag'], 'girls');
+    expect(adapter.requests.single.uri.queryParameters['tags'], 'asian');
   });
 
   test('directory-only FreePorn is not enabled as a playable source', () {
