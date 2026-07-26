@@ -108,6 +108,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _stallLowering = false;
   bool _stallLoweredForItem = false;
   int _stallArmedAfterMs = 0;
+  bool _resyncingPage = false;
+  bool? _lastImmersiveForPage;
 
   late final Map<String, String> _headers = _buildHeaders();
 
@@ -192,8 +194,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       case AutoRotateAction.switchSide:
         _autoRotate?.confirmAction(action, side: side);
         // ignore: unawaited_futures
-        chrome.enterFullscreen(preferredOrientation: side);
-        if (mounted) setState(() {});
+        chrome.enterFullscreen(preferredOrientation: side).then((_) {
+          if (mounted) {
+            setState(() {});
+            _schedulePageResync();
+          }
+        });
       case AutoRotateAction.exitLandscape:
         if (!chrome.immersive) {
           _autoRotate?.confirmAction(action);
@@ -201,8 +207,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         }
         _autoRotate?.confirmAction(action);
         // ignore: unawaited_futures
-        chrome.exitFullscreen();
-        if (mounted) setState(() {});
+        chrome.exitFullscreen().then((_) {
+          if (mounted) {
+            setState(() {});
+            _schedulePageResync();
+          }
+        });
     }
   }
 
@@ -275,7 +285,39 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       await chrome.enterFullscreen(preferredOrientation: side);
       _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
     }
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _schedulePageResync();
+    }
+  }
+
+  /// See VideoFeedScreen: RotatedBox changes viewport → PageView offset drifts.
+  void _schedulePageResync() {
+    void pin() {
+      if (!mounted || !_pageCtrl.hasClients || _items.isEmpty) return;
+      final i = _index.clamp(0, _items.length - 1);
+      _resyncingPage = true;
+      try {
+        _pageCtrl.jumpToPage(i);
+      } catch (_) {}
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          _resyncingPage = false;
+          return;
+        }
+        if (_pageCtrl.hasClients) {
+          final p = _pageCtrl.page?.round();
+          if (p != null && p != i) {
+            try {
+              _pageCtrl.jumpToPage(i);
+            } catch (_) {}
+          }
+        }
+        _resyncingPage = false;
+      });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => pin());
   }
 
   @override
@@ -1140,6 +1182,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
 
   void _onPageChanged(int page) {
+    if (_resyncingPage) return;
     if (page == _index) return;
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
@@ -1332,6 +1375,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Widget build(BuildContext context) {
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
+    if (_lastImmersiveForPage != immersive) {
+      _lastImmersiveForPage = immersive;
+      _schedulePageResync();
+    }
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
@@ -1341,7 +1388,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {
             _autoRotate?.syncLandscapeMode(false, fromUser: true);
-            if (mounted) setState(() {});
+            if (mounted) {
+              setState(() {});
+              _schedulePageResync();
+            }
           });
         }
       },

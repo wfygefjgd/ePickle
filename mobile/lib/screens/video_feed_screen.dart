@@ -113,6 +113,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _stallLoweredForItem = false;
   /// Ignore stall until this ms epoch. Long after resume (iOS progress freeze).
   int _stallArmedAfterMs = 0;
+  /// Ignore PageView callbacks while re-syncing after portrait↔landscape layout.
+  bool _resyncingPage = false;
+  bool? _lastImmersiveForPage;
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
@@ -233,8 +236,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       case AutoRotateAction.switchSide:
         _autoRotate?.confirmAction(action, side: side);
         // ignore: unawaited_futures
-        chrome.enterFullscreen(preferredOrientation: side);
-        if (mounted) setState(() {});
+        chrome.enterFullscreen(preferredOrientation: side).then((_) {
+          if (mounted) {
+            setState(() {});
+            _schedulePageResync();
+          }
+        });
       case AutoRotateAction.exitLandscape:
         if (!chrome.immersive) {
           _autoRotate?.confirmAction(action);
@@ -242,8 +249,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         }
         _autoRotate?.confirmAction(action);
         // ignore: unawaited_futures
-        chrome.exitFullscreen();
-        if (mounted) setState(() {});
+        chrome.exitFullscreen().then((_) {
+          if (mounted) {
+            setState(() {});
+            _schedulePageResync();
+          }
+        });
     }
   }
 
@@ -353,7 +364,41 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       await chrome.enterFullscreen(preferredOrientation: side);
       _autoRotate?.syncLandscapeMode(true, fromUser: true, side: side);
     }
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      _schedulePageResync();
+    }
+  }
+
+  /// RotatedBox landscape changes PageView viewport extent; pixel offset then
+  /// maps to the wrong page (often 0). Re-pin to [_currentIndex] after layout.
+  void _schedulePageResync() {
+    void pin() {
+      if (!mounted || !_pageCtrl.hasClients) return;
+      final i = _currentIndex.clamp(0, (_items.isEmpty ? 1 : _items.length) - 1);
+      if (_items.isEmpty) return;
+      _resyncingPage = true;
+      try {
+        _pageCtrl.jumpToPage(i);
+      } catch (_) {}
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          _resyncingPage = false;
+          return;
+        }
+        if (_pageCtrl.hasClients) {
+          final p = _pageCtrl.page?.round();
+          if (p != null && p != i) {
+            try {
+              _pageCtrl.jumpToPage(i);
+            } catch (_) {}
+          }
+        }
+        _resyncingPage = false;
+      });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => pin());
   }
 
   @override
@@ -1386,6 +1431,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   void _onPageChanged(int page) {
+    if (_resyncingPage) return;
     if (page == _currentIndex) return;
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
@@ -1659,6 +1705,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
+    // Chrome flip without going through our handlers (rare) — still re-pin page.
+    if (_lastImmersiveForPage != immersive) {
+      _lastImmersiveForPage = immersive;
+      _schedulePageResync();
+    }
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
@@ -1668,7 +1719,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {
             _autoRotate?.syncLandscapeMode(false, fromUser: true);
-            if (mounted) setState(() {});
+            if (mounted) {
+              setState(() {});
+              _schedulePageResync();
+            }
           });
         }
       },
