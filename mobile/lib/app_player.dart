@@ -37,7 +37,7 @@ class PlayerApp extends StatelessWidget {
         Provider(create: (_) => Translator()),
       ],
       child: MaterialApp(
-        title: 'PHUB Player',
+        title: 'ePickle',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,

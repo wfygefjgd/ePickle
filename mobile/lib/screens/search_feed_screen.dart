@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/video_item.dart';
+import '../services/generic_site_api.dart';
 import '../services/mitao_api.dart';
 import '../services/phub_api.dart';
 import '../services/translator.dart';
@@ -16,12 +17,13 @@ import '../services/xvideos_api.dart';
 import '../services/app_settings.dart';
 import '../services/auto_rotate_controller.dart';
 import '../services/player_chrome.dart';
+import '../services/source_catalog.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
 
 /// Which backend to use for detail / headers.
-enum SearchSource { ph, x, zhong }
+enum SearchSource { ph, x, zhong, generic }
 
 /// Vertical swipe player for search results.
 /// Single active player + one silent pre-buffered next-video controller
@@ -34,6 +36,7 @@ class SearchFeedScreen extends StatefulWidget {
     this.initialIndex = 0,
     this.title = '播放',
     this.onLoadMore,
+    this.site,
   });
 
   final List<VideoItem> items;
@@ -42,6 +45,8 @@ class SearchFeedScreen extends StatefulWidget {
   final String title;
   /// Returns newly appended items (may be empty when no more).
   final Future<List<VideoItem>> Function()? onLoadMore;
+  /// Required when [source] is [SearchSource.generic].
+  final SiteDef? site;
 
   @override
   State<SearchFeedScreen> createState() => _SearchFeedScreenState();
@@ -137,6 +142,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         };
       case SearchSource.ph:
+        return AppHttpHeaders.browser;
+      case SearchSource.generic:
+        final s = widget.site;
+        if (s != null) {
+          final base = s.primaryHost.replaceAll(RegExp(r'/$'), '');
+          return {
+            ...AppHttpHeaders.browser,
+            'Referer': '$base/',
+            'Origin': base,
+          };
+        }
         return AppHttpHeaders.browser;
     }
   }
@@ -347,6 +363,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         return context.read<MitaoApi>().getVideoDetail(url);
       case SearchSource.ph:
         return context.read<PhubApi>().getVideoDetail(url);
+      case SearchSource.generic:
+        final s = widget.site;
+        if (s != null) {
+          return context.read<GenericSiteApi>().getVideoDetail(s, url);
+        }
+        return context.read<GenericSiteApi>().getCustomDetail(url);
     }
   }
 

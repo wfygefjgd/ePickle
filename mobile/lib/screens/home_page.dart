@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/layout_settings.dart';
 import '../services/source_catalog.dart';
 import '../widgets/player_settings_sheet.dart';
+import '../widgets/site_logo.dart';
 import 'search_screen.dart';
 import 'site_feed_page.dart';
 
@@ -38,48 +39,15 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _onHomeSearch() async {
+  void _onHomeSearch() {
     final q = _searchCtrl.text.trim();
-    if (q.isEmpty) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const SearchScreen()),
-      );
-      return;
-    }
     final layout = context.read<LayoutSettings>();
-    var global = layout.globalSearch;
-    if (!global) {
-      final choice = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF2A2A2A),
-          title: const Text('搜索范围', style: TextStyle(color: Colors.white)),
-          content: const Text(
-            '默认搜索全部已启用网站。\n可在设置底部开启「全局搜索」作为默认。',
-            style: TextStyle(color: Colors.white70, height: 1.4),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B35),
-              ),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('搜索全部'),
-            ),
-          ],
-        ),
-      );
-      if (choice != true || !mounted) return;
-      global = true;
-    }
-    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SearchScreen(initialQuery: q, forceGlobal: global),
+        builder: (_) => SearchScreen(
+          initialQuery: q.isEmpty ? null : q,
+          forceGlobal: layout.globalSearch || q.isNotEmpty,
+        ),
       ),
     );
   }
@@ -200,7 +168,7 @@ class _HomePageState extends State<HomePage> {
                                     fontSize: 12,
                                   ),
                                 ),
-                                secondary: _SiteAvatar(site: s, size: 36),
+                                secondary: SiteLogo(site: s, size: 36),
                                 onChanged: (v) =>
                                     lay.toggleVideoSite(s.id, v),
                               ),
@@ -262,7 +230,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text('PHUB Player'),
+        title: const Text('ePickle'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -505,34 +473,6 @@ class _ExpandableSiteSectionState extends State<_ExpandableSiteSection> {
   }
 }
 
-class _SiteAvatar extends StatelessWidget {
-  const _SiteAvatar({required this.site, this.size = 44});
-
-  final SiteDef site;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Color(site.color),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        site.letter,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: size * 0.4,
-        ),
-      ),
-    );
-  }
-}
-
 class _SiteTile extends StatelessWidget {
   const _SiteTile({
     required this.site,
@@ -556,7 +496,7 @@ class _SiteTile extends StatelessWidget {
       color: const Color(0xFF2A2A2A),
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        leading: _SiteAvatar(site: site),
+        leading: SiteLogo(site: site, size: 44),
         title: Text(site.name, style: const TextStyle(color: Colors.white)),
         subtitle: Text(
           sub,

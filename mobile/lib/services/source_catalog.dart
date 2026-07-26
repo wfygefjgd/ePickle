@@ -216,10 +216,10 @@ class SourceCatalog {
 
   static const mitao = SiteDef(
     id: 'mitao',
-    name: '\u4e2d\u6587\u5b57\u5e55',
+    name: 'mitaohk.com',
     kind: SiteKind.video,
     color: 0xFFE91E63,
-    letter: '\u4e2d',
+    letter: 'M',
     mirrors: [
       'https://mitaohk.com',
       'https://www.mitaohk.com',

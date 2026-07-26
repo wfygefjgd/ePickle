@@ -40,8 +40,8 @@ jobs:
           mkdir -p build/dist
           VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: //;s/+.*//')
           cp -f build/app/outputs/flutter-apk/app-release.apk \
-            "build/dist/PHUB-Player-v${VER}-Android.apk"
-          shasum -a 256 "build/dist/PHUB-Player-v${VER}-Android.apk" | tee build/dist/SHA256-Android.txt
+            "build/dist/ePickle-v${VER}-Android.apk"
+          shasum -a 256 "build/dist/ePickle-v${VER}-Android.apk" | tee build/dist/SHA256-Android.txt
           ls -lh build/dist/
           echo "VER=$VER" >> "$GITHUB_ENV"
 
@@ -132,7 +132,7 @@ jobs:
           fi
 
           mkdir -p build/dist
-          IPA="build/dist/PHUB-Player-v${VER}-iOS.ipa"
+          IPA="build/dist/ePickle-v${VER}-iOS.ipa"
           python3 <<PY
           import os, zipfile
           stage = "$STAGE"
@@ -191,13 +191,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          APK=$(find artifacts -name 'PHUB-Player-*-Android.apk' | head -1)
-          IPA=$(find artifacts -name 'PHUB-Player-*-iOS.ipa' | head -1)
+          APK=$(find artifacts -name 'ePickle-*-Android.apk' -o -name 'PHUB-Player-*-Android.apk' | head -1)
+          IPA=$(find artifacts -name 'ePickle-*-iOS.ipa' -o -name 'PHUB-Player-*-iOS.ipa' | head -1)
           SHA_A=$(find artifacts -name 'SHA256-Android.txt' | head -1 || true)
           SHA_I=$(find artifacts -name 'SHA256-iOS.txt' | head -1 || true)
           test -f "$APK"
           test -f "$IPA"
-          VER=$(basename "$APK" | sed -n 's/PHUB-Player-v\(.*\)-Android.apk/\1/p')
+          VER=$(basename "$APK" | sed -n 's/.*-v\(.*\)-Android.apk/\1/p')
           TAG="v${VER}"
 
           NOTES=$(cat <<EOF
@@ -205,36 +205,30 @@ jobs:
 
           | 平台 | 文件 | 说明 |
           |------|------|------|
-          | **Android** | \`PHUB-Player-v${VER}-Android.apk\` | 可直接安装（debug 签名，自用侧载） |
-          | **iOS** | \`PHUB-Player-v${VER}-iOS.ipa\` | **未签名**，需 Sideloadly / 全能签 / TrollStore 等自签 |
+          | **Android** | \`ePickle-v${VER}-Android.apk\` | 可直接安装（debug 签名，自用侧载） |
+          | **iOS** | \`ePickle-v${VER}-iOS.ipa\` | **未签名**，需 Sideloadly / 全能签 / TrollStore 等自签 |
 
           ## 更新说明 (v${VER})
 
           ### 产品
-          - 应用名：**PHUB Player**（仅播放器，不是隐私浏览器）
-          - 默认启动视频流（热 / 亚 / X / 中 / 搜）
-
-          ### 性能 / 工程
-          - 列表加载：抓取页数上限约 5，并发 3
-          - 统一 Dio / UA（三源 API + 翻译）
-          - Android 15：关 Impeller；不全屏强横屏
+          - 应用名：**ePickle**（多源播放器）
 
           ### 使用
           - 需系统 VPN 访问源站
           - 自用 debug 签名即可
 
           ### 源码
-          https://github.com/wfygefjgd/phub-player
+          https://github.com/wfygefjgd/ePickle
           EOF
           )
 
           if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — PHUB Player（含安装包）" \
+              --title "v${VER} — ePickle" \
               --notes "$NOTES"
           else
             gh release edit "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — PHUB Player（含安装包）" \
+              --title "v${VER} — ePickle" \
               --notes "$NOTES"
           fi
 

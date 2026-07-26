@@ -117,7 +117,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _stallArmedAfterMs = 0;
   /// Ignore PageView callbacks while re-syncing after portrait↔landscape layout.
   bool _resyncingPage = false;
-  String get _cacheKey => widget.kind.name;
+  /// MUST include site id — otherwise all sites sharing kind=hot load the same list.
+  String get _cacheKey {
+    final siteId = widget.site?.id ?? 'legacy';
+    final tag = widget.tagId ?? widget.kind.name;
+    return '${siteId}_$tag';
+  }
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
   int get _effectiveQualityCap {

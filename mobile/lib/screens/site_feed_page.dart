@@ -5,9 +5,10 @@ import 'package:provider/provider.dart';
 
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
+import 'site_search_page.dart';
 import 'video_feed_screen.dart';
 
-/// Secondary page: bottom NavigationBar like the old app + top-left back.
+/// Secondary page: bottom tabs (site sections) + search tab + back.
 class SiteFeedPage extends StatefulWidget {
   const SiteFeedPage({super.key, required this.site});
 
@@ -21,11 +22,17 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   int _index = 0;
   final List<GlobalKey<VideoFeedScreenState>> _keys = [];
 
-  List<SiteTag> get _tabs {
+  /// Content tabs only (no search).
+  List<SiteTag> get _contentTabs {
     final t = widget.site.tags;
     if (t.isEmpty) return const [];
     return t.length > 4 ? t.sublist(0, 4) : List<SiteTag>.from(t);
   }
+
+  /// Bottom destinations = content tabs + search.
+  int get _searchIndex => _contentTabs.length;
+
+  int get _destinationCount => _contentTabs.length + 1;
 
   @override
   void initState() {
@@ -39,7 +46,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   }
 
   void _ensureKeys() {
-    final n = _tabs.length;
+    final n = _contentTabs.length;
     while (_keys.length < n) {
       _keys.add(GlobalKey<VideoFeedScreenState>());
     }
@@ -49,7 +56,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   }
 
   VideoFeedKind _kindAt(int i) {
-    final tabs = _tabs;
+    final tabs = _contentTabs;
     if (tabs.isEmpty) return VideoFeedKind.hot;
     return tabs[i.clamp(0, tabs.length - 1)].feedKind ?? VideoFeedKind.hot;
   }
@@ -61,25 +68,33 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
       // ignore: unawaited_futures
       chrome.exitFullscreen();
     }
-    for (final k in _keys) {
-      k.currentState?.pausePlayback(releasePlayers: true);
-    }
-    setState(() => _index = i);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _index != i) return;
-      if (i >= 0 && i < _keys.length) {
-        _keys[i].currentState?.startPlaying();
+
+    // Leaving content tab → pause players
+    if (_index < _keys.length) {
+      for (final k in _keys) {
+        k.currentState?.pausePlayback(releasePlayers: true);
       }
-    });
+    }
+
+    setState(() => _index = i);
+
+    // Entering content tab → start play
+    if (i < _keys.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _index != i) return;
+        _keys[i].currentState?.startPlaying();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     _ensureKeys();
     final site = widget.site;
-    final tabs = _tabs;
+    final tabs = _contentTabs;
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
+    final onSearch = _index >= _searchIndex;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -91,6 +106,8 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
             const Center(
               child: Text('无标签', style: TextStyle(color: Colors.white54)),
             )
+          else if (onSearch)
+            SiteSearchPage(key: ValueKey('search_${site.id}'), site: site)
           else
             IndexedStack(
               index: _index.clamp(0, tabs.length - 1),
@@ -131,14 +148,15 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                   child: NavigationBar(
-                    selectedIndex: _index.clamp(0, tabs.length - 1),
+                    selectedIndex: _index.clamp(0, _destinationCount - 1),
                     onDestinationSelected: _onTabSelected,
                     backgroundColor: Colors.black.withValues(alpha: 0.28),
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
                     indicatorColor: const Color(0x33FF6B35),
-                    labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+                    labelBehavior:
+                        NavigationDestinationLabelBehavior.alwaysHide,
                     destinations: [
                       for (final t in tabs)
                         NavigationDestination(
@@ -149,6 +167,14 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                           ),
                           label: t.label,
                         ),
+                      const NavigationDestination(
+                        icon: Icon(Icons.search),
+                        selectedIcon: Icon(
+                          Icons.search,
+                          color: Color(0xFFFF6B35),
+                        ),
+                        label: '搜',
+                      ),
                     ],
                   ),
                 ),
@@ -157,4 +183,3 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
     );
   }
 }
-

@@ -1,15 +1,14 @@
-# PHUB Player
+# ePickle
 
-PHub 视频播放器 — 桌面版 (Python) + 移动版 (Flutter)
+多源视频播放器 — 桌面版 (Python) + 移动版 (Flutter)
 
 ## 版本
 
-当前源码：`mobile/pubspec.yaml` → **1.6.2+17**（**PHUB Player** 纯播放器）。  
-桌面成品包常见为 **1.5.3～1.5.7 / 1.6.x**（以 Release / 本机 `PHUB-Player-v*.apk/ipa` 为准）。
+当前源码：`mobile/pubspec.yaml` → 以 `version` 字段为准（应用名 **ePickle**）。  
 
 **发布说明 / 版本对照：** 见 [CHANGELOG.md](./CHANGELOG.md)
 
-> 本仓库是 **PHUB Player**。隐私浏览器是**另一个项目**，勿与本应用显示名/发布文案混用。
+> 本仓库是 **ePickle**（原 PHUB Player）。隐私浏览器是**另一个项目**，勿与本应用显示名/发布文案混用。
 
 ### Desktop (Python)
 桌面端 GUI 应用，支持浏览、搜索、播放、字幕翻译。

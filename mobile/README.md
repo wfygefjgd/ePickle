@@ -1,4 +1,4 @@
-# PHUB Player (Flutter 纯客户端)
+# ePickle (Flutter 纯客户端)
 
 方案 A：无后端、无内置代理。手机直接访问源站，网络由用户自行解决。
 
