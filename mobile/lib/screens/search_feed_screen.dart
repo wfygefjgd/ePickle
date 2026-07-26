@@ -1430,56 +1430,106 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              PageView.builder(
-                controller: _pageCtrl,
-                scrollDirection: Axis.vertical,
-                itemCount: _items.length,
-                onPageChanged: _onPageChanged,
-                physics: _dragStartX != null ? const NeverScrollableScrollPhysics() : null,
-                itemBuilder: (_, i) {
-                  if (i == _index &&
-                      _controller != null &&
-                      _controller!.value.isInitialized) {
-                    final ar = _controller!.value.aspectRatio;
-                    return ColoredBox(
-                      color: Colors.black,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio:
-                              (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
-                          child: VideoPlayer(_controller!),
+              // Landscape: never use PageView — RotatedBox viewport change
+              // maps pixel offset to page 0 (first thumb) while audio keeps
+              // playing the real controller. Portrait: vertical swipe feed.
+              if (immersive)
+                Builder(
+                  builder: (_) {
+                    final c = _controller;
+                    if (c != null && c.value.isInitialized) {
+                      final ar = c.value.aspectRatio;
+                      return ColoredBox(
+                        color: Colors.black,
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio:
+                                (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
+                            child: VideoPlayer(c),
+                          ),
                         ),
+                      );
+                    }
+                    final thumb = (_index >= 0 && _index < _items.length)
+                        ? _items[_index].thumb
+                        : null;
+                    return Container(
+                      color: const Color(0xFF1A1A1A),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (thumb != null && thumb.isNotEmpty)
+                            CachedNetworkImage(
+                              imageUrl: thumb,
+                              httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                              fit: BoxFit.cover,
+                              memCacheWidth: 720,
+                              placeholder: (_, __) =>
+                                  const ColoredBox(color: Color(0xFF1A1A1A)),
+                              errorWidget: (_, __, ___) =>
+                                  const SizedBox.shrink(),
+                            ),
+                          if (_pageLoading)
+                            const Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF6B35),
+                              ),
+                            ),
+                        ],
                       ),
                     );
-                  }
-                  final thumb = _items[i].thumb;
-                  return Container(
-                    color: const Color(0xFF1A1A1A),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (thumb != null && thumb.isNotEmpty)
-                          CachedNetworkImage(
-                            imageUrl: thumb,
-                            httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-                            fit: BoxFit.cover,
-                            memCacheWidth: 720,
-                            placeholder: (_, __) =>
-                                const ColoredBox(color: Color(0xFF1A1A1A)),
-                            errorWidget: (_, __, ___) =>
-                                const SizedBox.shrink(),
+                  },
+                )
+              else
+                PageView.builder(
+                  controller: _pageCtrl,
+                  scrollDirection: Axis.vertical,
+                  itemCount: _items.length,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (_, i) {
+                    if (i == _index &&
+                        _controller != null &&
+                        _controller!.value.isInitialized) {
+                      final ar = _controller!.value.aspectRatio;
+                      return ColoredBox(
+                        color: Colors.black,
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio:
+                                (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
+                            child: VideoPlayer(_controller!),
                           ),
-                        if (i == _index && _pageLoading)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFFF6B35),
+                        ),
+                      );
+                    }
+                    final thumb = _items[i].thumb;
+                    return Container(
+                      color: const Color(0xFF1A1A1A),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (thumb != null && thumb.isNotEmpty)
+                            CachedNetworkImage(
+                              imageUrl: thumb,
+                              httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                              fit: BoxFit.cover,
+                              memCacheWidth: 720,
+                              placeholder: (_, __) =>
+                                  const ColoredBox(color: Color(0xFF1A1A1A)),
+                              errorWidget: (_, __, ___) =>
+                                  const SizedBox.shrink(),
                             ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                          if (i == _index && _pageLoading)
+                            const Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF6B35),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               // 横屏手势进度预览
               if (immersive && _seekPreviewText.isNotEmpty)
                 Center(

@@ -170,6 +170,93 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
+  Widget _buildActivePlayer() {
+    final c = widget.controller;
+    if (c != null && c.value.isInitialized) {
+      final ar = c.value.aspectRatio;
+      return ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
+            child: VideoPlayer(c),
+          ),
+        ),
+      );
+    }
+    final i = widget.currentIndex;
+    final thumb = (i >= 0 && i < widget.items.length) ? widget.items[i].thumb : null;
+    return Container(
+      color: const Color(0xFF1A1A1A),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (thumb != null && thumb.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: thumb,
+              httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+              fit: BoxFit.cover,
+              memCacheWidth: 720,
+              placeholder: (_, __) =>
+                  const ColoredBox(color: Color(0xFF1A1A1A)),
+              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          if (widget.pageLoading)
+            const Center(
+              child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Portrait: vertical PageView. Landscape: single surface only.
+  /// RotatedBox changes viewport height; PageView pixel offset then maps to
+  /// page 0 → first video thumb while audio stays on the real controller.
+  Widget _buildVideoSurface() {
+    if (widget.immersive) {
+      return _buildActivePlayer();
+    }
+    return PageView.builder(
+      controller: widget.pageCtrl,
+      scrollDirection: Axis.vertical,
+      itemCount: widget.items.length,
+      onPageChanged: widget.onPageChanged,
+      itemBuilder: (_, i) {
+        if (i == widget.currentIndex &&
+            widget.controller != null &&
+            widget.controller!.value.isInitialized) {
+          return _buildActivePlayer();
+        }
+        final thumb = widget.items[i].thumb;
+        return Container(
+          color: const Color(0xFF1A1A1A),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (thumb != null && thumb.isNotEmpty)
+                CachedNetworkImage(
+                  imageUrl: thumb,
+                  httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
+                  fit: BoxFit.cover,
+                  memCacheWidth: 720,
+                  placeholder: (_, __) =>
+                      const ColoredBox(color: Color(0xFF1A1A1A)),
+                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              if (i == widget.currentIndex && widget.pageLoading)
+                const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFFF6B35),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -180,55 +267,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           onHorizontalDragStart: _onHorizontalDragStart,
           onHorizontalDragUpdate: _onHorizontalDragUpdate,
           onHorizontalDragEnd: _onHorizontalDragEnd,
-          child: PageView.builder(
-            controller: widget.pageCtrl,
-            scrollDirection: Axis.vertical,
-            itemCount: widget.items.length,
-            onPageChanged: widget.onPageChanged,
-            physics: _dragStartX != null ? const NeverScrollableScrollPhysics() : null,
-            itemBuilder: (_, i) {
-              if (i == widget.currentIndex &&
-                  widget.controller != null &&
-                  widget.controller!.value.isInitialized) {
-                final ar = widget.controller!.value.aspectRatio;
-                return ColoredBox(
-                  color: Colors.black,
-                  child: Center(
-                    child: AspectRatio(
-                      // 0 / NaN crashes layout on some streams before metadata.
-                      aspectRatio: (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
-                      child: VideoPlayer(widget.controller!),
-                    ),
-                  ),
-                );
-              }
-              final thumb = widget.items[i].thumb;
-              return Container(
-                color: const Color(0xFF1A1A1A),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (thumb != null && thumb.isNotEmpty)
-                      CachedNetworkImage(
-                        imageUrl: thumb,
-                        httpHeaders: AppHttpHeaders.forMediaUrl(thumb),
-                        fit: BoxFit.cover,
-                        memCacheWidth: 720,
-                        placeholder: (_, __) =>
-                            const ColoredBox(color: Color(0xFF1A1A1A)),
-                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                      ),
-                    if (i == widget.currentIndex && widget.pageLoading)
-                      const Center(
-                        child: CircularProgressIndicator(
-                          color: Color(0xFFFF6B35),
-                        ),
-                      ),
-                  ],
-                ),
-              );
-            },
-          ),
+          child: _buildVideoSurface(),
         ),
         // 横屏手势进度预览
         if (widget.immersive && _seekPreviewText.isNotEmpty)
