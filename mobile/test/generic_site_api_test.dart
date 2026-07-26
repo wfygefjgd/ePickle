@@ -211,7 +211,7 @@ void main() {
     expect(stream.headers['Cookie'], contains('PHPSESSID=session123'));
   });
 
-  test('decrypts Our55 DES player data into the full HLS URL', () async {
+  test('decrypts DES player data into the full HLS URL', () async {
     const pageUrl = 'https://fixture.test/vod/play/42.html';
     const mediaUrl = 'https://cdn2.shayubf.com/20200222/Tlr76hci/index.m3u8';
     const encrypted =
@@ -237,7 +237,7 @@ void main() {
     expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
   });
 
-  test('decrypts Our55 payloads containing JSON-escaped base64 slashes',
+  test('decrypts DES payloads containing JSON-escaped base64 slashes',
       () async {
     const pageUrl = 'https://fixture.test/video/current.html';
     const encrypted =
@@ -258,10 +258,7 @@ void main() {
       ),
     });
 
-    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
-      SourceCatalog.our55,
-      pageUrl,
-    );
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
 
     expect(detail.streams, isNotEmpty);
     expect(detail.streams.first.url, contains('.m3u8'));
@@ -410,7 +407,13 @@ void main() {
     }.entries) {
       fixtures[
               '$base/api/ts/roomlist/room-list/?limit=20&offset=0&genders=${entry.value}'] =
-          _FixtureResponse('{"rooms":[{"username":"${entry.key}_room"}]}');
+          _FixtureResponse(
+        '{"rooms":['
+        '{"username":"${entry.key}_room","current_show":"public","is_online":true},'
+        '{"username":"${entry.key}_private","current_show":"private","is_online":true},'
+        '{"username":"${entry.key}_offline","current_show":"public","is_online":false}'
+        '],"metadata":{"room":"fake_nested_room"}}',
+      );
     }
     final dio = Dio();
     final adapter = _FixtureAdapter(fixtures);
@@ -418,10 +421,11 @@ void main() {
     final api = GenericSiteApi(dio: dio);
 
     for (final tag in liveSite.tags) {
-      final feed = await api.fetchFeed(liveSite, tagId: tag.id, limit: 1);
+      final feed = await api.fetchFeed(liveSite, tagId: tag.id, limit: 10);
       expect(feed.single.url, '$base/${tag.id}_room');
     }
 
+    expect(adapter.requests, hasLength(4));
     expect(
       adapter.requests.map((request) => request.uri.queryParameters['genders']),
       containsAll(<String>['f', 'm', 'c', 't']),
@@ -446,7 +450,7 @@ void main() {
     dio.httpClientAdapter = _FixtureAdapter({
       '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=stripRanking':
           const _FixtureResponse(
-        '{"models":[{"username":"model_name","streamName":"83306615",'
+        '{"models":[{"username":"model-name","streamName":"83306615",'
         '"hlsPlaylist":"$playlist"}]}',
       ),
       playlist: const _FixtureResponse('#EXTM3U\n#EXTINF:2,\nsegment.ts'),
@@ -456,6 +460,7 @@ void main() {
     final feed = await api.fetchFeed(liveSite, tagId: 'girls', limit: 1);
     final detail = await api.getVideoDetail(liveSite, feed.single.url);
 
+    expect(feed.single.url, '$base/model-name');
     expect(detail.streams.single.url, playlist);
   });
 
@@ -464,7 +469,8 @@ void main() {
     expect(SourceCatalog.defaultEnabledVideoIds, isNot(contains('freeporn')));
   });
 
-  test('catalog exposes the seven verified playable channels', () {
+  test('catalog removes abandoned VOD sources and enables both live sources',
+      () {
     expect(
       SourceCatalog.defaultEnabledVideoIds,
       unorderedEquals([
@@ -472,13 +478,13 @@ void main() {
         'xvideos',
         'mitao',
         'xnxx',
-        'our55',
-        'xqq88',
       ]),
     );
+    expect(SourceCatalog.byId('our55'), isNull);
+    expect(SourceCatalog.byId('xqq88'), isNull);
     expect(SourceCatalog.defaultLiveId, 'chaturbate');
     expect(SourceCatalog.chaturbate.ready, isTrue);
-    expect(SourceCatalog.stripchat.ready, isFalse);
+    expect(SourceCatalog.stripchat.ready, isTrue);
   });
 }
 

@@ -14,11 +14,11 @@ void main() {
   test(
     'live source diagnostic reaches final media playlists',
     () async {
-      final requested = (Platform.environment['LIVE_SITE_IDS'] ??
-              'our55,xqq88,chaturbate,stripchat')
-          .split(',')
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty);
+      final requested =
+          (Platform.environment['LIVE_SITE_IDS'] ?? 'chaturbate,stripchat')
+              .split(',')
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty);
       final api = GenericSiteApi();
       final failures = <String>[];
       for (final id in requested) {

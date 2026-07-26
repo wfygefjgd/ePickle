@@ -535,46 +535,6 @@ class SourceCatalog {
     tags: vodTags,
   );
 
-  static const our55 = SiteDef(
-    id: 'our55',
-    name: 'Our55',
-    kind: SiteKind.video,
-    color: 0xFF455A64,
-    letter: 'O',
-    ready: true,
-    // Domain rotates via publish pages; video nodes first.
-    mirrors: [
-      'https://74214.our55.xyz',
-      'https://74214.b999.homes',
-      'https://74214.a888.homes',
-      'https://d1339.our55.xyz',
-      'https://q0008.our55.xyz',
-      'https://92217.our55.xyz',
-      'https://www.74214.com',
-      'https://www.333671.xyz',
-      'https://www.222061.xyz',
-    ],
-    tags: vodTags,
-  );
-
-  static const xqq88 = SiteDef(
-    id: 'xqq88',
-    name: '88XQQ',
-    kind: SiteKind.video,
-    color: 0xFF5D4037,
-    letter: '8',
-    ready: true,
-    mirrors: [
-      'https://cccdd.y3880.xyz',
-      'https://cccdd.y3880.win',
-      'https://cccdd.y3880.cc',
-      'https://www.y3880.com',
-      'https://www.88xqq.com',
-      'https://88xqq.com',
-    ],
-    tags: vodTags,
-  );
-
   static const stripchat = SiteDef(
     id: 'stripchat',
     name: 'Stripchat',
@@ -582,7 +542,7 @@ class SourceCatalog {
     color: 0xFFD32F2F,
     letter: 'S',
     searchable: false,
-    ready: false,
+    ready: true,
     mirrors: [
       'https://zh.stripchat.com',
       'https://stripchat.com',
@@ -630,8 +590,6 @@ class SourceCatalog {
     jable,
     mmtv7,
     bestjavporn,
-    our55,
-    xqq88,
     stripchat,
     chaturbate,
   ];

@@ -381,7 +381,9 @@ class GenericSiteApi {
       lastError = e;
     }
 
-    if (results.length < limit) {
+    final shouldTryHtml = results.isEmpty ||
+        (site.kind == SiteKind.video && results.length < limit);
+    if (shouldTryHtml) {
       final paths = _listPaths(site, tagId, safePage);
       for (final pathFn in paths) {
         if (results.length >= limit) break;
@@ -476,8 +478,6 @@ class GenericSiteApi {
           seen: seen,
           deadline: deadline,
         );
-      case 'xqq88':
-        return const [];
       default:
         return const [];
     }
@@ -867,29 +867,41 @@ class GenericSiteApi {
     if (site.id == 'stripchat') {
       final streamValue = _liveStreamNames['stripchat:${room.toLowerCase()}'];
       if (streamValue == null || streamValue.isEmpty) return null;
-      final candidates = streamValue.contains('.m3u8')
-          ? <String>[streamValue]
-          : <String>[
-              'https://edge-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8',
-              'https://edge-hls.doppiocdn.org/hls/$streamValue/master/${streamValue}_auto.m3u8',
-              'https://media-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8',
-            ];
-      final streams = await _probeHlsCandidates(
-        candidates,
-        pageUrl,
-        deadline,
+      final url = streamValue.contains('.m3u8')
+          ? streamValue
+          : 'https://edge-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8';
+      return VideoDetail(
+        url: pageUrl,
+        title: room,
+        durationSec: 0,
+        streams: [
+          StreamQuality(
+            width: 1280,
+            height: 720,
+            url: url,
+            referer: pageUrl,
+          ),
+        ],
       );
-      if (streams.isNotEmpty) {
+    }
+
+    if (site.id == 'chaturbate') {
+      final cached = _liveStreamNames['chaturbate:${room.toLowerCase()}'];
+      if (cached != null && cached.contains('.m3u8')) {
         return VideoDetail(
           url: pageUrl,
           title: room,
           durationSec: 0,
-          streams: streams,
+          streams: [
+            StreamQuality(
+              width: 1280,
+              height: 720,
+              url: cached,
+              referer: pageUrl,
+            ),
+          ],
         );
       }
-    }
-
-    if (site.id == 'chaturbate') {
       try {
         final fetched = await _fetchPageWithMirrors(
           site,
@@ -920,41 +932,6 @@ class GenericSiteApi {
       }
     }
     return null;
-  }
-
-  Future<List<StreamQuality>> _probeHlsCandidates(
-    List<String> urls,
-    String pageUrl,
-    DateTime deadline,
-  ) async {
-    final probes = urls.toSet().map((url) async {
-      try {
-        final remaining = deadline.difference(DateTime.now());
-        if (remaining.inMilliseconds <= 0) return null;
-        final body = await _getHtml(
-          url,
-          headers: {
-            ...AppHttpHeaders.forMediaUrl(url, pageUrl: pageUrl),
-            'Referer': pageUrl,
-          },
-          timeout: remaining < const Duration(seconds: 6)
-              ? remaining
-              : const Duration(seconds: 6),
-        );
-        if (!body.trimLeft().startsWith('#EXTM3U')) return null;
-        return StreamQuality(
-          width: 1280,
-          height: 720,
-          url: url,
-          referer: pageUrl,
-        );
-      } catch (e) {
-        if (e is DioException && CancelToken.isCancel(e)) rethrow;
-        return null;
-      }
-    });
-    final results = await Future.wait(probes);
-    return results.whereType<StreamQuality>().toList();
   }
 
   Future<VideoDetail> _parseVideoDetail(
@@ -1087,7 +1064,7 @@ class GenericSiteApi {
     final parts = Uri.tryParse(url)?.pathSegments ?? const [];
     for (final p in parts.reversed) {
       if (p.isEmpty) continue;
-      if (RegExp(r'^[a-zA-Z0-9_]{3,40}$').hasMatch(p)) return p;
+      if (RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(p)) return p;
     }
     return null;
   }
@@ -1707,26 +1684,6 @@ class GenericSiteApi {
           if (tagId == 'hot') (b) => '$b/zh/page/$p/',
           (b) => '$b/page/$p/',
         ];
-      case 'our55':
-        return [
-          if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/index.php/vod/show/page/$p.html',
-          if (tagId == 'asian') (b) => '$b/chinese/page/$p/',
-          if (tagId == 'best')
-            (b) => '$b/index.php/vod/show/by/hits/page/$p.html',
-          if (tagId == 'hot') (b) => '$b/nocode/page/$p/',
-          (b) => '$b/index.php/vod/type/id/1/page/$p.html',
-        ];
-      case 'xqq88':
-        return [
-          if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/label/new/page/$p.html',
-          if (tagId == 'asian') (b) => '$b/chinese/page/$p/',
-          if (tagId == 'best')
-            (b) => '$b/index.php/vod/show/by/hits/page/$p.html',
-          if (tagId == 'hot') (b) => '$b/index.php/vod/type/id/1/page/$p.html',
-          (b) => '$b/home.html?page=$p',
-        ];
       case 'av01':
         return [
           if (tagId == 'new')
@@ -1851,12 +1808,6 @@ class GenericSiteApi {
           (b) => '$b/zh/search?q=$enc&page=$p',
           (b) => '$b/zh/search/$enc/$p.html',
         ];
-      case 'our55':
-      case 'xqq88':
-        return [
-          (b) => '$b/index.php/vod/search/page/$p/wd/$enc.html',
-          (b) => '$b/vod/search/page/$p/wd/$enc.html',
-        ];
       default:
         return [
           (b) => '$b/search?q=$enc&page=$p',
@@ -1874,84 +1825,130 @@ class GenericSiteApi {
     SiteDef site,
   ) {
     final out = <VideoItem>[];
-    _rememberLiveStreamNames(raw, site);
-    // Chaturbate room list / stripchat models: extract username-like fields
-    final nameRe = RegExp(
-      r'''"(?:username|user__username|slug|login|room|modelName)"\s*:\s*"([a-zA-Z0-9_]{3,40})"''',
-    );
-    for (final m in nameRe.allMatches(raw)) {
-      final name = m.group(1)!;
-      final key = name.toLowerCase();
-      if (!seen.add(key)) continue;
-      final url = '$base/$name';
-      // try nearby image
-      String? thumb;
-      final around = raw.substring(
-        m.start > 200 ? m.start - 200 : 0,
-        m.end + 300 < raw.length ? m.end + 300 : raw.length,
-      );
-      final im = RegExp(
-        r'''https?:\\?/\\?/[^"'\s]+(?:jpg|jpeg|png|webp)''',
-        caseSensitive: false,
-      ).firstMatch(around);
-      if (im != null) {
-        thumb = im.group(0)!.replaceAll(r'\/', '/');
-      }
-      out.add(VideoItem(url: url, title: name, duration: 'LIVE', thumb: thumb));
-      if (out.length >= 80) break;
-    }
-    return out;
-  }
-
-  void _rememberLiveStreamNames(String raw, SiteDef site) {
-    if (site.id != 'stripchat') return;
     dynamic decoded;
     try {
       decoded = jsonDecode(raw);
     } catch (_) {
-      return;
+      return out;
     }
 
+    String? stringValue(Map<String, dynamic> map, List<String> keys) {
+      for (final key in keys) {
+        final value = map[key];
+        if (value is String && value.trim().isNotEmpty) return value.trim();
+      }
+      return null;
+    }
+
+    bool falseValue(dynamic value) =>
+        value == false || value == 0 || value == '0' || value == 'false';
+
     void visit(dynamic node) {
+      if (out.length >= 80) return;
       if (node is List) {
         for (final child in node) {
           visit(child);
+          if (out.length >= 80) break;
         }
         return;
       }
       if (node is! Map) return;
       final map = Map<String, dynamic>.from(node);
-      String? valueFor(List<String> keys) {
-        for (final key in keys) {
-          final value = map[key];
-          if (value is String && value.trim().isNotEmpty) return value.trim();
-        }
-        return null;
-      }
-
-      final username = valueFor(const [
+      var username = stringValue(map, const [
         'username',
         'user__username',
         'login',
-        'slug',
         'modelName',
       ]);
-      final streamName = valueFor(const [
-        'hlsPlaylist',
-        'hlsStreamUrl',
-        'streamName',
-        'stream_name',
-        'hlsStreamName',
-      ]);
-      if (username != null && streamName != null) {
-        _liveStreamNames['stripchat:${username.toLowerCase()}'] = streamName;
+      final hasModelSignal = map.keys.any(const {
+        'current_show',
+        'room_status',
+        'status',
+        'gender',
+        'image',
+        'image_url',
+        'image_url_360x270',
+        'previewUrlThumbSmall',
+        'avatarUrl',
+      }.contains);
+      if (username == null && hasModelSignal) {
+        username = stringValue(map, const ['room', 'slug']);
       }
+
+      if (username != null &&
+          RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(username)) {
+        final online = map['is_online'] ?? map['isOnline'] ?? map['online'];
+        final status = (stringValue(map, const [
+                  'current_show',
+                  'room_status',
+                  'showStatus',
+                  'status',
+                ]) ??
+                '')
+            .toLowerCase();
+        const blockedStatuses = [
+          'offline',
+          'private',
+          'away',
+          'hidden',
+          'password',
+          'group',
+          'spy',
+          'closed',
+        ];
+        final blocked = falseValue(online) ||
+            blockedStatuses.any((value) => status.contains(value));
+        if (!blocked) {
+          final key = username.toLowerCase();
+          final streamValue = stringValue(map, const [
+            'hlsPlaylist',
+            'hlsStreamUrl',
+            'hls_source',
+            'hlsSource',
+            'streamName',
+            'stream_name',
+            'hlsStreamName',
+          ]);
+          if (streamValue != null) {
+            _liveStreamNames['${site.id}:$key'] = streamValue;
+          }
+          if (seen.add(key)) {
+            final thumb = stringValue(map, const [
+              'image_url_360x270',
+              'image_url',
+              'previewUrlThumbSmall',
+              'snapshotUrl',
+              'thumbnail_url',
+              'avatarUrl',
+              'image',
+            ]);
+            final title = stringValue(
+                  map,
+                  const ['display_name', 'displayName', 'title'],
+                ) ??
+                username;
+            out.add(
+              VideoItem(
+                url: '$base/$username',
+                title: title,
+                duration: 'LIVE',
+                thumb: thumb?.replaceAll(r'\/', '/'),
+              ),
+            );
+          }
+        }
+        // A model object can contain room/chat metadata with more name-like
+        // fields. Never recurse into it and accidentally create fake rooms.
+        return;
+      }
+
       for (final value in map.values) {
         if (value is Map || value is List) visit(value);
       }
     }
 
     visit(decoded);
+    return out;
   }
 
   List<VideoItem> _parseList(
@@ -2095,22 +2092,12 @@ class GenericSiteApi {
         return h.contains('/videos/') || RegExp(r'/movies/\d+').hasMatch(h);
       case 'xnxx':
         return RegExp(r'/video-[a-z0-9]+/').hasMatch(h);
-      case 'our55':
-      case 'xqq88':
-        return h.contains('/vod/') ||
-            h.contains('/play/') ||
-            h.contains('/detail/') ||
-            RegExp(r'/index\.php/vod/').hasMatch(h) ||
-            RegExp(r'/video/[a-f0-9]{16,}').hasMatch(h) ||
-            RegExp(r'/(chinese|mosaic|nocode|western)/[a-z0-9]').hasMatch(h) ||
-            RegExp(r'/video[s]?/\d').hasMatch(h) ||
-            RegExp(r'/\d{3,}\.html').hasMatch(h);
       case 'stripchat':
       case 'chaturbate':
         // room username path
         final parts = h.split('/').where((e) => e.isNotEmpty).toList();
         if (parts.length == 1 &&
-            RegExp(r'^[a-zA-Z0-9_]{3,40}$').hasMatch(parts.first)) {
+            RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(parts.first)) {
           return true;
         }
         if (h.contains('/in/?') || h.contains('join')) return false;

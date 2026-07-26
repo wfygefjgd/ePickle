@@ -117,8 +117,6 @@ class PlaybackHelpers {
       'eporner',
       'redtube',
       '7mmtv',
-      'our55',
-      'xqq88',
       'javmix',
       'javgg',
       'bestjavporn',
