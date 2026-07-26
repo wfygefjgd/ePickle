@@ -89,6 +89,59 @@ void main() {
 
     expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
   });
+
+  test('decodes escaped HLS URLs and ignores image src fields', () async {
+    const pageUrl = 'https://fixture.test/watch/escaped';
+    const mediaUrl =
+        'https://cdn.fixture.test/live/master.m3u8?token=a&expires=2';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html(r'''
+          <script>
+            window.config = {
+              "src":"https://fixture.test/poster.jpg?cache=1",
+              "hlsUrl":"https:\/\/cdn.fixture.test\/live\/master.m3u8?token=a\u0026expires=2"
+            };
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
+    expect(
+      detail.streams.map((stream) => stream.url),
+      everyElement(isNot(contains('poster.jpg'))),
+    );
+  });
+
+  test('reads reversed og:video attributes and lazy source attributes',
+      () async {
+    const pageUrl = 'https://fixture.test/watch/meta/index.html';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <meta content="../../media/master.m3u8?x=1&amp;y=2"
+                property="og:video">
+          <video><source data-src="../../media/fallback.mp4"></video>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(
+      detail.streams.map((stream) => stream.url),
+      contains('https://fixture.test/media/master.m3u8?x=1&y=2'),
+    );
+    expect(
+      detail.streams.map((stream) => stream.url),
+      contains('https://fixture.test/media/fallback.mp4'),
+    );
+  });
 }
 
 String _html(String body) => '<!doctype html><html><head>$body</head><body>'

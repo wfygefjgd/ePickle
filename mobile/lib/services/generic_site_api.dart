@@ -11,6 +11,11 @@ import 'source_catalog.dart';
 
 /// Generic HTML scraper with mirror failover for tube / JAV-style sites.
 class GenericSiteApi {
+  static const _requestTimeout = Duration(seconds: 7);
+  static const _feedResolveTimeout = Duration(seconds: 16);
+  static const _searchResolveTimeout = Duration(seconds: 14);
+  static const _detailResolveTimeout = Duration(seconds: 20);
+
   GenericSiteApi({Dio? dio})
       : _dio = dio ??
             AppHttpClient.create(
@@ -32,22 +37,37 @@ class GenericSiteApi {
   /// Minimal per-origin cookie store for age gates and session redirects.
   final Map<String, Map<String, String>> _cookies = {};
 
-  Future<String> _getHtml(String url, {Map<String, String>? headers}) async {
+  Duration _requestBudget(DateTime? deadline) {
+    if (deadline == null) return _requestTimeout;
+    final remaining = deadline.difference(DateTime.now());
+    if (remaining.inMilliseconds <= 0) {
+      throw TimeoutException('站点解析超时');
+    }
+    return remaining < _requestTimeout ? remaining : _requestTimeout;
+  }
+
+  Future<String> _getHtml(
+    String url, {
+    Map<String, String>? headers,
+    Duration timeout = _requestTimeout,
+  }) async {
     final origin = _originOf(url);
     final cookieHeader = origin == null ? null : _cookieHeader(origin);
-    final res = await _dio.get<String>(
-      url,
-      options: Options(
-        responseType: ResponseType.plain,
-        headers: {
-          ...AppHttpHeaders.forSite(origin ?? url),
-          if (cookieHeader != null) 'Cookie': cookieHeader,
-          if (headers != null) ...headers,
-        },
-        followRedirects: true,
-        validateStatus: (s) => s != null && s < 500,
-      ),
-    );
+    final res = await _dio
+        .get<String>(
+          url,
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {
+              ...AppHttpHeaders.forSite(origin ?? url),
+              if (cookieHeader != null) 'Cookie': cookieHeader,
+              if (headers != null) ...headers,
+            },
+            followRedirects: true,
+            validateStatus: (s) => s != null && s < 500,
+          ),
+        )
+        .timeout(timeout);
     _storeCookies(origin, res.headers);
     final status = res.statusCode ?? 0;
     if (res.statusCode == 403) {
@@ -133,11 +153,13 @@ class GenericSiteApi {
     SiteDef site,
     String Function(String base) pathBuilder, {
     Map<String, String>? extraHeaders,
+    DateTime? deadline,
   }) async {
     final page = await _fetchPageWithMirrors(
       site,
       pathBuilder,
       extraHeaders: extraHeaders,
+      deadline: deadline,
     );
     return page.html;
   }
@@ -147,6 +169,7 @@ class GenericSiteApi {
     String Function(String base) pathBuilder, {
     Map<String, String>? extraHeaders,
     bool Function(String html, String base)? accept,
+    DateTime? deadline,
   }) async {
     final mirrors = _mirrorsFor(site);
     final start = (_mirrorIndex[site.id] ?? 0).clamp(0, mirrors.length - 1);
@@ -162,7 +185,11 @@ class GenericSiteApi {
           'Origin': base,
           if (extraHeaders != null) ...extraHeaders,
         };
-        final html = await _getHtml(url, headers: headers);
+        final html = await _getHtml(
+          url,
+          headers: headers,
+          timeout: _requestBudget(deadline),
+        );
         if (_isBlockedHtml(html)) {
           lastErr = PhubException('页面被拦截或无效');
           continue;
@@ -188,6 +215,7 @@ class GenericSiteApi {
     int limit = 40,
     Set<String>? exclude,
   }) async {
+    final deadline = DateTime.now().add(_feedResolveTimeout);
     final seen = <String>{...?exclude};
     final results = <VideoItem>[];
     final safePage = page < 1 ? 1 : page;
@@ -200,6 +228,7 @@ class GenericSiteApi {
         page: safePage,
         limit: limit,
         seen: seen,
+        deadline: deadline,
       );
       results.addAll(api);
     } catch (_) {}
@@ -212,6 +241,7 @@ class GenericSiteApi {
           final fetched = await _fetchPageWithMirrors(
             site,
             pathFn,
+            deadline: deadline,
             accept: (html, base) => _parseFeedResponse(
                     html,
                     base,
@@ -231,6 +261,9 @@ class GenericSiteApi {
     }
 
     if (results.isEmpty) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw PhubException('${site.name} 列表解析超时，请重试或切换网络');
+      }
       throw PhubException('无法从 ${site.name} 获取列表。\n请确认网络/代理，或该站结构有变。');
     }
     if (results.length > limit) return results.sublist(0, limit);
@@ -262,6 +295,7 @@ class GenericSiteApi {
     required int page,
     required int limit,
     required Set<String> seen,
+    required DateTime deadline,
   }) async {
     switch (site.id) {
       case 'eporner':
@@ -271,11 +305,24 @@ class GenericSiteApi {
           page: page,
           limit: limit,
           seen: seen,
+          deadline: deadline,
         );
       case 'chaturbate':
-        return _fetchChaturbateApi(site, page: page, limit: limit, seen: seen);
+        return _fetchChaturbateApi(
+          site,
+          page: page,
+          limit: limit,
+          seen: seen,
+          deadline: deadline,
+        );
       case 'stripchat':
-        return _fetchStripchatApi(site, page: page, limit: limit, seen: seen);
+        return _fetchStripchatApi(
+          site,
+          page: page,
+          limit: limit,
+          seen: seen,
+          deadline: deadline,
+        );
       case 'xqq88':
         return const [];
       default:
@@ -289,6 +336,7 @@ class GenericSiteApi {
     required int page,
     required int limit,
     required Set<String> seen,
+    required DateTime deadline,
   }) async {
     final q = switch (tagId) {
       'asian' => 'asian',
@@ -310,6 +358,7 @@ class GenericSiteApi {
             ...AppHttpHeaders.forSite(b),
             'Accept': 'application/json,text/plain,*/*',
           },
+          timeout: _requestBudget(deadline),
         );
         final videos = RegExp(
           r'"url"\s*:\s*"(https?:[^"]+eporner[^"]+)"',
@@ -356,6 +405,7 @@ class GenericSiteApi {
     required int page,
     required int limit,
     required Set<String> seen,
+    required DateTime deadline,
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
@@ -368,7 +418,11 @@ class GenericSiteApi {
     ];
     for (final pathFn in endpoints) {
       try {
-        final html = await _fetchWithMirrors(site, pathFn);
+        final html = await _fetchWithMirrors(
+          site,
+          pathFn,
+          deadline: deadline,
+        );
         final base = _mirrorsFor(
           site,
         )[_mirrorIndex[site.id] ?? 0]
@@ -385,6 +439,7 @@ class GenericSiteApi {
     required int page,
     required int limit,
     required Set<String> seen,
+    required DateTime deadline,
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
@@ -397,7 +452,11 @@ class GenericSiteApi {
     ];
     for (final pathFn in endpoints) {
       try {
-        final html = await _fetchWithMirrors(site, pathFn);
+        final html = await _fetchWithMirrors(
+          site,
+          pathFn,
+          deadline: deadline,
+        );
         final base = _mirrorsFor(
           site,
         )[_mirrorIndex[site.id] ?? 0]
@@ -520,6 +579,7 @@ class GenericSiteApi {
   }) async {
     final q = query.trim();
     if (q.isEmpty) return [];
+    final deadline = DateTime.now().add(_searchResolveTimeout);
     final enc = Uri.encodeQueryComponent(q);
     final paths = _searchPaths(site, enc, page);
     final seen = <String>{};
@@ -528,6 +588,7 @@ class GenericSiteApi {
         final fetched = await _fetchPageWithMirrors(
           site,
           pathFn,
+          deadline: deadline,
           accept: (html, base) =>
               _parseSearchResponse(html, base, <String>{}, site).isNotEmpty,
         );
@@ -539,6 +600,7 @@ class GenericSiteApi {
         );
         if (list.isNotEmpty) return list;
       } catch (_) {
+        if (DateTime.now().isAfter(deadline)) break;
         continue;
       }
     }
@@ -582,21 +644,27 @@ class GenericSiteApi {
     }
 
     Object? lastError;
+    final deadline = DateTime.now().add(_detailResolveTimeout);
     for (final candidate in candidates) {
       try {
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining.inMilliseconds <= 0) break;
         final html = await _getHtml(
           candidate.url,
           headers: AppHttpHeaders.forSite(candidate.base),
+          timeout: remaining < _requestTimeout ? remaining : _requestTimeout,
         );
         if (_isBlockedHtml(html)) {
           throw PhubException('页面被拦截或无效');
         }
+        final parseBudget = deadline.difference(DateTime.now());
+        if (parseBudget.inMilliseconds <= 0) break;
         final detail = await _parseVideoDetail(
           site,
           candidate.url,
           html,
           candidate.base,
-        );
+        ).timeout(parseBudget);
         if (candidate.mirrorIndex != null) {
           _mirrorIndex[site.id] = candidate.mirrorIndex!;
         }
@@ -604,6 +672,9 @@ class GenericSiteApi {
       } catch (e) {
         lastError = e;
       }
+    }
+    if (DateTime.now().isAfter(deadline)) {
+      throw PhubException('${site.name} 播放地址解析超时');
     }
     throw lastError ?? PhubException('无法解析播放地址：${site.name}');
   }
@@ -856,7 +927,7 @@ class GenericSiteApi {
   }) async {
     if (depth <= 0) return const [];
     final re = RegExp(
-      r'''<iframe[^>]+(?:src|data-src)=["']([^"']+)["']''',
+      r'''<iframe[^>]+(?:src|data-src|data-lazy-src|data-embed)=["']([^"']+)["']''',
       caseSensitive: false,
     );
     for (final emb in re.allMatches(html)) {
@@ -1683,6 +1754,10 @@ class GenericSiteApi {
       var url = u
           .replaceAll(r'\/', '/')
           .replaceAll(r'\u002F', '/')
+          .replaceAll(r'\u002f', '/')
+          .replaceAll(r'\u003A', ':')
+          .replaceAll(r'\u003a', ':')
+          .replaceAll(r'\u0026', '&')
           .replaceAll('&amp;', '&')
           .trim();
       if (url.startsWith('//')) url = 'https:$url';
@@ -1692,9 +1767,7 @@ class GenericSiteApi {
       if (low.contains('.js') ||
           low.contains('.css') ||
           low.contains('favicon') ||
-          low.endsWith('.jpg') ||
-          low.endsWith('.png') ||
-          low.endsWith('.webp') ||
+          RegExp(r'\.(?:jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)').hasMatch(low) ||
           low.contains('trailer') ||
           low.contains('/preview') ||
           low.contains('mediabook') ||
@@ -1753,19 +1826,13 @@ class GenericSiteApi {
     }
 
     // og:video
-    final ogv = RegExp(
-      r'<meta[^>]+property=["'
-      ']og:video(?::url)?["'
-      '][^>]+content=["'
-      ']([^"'
-      ']+)["'
-      ']',
-      caseSensitive: false,
-    ).firstMatch(html);
-    if (ogv != null) add(ogv.group(1), h: 720);
+    add(
+      _metaContent(html, {'og:video', 'og:video:url', 'twitter:player:stream'}),
+      h: 720,
+    );
 
     for (final m in RegExp(
-      r'''<source[^>]+src=["']([^"']+)["']''',
+      r'''<source[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']''',
       caseSensitive: false,
     ).allMatches(html)) {
       add(m.group(1), h: 480);
@@ -1791,7 +1858,7 @@ class GenericSiteApi {
       add(m.group(1), h: 720);
     }
     for (final m in RegExp(
-      r'''["'](?:file|source|src|videoUrl|video_url|stream|hls|hlsUrl|m3u8)["']\s*:\s*["'](https?[^"']+)["']''',
+      r'''["'](?:file|videoUrl|video_url|stream|streamUrl|playUrl|hls|hlsUrl|hls_url|m3u8)["']\s*:\s*["']([^"']+)["']''',
       caseSensitive: false,
     ).allMatches(html)) {
       add(m.group(1), h: 720);
@@ -1836,7 +1903,16 @@ class GenericSiteApi {
     final decoded = html
         .replaceAll(r'\/', '/')
         .replaceAll(r'\u002F', '/')
-        .replaceAll(r'\x2F', '/');
+        .replaceAll(r'\u002f', '/')
+        .replaceAll(r'\u003A', ':')
+        .replaceAll(r'\u003a', ':')
+        .replaceAll(r'\u0026', '&')
+        .replaceAll(r'\x2F', '/')
+        .replaceAll(r'\x2f', '/')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#34;', '"')
+        .replaceAll('&#x22;', '"')
+        .replaceAll('&amp;', '&');
     return _extractStreams(decoded, base);
   }
 

@@ -784,7 +784,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -863,7 +863,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries2 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -942,7 +942,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries3 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1021,7 +1021,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries4 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1203,14 +1203,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _preloadStream4 = null;
           _preloadRetries4 = 0;
         } else {
-          await _prefetchDetail(index + 1);
           // ignore: unawaited_futures
           _preloadNext(index + 1);
         }
         final n = _preloadSlotCount;
-        for (var k = 2; k <= n + 1; k++) {
-          await _prefetchDetail(index + k - 1);
-        }
         if (n >= 2) {
           // ignore: unawaited_futures
           _preloadNext2(index + 2);
@@ -1224,10 +1220,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           _preloadNext4(index + 4);
         }
       } else {
-        await _prefetchDetail(index + 1);
         // ignore: unawaited_futures
         _preloadNext(index + 1);
-        await _prefetchDetail(index + 2);
+        unawaited(_prefetchDetail(index + 2));
       }
 
       // Clean up old detail cache to prevent memory growth
@@ -1284,32 +1279,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final settings = context.read<AppSettings>();
 
-    if (_multiPreload) {
-      final n = _preloadSlotCount;
-      for (var k = 1; k <= n; k++) {
-        await _prefetchDetail(index + k);
-      }
-      // ignore: unawaited_futures
-      _preloadNext(index + 1);
-      if (n >= 2) {
-        // ignore: unawaited_futures
-        _preloadNext2(index + 2);
-      }
-      if (n >= 3) {
-        // ignore: unawaited_futures
-        _preloadNext3(index + 3);
-      }
-      if (n >= 4) {
-        // ignore: unawaited_futures
-        _preloadNext4(index + 4);
-      }
-    } else {
-      await _prefetchDetail(index + 1);
-      await _prefetchDetail(index + 2);
-      // ignore: unawaited_futures
-      _preloadNext(index + 1);
-    }
-
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
@@ -1322,6 +1291,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
+    final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
     for (final c in candidates) {
       if (!mounted || seq != _loadSeq || !_active) {
         await player?.dispose();
@@ -1336,7 +1306,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
       );
       try {
-        await next.initialize();
+        final remaining = playerDeadline.difference(DateTime.now());
+        if (remaining.inMilliseconds <= 0) {
+          await next.dispose();
+          break;
+        }
+        await next.initialize().timeout(
+              remaining < const Duration(seconds: 12)
+                  ? remaining
+                  : const Duration(seconds: 12),
+            );
         player = next;
         stream = c;
         break;
@@ -1400,6 +1379,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     });
     _translateTitleOnly(detail.title);
     await ready.play();
+    if (_multiPreload) {
+      final n = _preloadSlotCount;
+      unawaited(_preloadNext(index + 1));
+      if (n >= 2) unawaited(_preloadNext2(index + 2));
+      if (n >= 3) unawaited(_preloadNext3(index + 3));
+      if (n >= 4) unawaited(_preloadNext4(index + 4));
+    } else {
+      unawaited(_preloadNext(index + 1));
+      unawaited(_prefetchDetail(index + 2));
+    }
     _recordWatch(item);
     _startProgressTimer();
     WakelockPlus.enable();

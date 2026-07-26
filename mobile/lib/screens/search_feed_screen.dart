@@ -168,9 +168,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _muted = context.read<AppSettings>().muted;
     _items = List<VideoItem>.from(widget.items);
     // Empty list: clamp(0, -1) throws; keep index 0 safely.
-    _index = _items.isEmpty
-        ? 0
-        : widget.initialIndex.clamp(0, _items.length - 1);
+    _index =
+        _items.isEmpty ? 0 : widget.initialIndex.clamp(0, _items.length - 1);
     _pageCtrl = PageController(initialPage: _index);
     _titleText = _items.isEmpty ? '' : _items[_index].title;
     _autoRotate = AutoRotateController(onAction: _onAutoRotate);
@@ -568,14 +567,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           _preloadStream4 = null;
           _preloadRetries4 = 0;
         } else {
-          await _prefetchDetail(index + 1);
           // ignore: unawaited_futures
           _preloadNext(index + 1);
         }
         final n = _preloadSlotCount;
-        for (var k = 2; k <= n + 1; k++) {
-          await _prefetchDetail(index + k - 1);
-        }
         if (n >= 2) {
           // ignore: unawaited_futures
           _preloadNext2(index + 2);
@@ -589,10 +584,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           _preloadNext4(index + 4);
         }
       } else {
-        await _prefetchDetail(index + 1);
         // ignore: unawaited_futures
         _preloadNext(index + 1);
-        await _prefetchDetail(index + 2);
+        unawaited(_prefetchDetail(index + 2));
       }
 
       _cleanupDetailCache(index);
@@ -651,32 +645,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       return;
     }
 
-    if (_multiPreload) {
-      final n = _preloadSlotCount;
-      for (var k = 1; k <= n; k++) {
-        await _prefetchDetail(index + k);
-      }
-      // ignore: unawaited_futures
-      _preloadNext(index + 1);
-      if (n >= 2) {
-        // ignore: unawaited_futures
-        _preloadNext2(index + 2);
-      }
-      if (n >= 3) {
-        // ignore: unawaited_futures
-        _preloadNext3(index + 3);
-      }
-      if (n >= 4) {
-        // ignore: unawaited_futures
-        _preloadNext4(index + 4);
-      }
-    } else {
-      await _prefetchDetail(index + 1);
-      await _prefetchDetail(index + 2);
-      // ignore: unawaited_futures
-      _preloadNext(index + 1);
-    }
-
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
@@ -688,6 +656,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     VideoPlayerController? player;
     StreamQuality? stream;
+    final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
     for (final c in candidates) {
       if (!mounted || seq != _seq) {
         await player?.dispose();
@@ -702,7 +671,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
       );
       try {
-        await next.initialize();
+        final remaining = playerDeadline.difference(DateTime.now());
+        if (remaining.inMilliseconds <= 0) {
+          await next.dispose();
+          break;
+        }
+        await next.initialize().timeout(
+              remaining < const Duration(seconds: 12)
+                  ? remaining
+                  : const Duration(seconds: 12),
+            );
         player = next;
         stream = c;
         break;
@@ -718,8 +696,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         final net = context.read<AppSettings>();
         final tip = net.proxyEnabled && net.hasProxyEndpoint
             ? (net.proxyType == 'socks5'
-                  ? '列表可能已通，播放常不跟 SOCKS。可开 TUN 或改用 HTTP 代理'
-                  : '列表可能已通，播放仍失败。可开 TUN 或检查代理是否支持视频')
+                ? '列表可能已通，播放常不跟 SOCKS。可开 TUN 或改用 HTTP 代理'
+                : '列表可能已通，播放仍失败。可开 TUN 或检查代理是否支持视频')
             : '播放失败。有列表播不动：开 TUN 或设置 HTTP 代理';
         PlaybackHelpers.toast(
           context,
@@ -768,6 +746,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     // ignore: unawaited_futures
     _translateTitleOnly(detail.title);
     await player.play();
+    if (_multiPreload) {
+      final n = _preloadSlotCount;
+      unawaited(_preloadNext(index + 1));
+      if (n >= 2) unawaited(_preloadNext2(index + 2));
+      if (n >= 3) unawaited(_preloadNext3(index + 3));
+      if (n >= 4) unawaited(_preloadNext4(index + 4));
+    } else {
+      unawaited(_preloadNext(index + 1));
+      unawaited(_prefetchDetail(index + 2));
+    }
     _startTimer();
     WakelockPlus.enable();
     if (mounted) setState(() {});
@@ -884,7 +872,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -958,7 +946,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries2 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1032,7 +1020,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries3 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1106,7 +1094,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
     );
     try {
-      await player.initialize();
+      await player.initialize().timeout(const Duration(seconds: 12));
       _preloadRetries4 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1327,8 +1315,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (chrome == null ||
         !chrome.immersive ||
         _dragStartX == null ||
-        _dragStartPosition == null)
-      return;
+        _dragStartPosition == null) return;
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -1384,9 +1371,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
 
     final durMs = ctrl.value.duration.inMilliseconds;
-    final ratio = durMs > 0
-        ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0)
-        : 0.0;
+    final ratio =
+        durMs > 0 ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0) : 0.0;
     // ignore: unawaited_futures
     _onSeekCommit(ratio);
   }
@@ -1476,9 +1462,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           color: Colors.black,
                           child: Center(
                             child: AspectRatio(
-                              aspectRatio: (ar.isFinite && ar > 0.05)
-                                  ? ar
-                                  : (16 / 9),
+                              aspectRatio:
+                                  (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
                               child: VideoPlayer(c),
                             ),
                           ),
@@ -1529,9 +1514,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           color: Colors.black,
                           child: Center(
                             child: AspectRatio(
-                              aspectRatio: (ar.isFinite && ar > 0.05)
-                                  ? ar
-                                  : (16 / 9),
+                              aspectRatio:
+                                  (ar.isFinite && ar > 0.05) ? ar : (16 / 9),
                               child: VideoPlayer(_controller!),
                             ),
                           ),
@@ -1769,22 +1753,20 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   Future<void> _maybeAutoLowerQuality() async {
     if (!mounted || _stallLowering || _stallLoweredForItem) return;
-    final enabled =
-        _settings?.autoLowerOnStall ??
+    final enabled = _settings?.autoLowerOnStall ??
         context.read<AppSettings>().autoLowerOnStall;
     if (!enabled) return;
     final detail = _detailCache[_index];
     if (detail == null || detail.streams.length < 2) return;
-    final heights = detail.streams
-        .map((s) => s.height)
-        .where((h) => h > 0)
-        .toSet();
+    final heights =
+        detail.streams.map((s) => s.height).where((h) => h > 0).toSet();
     if (heights.length < 2) return;
     final curH = _currentStreamHeight;
     if (curH <= 0) return;
-    final lower =
-        detail.streams.where((s) => s.height > 0 && s.height < curH).toList()
-          ..sort((a, b) => b.height.compareTo(a.height));
+    final lower = detail.streams
+        .where((s) => s.height > 0 && s.height < curH)
+        .toList()
+      ..sort((a, b) => b.height.compareTo(a.height));
     if (lower.isEmpty) return;
     final target = lower.first;
     _stallLowering = true;
@@ -1868,9 +1850,8 @@ class _MinimalButtonState extends State<_MinimalButton> {
 
   @override
   Widget build(BuildContext context) {
-    final displayOffset = _isDragging
-        ? _currentDragOffset
-        : (_savedOffset ?? Offset.zero);
+    final displayOffset =
+        _isDragging ? _currentDragOffset : (_savedOffset ?? Offset.zero);
 
     return Transform.translate(
       offset: displayOffset,
