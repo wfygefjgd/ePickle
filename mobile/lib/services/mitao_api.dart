@@ -48,11 +48,17 @@ class MitaoApi {
 
   Future<String> _getHtml(String url) async {
     final res = await _dio.get<String>(url);
-    if (res.statusCode == 403) {
+    final status = res.statusCode ?? 0;
+    if (status == 401 || status == 403) {
       throw PhubException('访问被拒绝 (403)，请检查网络环境');
     }
-    if (res.statusCode == 404) {
+    if (status == 404) {
       throw PhubException('页面不存在 (404)');
+    }
+    if (status == 408) throw PhubException('源站请求超时 (408)');
+    if (status == 429) throw PhubException('请求过于频繁 (429)，请稍后重试');
+    if (status < 200 || status >= 400) {
+      throw PhubException('源站返回异常状态 ($status)');
     }
     if (res.data == null || res.data!.isEmpty) {
       throw PhubException('空响应');
@@ -78,7 +84,8 @@ class MitaoApi {
     try {
       final html = await _getHtml(url);
       return _parseList(html, <String>{});
-    } catch (_) {
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
       // alternate pattern
       final alt = '$base/index.php/vod/search.html?wd=$q&page=$page';
       final html = await _getHtml(alt);
@@ -113,7 +120,8 @@ class MitaoApi {
         try {
           final html = await _getHtml(url);
           results.addAll(_parseList(html, seen));
-        } catch (_) {
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
           failCount++;
           if (p > 1) {
             try {
@@ -121,7 +129,8 @@ class MitaoApi {
                   '$base/index.php/vod/type/id/$zhongTypeId.html?page=$p';
               final html = await _getHtml(alt);
               results.addAll(_parseList(html, seen));
-            } catch (_) {
+            } catch (e) {
+              if (e is DioException && CancelToken.isCancel(e)) rethrow;
               failCount++;
             }
           }
@@ -361,7 +370,8 @@ class MitaoApi {
     String html;
     try {
       html = await _getHtml(pageUrl);
-    } catch (_) {
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
       html = await _getHtml(url);
       pageUrl = url;
     }
@@ -497,7 +507,7 @@ class MitaoApi {
       RegExp(r'vod_duration["\s:]+["' "'" r']?(\d+)'),
       RegExp(r'时长[：:\s]*(\d{1,2}):(\d{2}):(\d{2})'),
       RegExp(r'(?:播放时长|片长)[：:\s]*(\d{1,2}:\d{2}(?::\d{2})?)'),
-      RegExp(r'data-duration=["' '](\d+)["' ']'),
+      RegExp(r'''data-duration=["'](\d+)["']'''),
       RegExp(r'"duration"\s*:\s*(\d+)'),
     ];
     for (final re in patterns) {
@@ -559,7 +569,9 @@ class MitaoApi {
           return _absUrl(playUrl, best);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
+    }
     return playUrl;
   }
 
@@ -610,7 +622,9 @@ class MitaoApi {
         if (total >= 1) return total.round();
         break;
       }
-    } catch (_) {}
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
+    }
     return 0;
   }
 

@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phub_player/utils/http_headers.dart';
+import 'package:phub_player/utils/playback_helpers.dart';
 
 void main() {
   test('page headers look like iOS Safari navigation', () {
@@ -19,5 +21,10 @@ void main() {
 
     expect(headers['Referer'], 'https://fixture.test/watch/42?token=abc');
     expect(headers['Origin'], 'https://fixture.test');
+  });
+
+  test('iOS uses one preload decoder and Android uses at most two', () {
+    expect(PlaybackHelpers.preloadSlotCount(TargetPlatform.iOS), 1);
+    expect(PlaybackHelpers.preloadSlotCount(TargetPlatform.android), 2);
   });
 }

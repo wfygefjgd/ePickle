@@ -14,6 +14,7 @@ class SystemProxyInfo {
 
   final String host;
   final int port;
+
   /// http | socks5
   final String type;
   final String source;
@@ -33,8 +34,7 @@ class SystemProxy {
         if (raw is Map) {
           final host = raw['host']?.toString();
           final port = int.tryParse('${raw['port']}');
-          final type =
-              raw['type']?.toString() == 'socks5' ? 'socks5' : 'http';
+          final type = raw['type']?.toString() == 'socks5' ? 'socks5' : 'http';
           final source = raw['source']?.toString() ?? 'android';
           if (host != null &&
               host.isNotEmpty &&

@@ -47,6 +47,7 @@ class GenericSiteApi {
   /// Per-site last working mirror index (in-memory).
   final Map<String, int> _mirrorIndex = {};
   final Map<String, Map<String, MirrorHealth>> _mirrorHealth = {};
+  final Map<String, String> _liveStreamNames = {};
 
   List<MirrorHealth> mirrorHealthFor(String siteId) => List.unmodifiable(
         _mirrorHealth[siteId]?.values ?? const <MirrorHealth>[],
@@ -283,19 +284,16 @@ class GenericSiteApi {
     }
 
     final failures = <Object>[];
-    if (preferred != null && preferred >= 0 && preferred < mirrors.length) {
-      final result = await probe(preferred);
-      if (result.page != null) return result.page!;
-      failures.add(result.error!);
-    }
-
     final indices = <int>[
+      if (preferred != null && preferred >= 0 && preferred < mirrors.length)
+        preferred,
       for (var i = 0; i < mirrors.length; i++)
         if (i != preferred) i,
     ];
     if (indices.isNotEmpty) {
-      // Mirrors are independent hosts. Probe them together so a dead first
-      // domain cannot consume the entire feed deadline.
+      // Mirrors are independent hosts. Probe all of them together, including
+      // the last-known-good one, so a stale preferred mirror cannot consume
+      // most of the shared deadline before alternatives even start.
       final completer = Completer<_MirrorProbe>();
       final tokens = <int, CancelToken>{
         for (final index in indices) index: CancelToken(),
@@ -338,13 +336,15 @@ class GenericSiteApi {
   Object? _bestMirrorError(List<Object> errors) {
     if (errors.isEmpty) return null;
     const priority = <MirrorFailureKind, int>{
+      // Cancellation is a control-flow signal, not a mirror failure. Keep it
+      // ahead of earlier HTTP failures so callers stop their fallback loops.
+      MirrorFailureKind.cancelled: -1,
       MirrorFailureKind.forbidden: 0,
       MirrorFailureKind.blocked: 1,
       MirrorFailureKind.structureChanged: 2,
       MirrorFailureKind.dns: 3,
       MirrorFailureKind.timeout: 4,
       MirrorFailureKind.network: 5,
-      MirrorFailureKind.cancelled: 6,
     };
     errors.sort((a, b) => (priority[_failureKind(a)] ?? 99)
         .compareTo(priority[_failureKind(b)] ?? 99));
@@ -377,6 +377,7 @@ class GenericSiteApi {
       );
       results.addAll(api);
     } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
       lastError = e;
     }
 
@@ -402,6 +403,7 @@ class GenericSiteApi {
             _parseFeedResponse(fetched.html, fetched.base, seen, site),
           );
         } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
           lastError = e;
           continue;
         }
@@ -459,6 +461,7 @@ class GenericSiteApi {
       case 'chaturbate':
         return _fetchChaturbateApi(
           site,
+          tagId: tagId,
           page: page,
           limit: limit,
           seen: seen,
@@ -467,6 +470,7 @@ class GenericSiteApi {
       case 'stripchat':
         return _fetchStripchatApi(
           site,
+          tagId: tagId,
           page: page,
           limit: limit,
           seen: seen,
@@ -542,7 +546,8 @@ class GenericSiteApi {
           _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(base).clamp(0, 99);
           return out;
         }
-      } catch (_) {
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
         continue;
       }
     }
@@ -551,6 +556,7 @@ class GenericSiteApi {
 
   Future<List<VideoItem>> _fetchChaturbateApi(
     SiteDef site, {
+    required String tagId,
     required int page,
     required int limit,
     required Set<String> seen,
@@ -558,12 +564,17 @@ class GenericSiteApi {
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
+    final gender = switch (tagId) {
+      'male' => 'm',
+      'couples' => 'c',
+      'trans' => 't',
+      _ => 'f',
+    };
     final endpoints = <String Function(String)>[
       (b) =>
-          '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset',
+          '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset&genders=$gender',
       (b) =>
-          '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset',
-      (b) => '$b/api/get_slate/?room=&limit=$limit',
+          '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset&gender=$gender',
     ];
     for (final pathFn in endpoints) {
       try {
@@ -578,13 +589,16 @@ class GenericSiteApi {
             .replaceAll(RegExp(r'/$'), '');
         out.addAll(_parseLiveJson(html, base, seen, site));
         if (out.isNotEmpty) return out;
-      } catch (_) {}
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      }
     }
     return out;
   }
 
   Future<List<VideoItem>> _fetchStripchatApi(
     SiteDef site, {
+    required String tagId,
     required int page,
     required int limit,
     required Set<String> seen,
@@ -592,12 +606,18 @@ class GenericSiteApi {
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
+    final primaryTag = switch (tagId) {
+      'men' => 'men',
+      'couples' => 'couples',
+      'trans' => 'trans',
+      _ => 'girls',
+    };
     final endpoints = <String Function(String)>[
       (b) =>
-          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=girls&sortBy=stripRanking',
-      (b) => '$b/api/models?limit=$limit&offset=$offset&primaryTag=girls',
+          '$b/api/front/models?limit=${limit.clamp(20, 80)}&offset=$offset&primaryTag=$primaryTag&sortBy=stripRanking',
+      (b) => '$b/api/models?limit=$limit&offset=$offset&primaryTag=$primaryTag',
       (b) =>
-          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=girls',
+          '$b/api/front/v2/models?limit=$limit&offset=$offset&primaryTag=$primaryTag',
     ];
     for (final pathFn in endpoints) {
       try {
@@ -612,7 +632,9 @@ class GenericSiteApi {
             .replaceAll(RegExp(r'/$'), '');
         out.addAll(_parseLiveJson(html, base, seen, site));
         if (out.isNotEmpty) return out;
-      } catch (_) {}
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      }
     }
     return out;
   }
@@ -748,7 +770,8 @@ class GenericSiteApi {
           site,
         );
         if (list.isNotEmpty) return list;
-      } catch (_) {
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
         if (DateTime.now().isAfter(deadline)) break;
         continue;
       }
@@ -770,6 +793,11 @@ class GenericSiteApi {
   }
 
   Future<VideoDetail> getVideoDetail(SiteDef site, String url) async {
+    final deadline = DateTime.now().add(_detailResolveTimeout);
+    if (site.kind == SiteKind.live) {
+      final fast = await _getLiveDetailFast(site, url, deadline);
+      if (fast != null) return fast;
+    }
     final parsed = Uri.tryParse(url);
     final suffix = parsed == null
         ? url
@@ -793,7 +821,6 @@ class GenericSiteApi {
     }
 
     Object? lastError;
-    final deadline = DateTime.now().add(_detailResolveTimeout);
     for (final candidate in candidates) {
       try {
         final remaining = deadline.difference(DateTime.now());
@@ -819,6 +846,7 @@ class GenericSiteApi {
         }
         return detail;
       } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastError = e;
       }
     }
@@ -826,6 +854,107 @@ class GenericSiteApi {
       throw PhubException('${site.name} 播放地址解析超时');
     }
     throw lastError ?? PhubException('无法解析播放地址：${site.name}');
+  }
+
+  Future<VideoDetail?> _getLiveDetailFast(
+    SiteDef site,
+    String pageUrl,
+    DateTime deadline,
+  ) async {
+    final room = _usernameFromUrl(pageUrl);
+    if (room == null || room.isEmpty) return null;
+
+    if (site.id == 'stripchat') {
+      final streamValue = _liveStreamNames['stripchat:${room.toLowerCase()}'];
+      if (streamValue == null || streamValue.isEmpty) return null;
+      final candidates = streamValue.contains('.m3u8')
+          ? <String>[streamValue]
+          : <String>[
+              'https://edge-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8',
+              'https://edge-hls.doppiocdn.org/hls/$streamValue/master/${streamValue}_auto.m3u8',
+              'https://media-hls.doppiocdn.com/hls/$streamValue/master/${streamValue}_auto.m3u8',
+            ];
+      final streams = await _probeHlsCandidates(
+        candidates,
+        pageUrl,
+        deadline,
+      );
+      if (streams.isNotEmpty) {
+        return VideoDetail(
+          url: pageUrl,
+          title: room,
+          durationSec: 0,
+          streams: streams,
+        );
+      }
+    }
+
+    if (site.id == 'chaturbate') {
+      try {
+        final fetched = await _fetchPageWithMirrors(
+          site,
+          (base) => '$base/api/chatvideocontext/$room/',
+          deadline: deadline,
+          extraHeaders: const {
+            'Accept': 'application/json,text/plain,*/*',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          accept: (body, _) => body.toLowerCase().contains('.m3u8'),
+        );
+        final streams = await _extractLiveStreams(
+          site,
+          pageUrl,
+          fetched.html,
+          fetched.base,
+        );
+        if (streams.isNotEmpty) {
+          return VideoDetail(
+            url: pageUrl,
+            title: room,
+            durationSec: 0,
+            streams: streams,
+          );
+        }
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      }
+    }
+    return null;
+  }
+
+  Future<List<StreamQuality>> _probeHlsCandidates(
+    List<String> urls,
+    String pageUrl,
+    DateTime deadline,
+  ) async {
+    final probes = urls.toSet().map((url) async {
+      try {
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining.inMilliseconds <= 0) return null;
+        final body = await _getHtml(
+          url,
+          headers: {
+            ...AppHttpHeaders.forMediaUrl(url, pageUrl: pageUrl),
+            'Referer': pageUrl,
+          },
+          timeout: remaining < const Duration(seconds: 6)
+              ? remaining
+              : const Duration(seconds: 6),
+        );
+        if (!body.trimLeft().startsWith('#EXTM3U')) return null;
+        return StreamQuality(
+          width: 1280,
+          height: 720,
+          url: url,
+          referer: pageUrl,
+        );
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        return null;
+      }
+    });
+    final results = await Future.wait(probes);
+    return results.whereType<StreamQuality>().toList();
   }
 
   Future<VideoDetail> _parseVideoDetail(
@@ -907,7 +1036,7 @@ class GenericSiteApi {
     }
     if (streams.isEmpty) {
       streams = <StreamQuality>[
-        ..._extractEncryptedSiteStreams(html),
+        ..._extractEncryptedSiteStreams(html, url),
         ..._extractKvsStreams(html, url),
       ];
     }
@@ -988,7 +1117,7 @@ class GenericSiteApi {
       r'<meta[^>]*(?:property|name)=["'
       '](?:video:)?duration["'
       '][^>]*content=["'
-      '](\d+)["'
+      '](\\d+)["'
       ']',
       caseSensitive: false,
     ).firstMatch(html);
@@ -1104,7 +1233,8 @@ class GenericSiteApi {
         );
       }
       return _filterPreviewStreams(streams);
-    } catch (_) {
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
       return const [];
     }
   }
@@ -1136,7 +1266,7 @@ class GenericSiteApi {
           },
         );
         var streams = <StreamQuality>[
-          ..._extractEncryptedSiteStreams(embHtml),
+          ..._extractEncryptedSiteStreams(embHtml, embUrl),
           ..._extractKvsStreams(embHtml, embUrl),
         ];
         if (streams.isEmpty) {
@@ -1155,7 +1285,9 @@ class GenericSiteApi {
         }
         streams = _filterPreviewStreams(streams);
         if (streams.isNotEmpty) return streams;
-      } catch (_) {}
+      } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      }
     }
     return const [];
   }
@@ -1201,7 +1333,9 @@ class GenericSiteApi {
               out.add(StreamQuality(width: 1280, height: 720, url: u));
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        }
       }
     }
     return _filterPreviewStreams(out);
@@ -1344,7 +1478,10 @@ class GenericSiteApi {
 
   /// Our55/88XQQ family encrypts `label$hlsUrl` with DES-ECB-PKCS7. The key
   /// is the first eight UTF-8 bytes of the video id, matching CryptoJS DES.
-  List<StreamQuality> _extractEncryptedSiteStreams(String html) {
+  List<StreamQuality> _extractEncryptedSiteStreams(
+    String html,
+    String pageUrl,
+  ) {
     final config = RegExp(
       r'''video\s*:\s*\{[\s\S]{0,500}?id\s*:\s*["']([^"']+)["'][\s\S]{0,500}?data\s*:\s*\[([^\]]+)\]''',
       caseSensitive: false,
@@ -1369,7 +1506,17 @@ class GenericSiteApi {
               orElse: () => '',
             );
         if (url.isEmpty || !seen.add(url)) continue;
-        out.add(StreamQuality(width: 1280, height: 720, url: url));
+        final origin = _originOf(pageUrl);
+        final cookie = origin == null ? null : _cookieHeader(origin);
+        out.add(
+          StreamQuality(
+            width: 1280,
+            height: 720,
+            url: url,
+            referer: pageUrl,
+            headers: {if (cookie != null) 'Cookie': cookie},
+          ),
+        );
       } catch (_) {}
     }
     return out;
@@ -1474,7 +1621,7 @@ class GenericSiteApi {
   String? _originOf(String url) {
     final u = Uri.tryParse(url);
     if (u == null || u.host.isEmpty) return null;
-    return '${u.scheme}://${u.host}';
+    return u.origin;
   }
 
   List<String Function(String base)> _listPaths(
@@ -1633,12 +1780,18 @@ class GenericSiteApi {
       case 'stripchat':
         return [
           (b) =>
-              '$b/api/front/models?limit=60&offset=${(p - 1) * 60}&primaryTag=${tagId == 'asia' ? 'asian' : 'girls'}&sortBy=${tagId == 'new' ? 'new' : 'stripRanking'}',
+              '$b/api/front/models?limit=60&offset=${(p - 1) * 60}&primaryTag=${tagId == 'men' || tagId == 'couples' || tagId == 'trans' ? tagId : 'girls'}&sortBy=stripRanking',
         ];
       case 'chaturbate':
+        final gender = switch (tagId) {
+          'male' => 'm',
+          'couples' => 'c',
+          'trans' => 't',
+          _ => 'f',
+        };
         return [
           (b) =>
-              '$b/api/ts/roomlist/room-list/?limit=90&offset=${(p - 1) * 90}&keywords=${tagId == 'asia' ? 'asian' : ''}',
+              '$b/api/ts/roomlist/room-list/?limit=90&offset=${(p - 1) * 90}&genders=$gender',
         ];
       default:
         return [
@@ -1721,6 +1874,7 @@ class GenericSiteApi {
     SiteDef site,
   ) {
     final out = <VideoItem>[];
+    _rememberLiveStreamNames(raw, site);
     // Chaturbate room list / stripchat models: extract username-like fields
     final nameRe = RegExp(
       r'''"(?:username|user__username|slug|login|room|modelName)"\s*:\s*"([a-zA-Z0-9_]{3,40})"''',
@@ -1747,6 +1901,57 @@ class GenericSiteApi {
       if (out.length >= 80) break;
     }
     return out;
+  }
+
+  void _rememberLiveStreamNames(String raw, SiteDef site) {
+    if (site.id != 'stripchat') return;
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return;
+    }
+
+    void visit(dynamic node) {
+      if (node is List) {
+        for (final child in node) {
+          visit(child);
+        }
+        return;
+      }
+      if (node is! Map) return;
+      final map = Map<String, dynamic>.from(node);
+      String? valueFor(List<String> keys) {
+        for (final key in keys) {
+          final value = map[key];
+          if (value is String && value.trim().isNotEmpty) return value.trim();
+        }
+        return null;
+      }
+
+      final username = valueFor(const [
+        'username',
+        'user__username',
+        'login',
+        'slug',
+        'modelName',
+      ]);
+      final streamName = valueFor(const [
+        'hlsPlaylist',
+        'hlsStreamUrl',
+        'streamName',
+        'stream_name',
+        'hlsStreamName',
+      ]);
+      if (username != null && streamName != null) {
+        _liveStreamNames['stripchat:${username.toLowerCase()}'] = streamName;
+      }
+      for (final value in map.values) {
+        if (value is Map || value is List) visit(value);
+      }
+    }
+
+    visit(decoded);
   }
 
   List<VideoItem> _parseList(
@@ -1861,7 +2066,7 @@ class GenericSiteApi {
         return RegExp(r'/[a-z]{2,12}-?\d{2,5}').hasMatch(h) ||
             RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$').hasMatch(h) &&
                 !h.contains('/dm') &&
-                h.split('/').where((e) => e.isNotEmpty).length >= 1;
+                h.split('/').where((e) => e.isNotEmpty).isNotEmpty;
       case 'javgg':
       case 'javmix':
       case 'bestjavporn':
@@ -2089,7 +2294,7 @@ class GenericSiteApi {
     // m3u8 without quotes nearby (packed)
     for (final m in RegExp(
       r'(https?:\\?/\\?/[^\s"'
-      '<>]+\.m3u8[^\s"'
+      '<>]+\\.m3u8[^\\s"'
       '<>]*)',
       caseSensitive: false,
     ).allMatches(html)) {
@@ -2264,7 +2469,9 @@ class GenericSiteApi {
               streams.add(StreamQuality(width: 1280, height: 720, url: u));
             }
             if (streams.isNotEmpty) break;
-          } catch (_) {}
+          } catch (e) {
+            if (e is DioException && CancelToken.isCancel(e)) rethrow;
+          }
         }
       }
     }
@@ -2351,7 +2558,9 @@ class GenericSiteApi {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
+        }
       }
     }
 

@@ -87,8 +87,6 @@ class AppHttpClient {
         client.autoUncompress = true;
         client.userAgent = AppHttpHeaders.userAgent;
         client.findProxy = _findProxy;
-        // Some mirrors use odd certs / intermediate chains.
-        client.badCertificateCallback = (cert, host, port) => true;
         return client;
       },
     );

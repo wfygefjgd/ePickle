@@ -97,7 +97,7 @@ class AppHttpHeaders {
     try {
       final uri = Uri.parse(url);
       if (uri.hasScheme && uri.host.isNotEmpty) {
-        return '${uri.scheme}://${uri.host}';
+        return uri.origin;
       }
     } catch (_) {}
     return null;

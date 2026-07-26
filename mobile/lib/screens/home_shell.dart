@@ -51,8 +51,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final immersive =
-        context.select<PlayerChrome, bool>((c) => c.immersive);
+    final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
     final onFeed = _index >= 0 && _index < _feedKinds.length;
     final onSearch = _index == _feedKinds.length;
 
@@ -218,7 +217,9 @@ class _HomeShellState extends State<HomeShell> {
                   label: '分享到其他 APP',
                   onTap: () {
                     Navigator.pop(ctx);
-                    Share.share(shareUrl, subject: '分享视频链接');
+                    SharePlus.instance.share(
+                      ShareParams(text: shareUrl, subject: '分享视频链接'),
+                    );
                   },
                 ),
                 const SizedBox(height: 8),
@@ -245,9 +246,10 @@ class _HomeShellState extends State<HomeShell> {
                     Navigator.pop(ctx);
                     final uri = Uri.parse(shareUrl);
                     if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      await launchUrl(uri,
+                          mode: LaunchMode.externalApplication);
                     } else {
-                      if (context.mounted) {
+                      if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('无法打开浏览器'),

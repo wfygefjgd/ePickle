@@ -24,7 +24,6 @@ class DraggableButton extends StatefulWidget {
 
 class _DraggableButtonState extends State<DraggableButton> {
   Offset? _position;
-  bool _isDragging = false;
   Offset? _dragStart;
 
   Offset _getPosition(ButtonPositions positions) {
@@ -72,7 +71,6 @@ class _DraggableButtonState extends State<DraggableButton> {
           child: GestureDetector(
             onPanStart: (details) {
               setState(() {
-                _isDragging = true;
                 _dragStart = position;
               });
             },
@@ -101,7 +99,6 @@ class _DraggableButtonState extends State<DraggableButton> {
               }
 
               setState(() {
-                _isDragging = false;
                 _dragStart = null;
               });
 

@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 /// is still requested when possible for a cleaner native rotate.
 class PlayerChrome extends ChangeNotifier {
   bool _immersive = false;
+
   /// null = portrait; otherwise which way the device is (or was) tilted.
   DeviceOrientation? _landscapeSide;
 
@@ -24,7 +25,8 @@ class PlayerChrome extends ChangeNotifier {
     }
   }
 
-  Future<void> enterFullscreen({DeviceOrientation? preferredOrientation}) async {
+  Future<void> enterFullscreen(
+      {DeviceOrientation? preferredOrientation}) async {
     final side = preferredOrientation ??
         _landscapeSide ??
         DeviceOrientation.landscapeLeft;
@@ -76,7 +78,8 @@ class PlayerChrome extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleFullscreen({DeviceOrientation? preferredOrientation}) async {
+  Future<void> toggleFullscreen(
+      {DeviceOrientation? preferredOrientation}) async {
     if (_immersive) {
       await exitFullscreen();
     } else {
@@ -100,8 +103,7 @@ class PlayerChrome extends ChangeNotifier {
     // System already landscape — avoid double rotation.
     if (size.width > size.height) return child;
 
-    final turns =
-        _landscapeSide == DeviceOrientation.landscapeRight ? 3 : 1;
+    final turns = _landscapeSide == DeviceOrientation.landscapeRight ? 3 : 1;
     final w = size.height;
     final h = size.width;
     // Remap safe insets for the rotated frame (notch / home indicator).

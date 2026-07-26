@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -108,7 +107,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _lastTickMs = 0;
   double _lastPosMs = 0;
   String _lastSpeedLabel = '';
-  int _failStreak = 0;
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
   int _preloadCycle = 0;
@@ -148,7 +146,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// iOS keeps one decoder warm; other platforms keep at most two.
   int get _preloadSlotCount =>
-      defaultTargetPlatform == TargetPlatform.iOS ? 1 : 2;
+      PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
 
   bool get _canRun => mounted && _active && _appInForeground;
 
@@ -1245,13 +1243,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // ignore: unawaited_futures
         previous.dispose().catchError((_) {});
       }
-      if (seq != _loadSeq || !_canRun) {
+      if (seq != _loadSeq || !_canRun || !mounted) {
         try {
           await preloaded.dispose();
         } catch (_) {}
         return;
       }
-      _failStreak = 0;
       _currentDetail = preloadDetail;
       _currentIndex = index;
       _currentStreamHeight = preloadStream?.height ?? 0;
@@ -1274,6 +1271,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         } catch (_) {}
         return;
       }
+      if (!mounted) return;
       _controller = preloaded;
       final dur = PlaybackHelpers.effectiveDuration(
         preloaded,
@@ -1327,7 +1325,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // Tear down previous player completely before creating a new one
     await _disposeController();
 
-    if (seq != _loadSeq || !_canRun) return;
+    if (seq != _loadSeq || !_canRun || !mounted) return;
     setState(() {
       _pageLoading = true;
       _currentIndex = index;
@@ -1356,7 +1354,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _scheduleSkipToNext(index);
       return;
     }
-    if (seq != _loadSeq || !_canRun) return;
+    if (seq != _loadSeq || !_canRun || !mounted) return;
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
@@ -1444,7 +1442,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       return;
     }
 
-    _failStreak = 0;
+    if (!mounted) {
+      await player.dispose();
+      return;
+    }
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
     _stallLoweredForItem = false;
@@ -1853,27 +1854,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
   }
 
-  Future<void> _openInBrowser() async {
-    final itemUrl = _currentIndex >= 0 && _currentIndex < _items.length
-        ? _items[_currentIndex].url
-        : null;
-    final raw = _currentDetail?.url ?? itemUrl ?? widget.site?.primaryHost;
-    final uri = Uri.tryParse(raw ?? '');
-    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      if (mounted) PlaybackHelpers.toast(context, '没有可打开的网页地址');
-      return;
-    }
-    try {
-      var opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-      if (!opened) {
-        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-      if (!opened) throw StateError('browser unavailable');
-    } catch (_) {
-      if (mounted) PlaybackHelpers.toast(context, '无法打开浏览器');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1917,14 +1897,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                   },
                   child: const Text('重新加载'),
                 ),
-                if (widget.site != null) ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _openInBrowser,
-                    icon: const Icon(Icons.public),
-                    label: const Text('使用浏览器访问'),
-                  ),
-                ],
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: () {
@@ -1993,7 +1965,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onFastForward: _fastForward,
               onFullscreen: _toggleFullscreen,
               onOpenSettings: _openPlayerSettings,
-              onOpenBrowser: _openInBrowser,
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,

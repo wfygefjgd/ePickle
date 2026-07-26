@@ -373,7 +373,8 @@ class _ProxyEditorState extends State<_ProxyEditor> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('确定', style: TextStyle(color: Color(0xFFFF6B35))),
+              child:
+                  const Text('确定', style: TextStyle(color: Color(0xFFFF6B35))),
             ),
           ],
         ),

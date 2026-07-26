@@ -199,7 +199,9 @@ class _SearchScreenState extends State<SearchScreen>
       }
       if (!mounted || gen != _searchGen) return;
       final prev = _results[src] ?? [];
-      final seen = <String>{for (final e in (replace ? <VideoItem>[] : prev)) e.viewkey};
+      final seen = <String>{
+        for (final e in (replace ? <VideoItem>[] : prev)) e.viewkey
+      };
       final fresh = <VideoItem>[];
       for (final e in list) {
         if (seen.add(e.viewkey)) fresh.add(e);
@@ -420,7 +422,8 @@ class _SearchScreenState extends State<SearchScreen>
                         const SizedBox(width: 4),
                         Text(
                           '${_results[s]!.length}',
-                          style: const TextStyle(fontSize: 11, color: Colors.white38),
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.white38),
                         ),
                       ],
                     ],
@@ -580,7 +583,8 @@ class _SearchScreenState extends State<SearchScreen>
                       )
                     : Text(
                         hasMore ? '上拉加载更多' : '没有更多了',
-                        style: const TextStyle(color: Colors.white38, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.white38, fontSize: 12),
                       ),
               ),
             );

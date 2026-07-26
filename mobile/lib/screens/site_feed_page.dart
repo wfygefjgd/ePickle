@@ -92,8 +92,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
     _ensureKeys();
     final site = widget.site;
     final tabs = _contentTabs;
-    final immersive =
-        context.select<PlayerChrome, bool>((c) => c.immersive);
+    final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
     final onSearch = _index >= _searchIndex;
 
     return Scaffold(

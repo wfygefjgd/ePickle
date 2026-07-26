@@ -44,11 +44,17 @@ class XvideosApi {
         },
       ),
     );
-    if (res.statusCode == 403) {
+    final status = res.statusCode ?? 0;
+    if (status == 401 || status == 403) {
       throw PhubException('访问被拒绝 (403)，请检查网络环境');
     }
-    if (res.statusCode == 404) {
+    if (status == 404) {
       throw PhubException('页面不存在 (404)');
+    }
+    if (status == 408) throw PhubException('源站请求超时 (408)');
+    if (status == 429) throw PhubException('请求过于频繁 (429)，请稍后重试');
+    if (status < 200 || status >= 400) {
+      throw PhubException('源站返回异常状态 ($status)');
     }
     if (res.data == null || res.data!.isEmpty) {
       throw PhubException('空响应');
@@ -83,6 +89,7 @@ class XvideosApi {
         final list = _parseList(html, <String>{});
         if (list.isNotEmpty) return list;
       } catch (e) {
+        if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastErr = e;
         continue;
       }
@@ -133,7 +140,8 @@ class XvideosApi {
         try {
           final html = await _getHtml(u);
           results.addAll(_parseList(html, seen));
-        } catch (_) {
+        } catch (e) {
+          if (e is DioException && CancelToken.isCancel(e)) rethrow;
           failCount++;
           continue;
         }

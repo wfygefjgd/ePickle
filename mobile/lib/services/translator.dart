@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -19,6 +20,9 @@ class Translator {
   static const _diskKey = 'translator_disk_v1';
   static const _maxDiskEntries = 400;
   bool _diskLoaded = false;
+  Timer? _persistTimer;
+  bool _persisting = false;
+  bool _persistQueued = false;
 
   static final _zhRe = RegExp(r'[\u4e00-\u9fff]');
 
@@ -53,6 +57,29 @@ class Translator {
       final map = <String, String>{for (final e in slice) e.key: e.value};
       await p.setString(_diskKey, jsonEncode(map));
     } catch (_) {}
+  }
+
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 750), () {
+      unawaited(_flushPersist());
+    });
+  }
+
+  Future<void> _flushPersist() async {
+    if (_persisting) {
+      _persistQueued = true;
+      return;
+    }
+    _persisting = true;
+    try {
+      do {
+        _persistQueued = false;
+        await _persistDisk();
+      } while (_persistQueued);
+    } finally {
+      _persisting = false;
+    }
   }
 
   Future<String> enToZh(String text) async =>
@@ -107,9 +134,8 @@ class Translator {
         return text;
       }
       _cache[key] = result;
-      // fire-and-forget disk write
-      // ignore: unawaited_futures
-      _persistDisk();
+      // Batch bursts of title translations into a single disk write.
+      _schedulePersist();
       return result;
     } catch (_) {
       return text;

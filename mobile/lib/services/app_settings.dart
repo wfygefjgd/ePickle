@@ -20,6 +20,7 @@ class AppSettings extends ChangeNotifier {
   bool _skipIntro = true;
   bool _muted = false;
   int _qualityCap = 0;
+
   /// Follow system proxy when present (default). No hardcoded host/port.
   bool _proxyEnabled = true;
   String _proxyHost = '';
@@ -198,7 +199,6 @@ class AppSettings extends ChangeNotifier {
       await p.setBool(_kAutoRotate, v);
     } catch (_) {}
   }
-
 
   Future<void> setAutoLowerOnStall(bool v) async {
     if (_autoLowerOnStall == v) return;

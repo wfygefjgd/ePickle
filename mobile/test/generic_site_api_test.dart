@@ -20,7 +20,7 @@ void main() {
   test('resolves relative streams and reversed meta attributes', () async {
     const pageUrl = 'https://fixture.test/videos/42/index.html';
     final dio = Dio();
-    dio.httpClientAdapter = _FixtureAdapter({
+    final adapter = _FixtureAdapter({
       pageUrl: _FixtureResponse(
         _html('''
           <meta content="Fixture &amp; title" property="og:title">
@@ -29,6 +29,7 @@ void main() {
         '''),
       ),
     });
+    dio.httpClientAdapter = adapter;
 
     final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
 
@@ -338,7 +339,7 @@ void main() {
       mirrors: [failedBase, workingBase],
     );
     final dio = Dio();
-    dio.httpClientAdapter = _FixtureAdapter({
+    final adapter = _FixtureAdapter({
       '$failedBase/videos?page=1&sort=hot':
           const _FixtureResponse('forbidden', statusCode: 403),
       '$workingBase/videos?page=1&sort=hot': _FixtureResponse(
@@ -349,6 +350,7 @@ void main() {
         '''),
       ),
     });
+    dio.httpClientAdapter = adapter;
     final api = GenericSiteApi(dio: dio);
 
     final feed = await api.fetchFeed(mirrorSite, limit: 1);
@@ -364,6 +366,97 @@ void main() {
       health.singleWhere((entry) => entry.url == workingBase).isAvailable,
       isTrue,
     );
+
+    // The working mirror is now cached as preferred. Make it stale and verify
+    // the alternative still starts immediately instead of waiting serially.
+    adapter.fixtures['$workingBase/videos?page=1&sort=hot'] =
+        const _FixtureResponse(
+      'stale preferred mirror',
+      statusCode: 403,
+      delay: Duration(milliseconds: 350),
+    );
+    adapter.fixtures['$failedBase/videos?page=1&sort=hot'] = _FixtureResponse(
+      _html('''
+        <a href="/video/recovered-43" title="Recovered mirror video">
+          <img src="/cover-43.jpg">
+        </a>
+      '''),
+    );
+    final watch = Stopwatch()..start();
+
+    final recovered = await api.fetchFeed(mirrorSite, limit: 1);
+
+    expect(recovered.single.url, '$failedBase/video/recovered-43');
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 250)));
+  });
+
+  test('Chaturbate tabs request four distinct gender feeds', () async {
+    const base = 'https://live.fixture.test';
+    const liveSite = SiteDef(
+      id: 'chaturbate',
+      name: 'Live fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.chaturbateTags,
+      color: 0,
+      letter: 'C',
+      mirrors: [base],
+    );
+    final fixtures = <String, _FixtureResponse>{};
+    for (final entry in const {
+      'female': 'f',
+      'male': 'm',
+      'couples': 'c',
+      'trans': 't',
+    }.entries) {
+      fixtures[
+              '$base/api/ts/roomlist/room-list/?limit=20&offset=0&genders=${entry.value}'] =
+          _FixtureResponse('{"rooms":[{"username":"${entry.key}_room"}]}');
+    }
+    final dio = Dio();
+    final adapter = _FixtureAdapter(fixtures);
+    dio.httpClientAdapter = adapter;
+    final api = GenericSiteApi(dio: dio);
+
+    for (final tag in liveSite.tags) {
+      final feed = await api.fetchFeed(liveSite, tagId: tag.id, limit: 1);
+      expect(feed.single.url, '$base/${tag.id}_room');
+    }
+
+    expect(
+      adapter.requests.map((request) => request.uri.queryParameters['genders']),
+      containsAll(<String>['f', 'm', 'c', 't']),
+    );
+  });
+
+  test('Stripchat feed carries its official HLS playlist into detail',
+      () async {
+    const base = 'https://strip.fixture.test';
+    const playlist =
+        'https://edge-hls.doppiocdn.com/hls/83306615/master/83306615_240p.m3u8';
+    const liveSite = SiteDef(
+      id: 'stripchat',
+      name: 'Strip fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.stripchatTags,
+      color: 0,
+      letter: 'S',
+      mirrors: [base],
+    );
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=stripRanking':
+          const _FixtureResponse(
+        '{"models":[{"username":"model_name","streamName":"83306615",'
+        '"hlsPlaylist":"$playlist"}]}',
+      ),
+      playlist: const _FixtureResponse('#EXTM3U\n#EXTINF:2,\nsegment.ts'),
+    });
+    final api = GenericSiteApi(dio: dio);
+
+    final feed = await api.fetchFeed(liveSite, tagId: 'girls', limit: 1);
+    final detail = await api.getVideoDetail(liveSite, feed.single.url);
+
+    expect(detail.streams.single.url, playlist);
   });
 
   test('directory-only FreePorn is not enabled as a playable source', () {
@@ -397,11 +490,13 @@ class _FixtureResponse {
     this.body, {
     this.headers = const {},
     this.statusCode = 200,
+    this.delay = Duration.zero,
   });
 
   final String body;
   final Map<String, List<String>> headers;
   final int statusCode;
+  final Duration delay;
 }
 
 class _FixtureAdapter implements HttpClientAdapter {
@@ -420,6 +515,9 @@ class _FixtureAdapter implements HttpClientAdapter {
     final fixture = fixtures[options.uri.toString()];
     if (fixture == null) {
       return ResponseBody.fromString('not found', 404);
+    }
+    if (fixture.delay > Duration.zero) {
+      await Future<void>.delayed(fixture.delay);
     }
     return ResponseBody.fromString(
       fixture.body,

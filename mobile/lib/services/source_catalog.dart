@@ -51,11 +51,15 @@ class SiteDef {
 
   factory SiteDef.customFromUrl(String url) {
     final u = url.trim().replaceAll(RegExp(r'/$'), '');
-    final host = Uri.tryParse(u)?.host ?? u;
-    final letter = host.isNotEmpty ? host[0].toUpperCase() : '?';
+    final uri = Uri.tryParse(u);
+    final host = uri?.host ?? u;
+    final displayName = uri == null
+        ? host
+        : '${uri.authority}${uri.path == '/' ? '' : uri.path}';
+    final letter = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
     return SiteDef(
-      id: 'custom_$host',
-      name: host,
+      id: 'custom_${Uri.encodeComponent(u)}',
+      name: displayName,
       kind: SiteKind.video,
       color: 0xFF607D8B,
       letter: letter,
@@ -123,6 +127,52 @@ class SourceCatalog {
       icon: Icons.sell_outlined,
       iconSelected: Icons.sell,
     ),
+  ];
+
+  static const chaturbateTags = <SiteTag>[
+    SiteTag(
+        id: 'female',
+        label: '\u5973',
+        icon: Icons.woman_outlined,
+        iconSelected: Icons.woman),
+    SiteTag(
+        id: 'male',
+        label: '\u7537',
+        icon: Icons.man_outlined,
+        iconSelected: Icons.man),
+    SiteTag(
+        id: 'couples',
+        label: '\u4f34',
+        icon: Icons.people_outline,
+        iconSelected: Icons.people),
+    SiteTag(
+        id: 'trans',
+        label: 'TS',
+        icon: Icons.transgender_outlined,
+        iconSelected: Icons.transgender),
+  ];
+
+  static const stripchatTags = <SiteTag>[
+    SiteTag(
+        id: 'girls',
+        label: '\u5973',
+        icon: Icons.woman_outlined,
+        iconSelected: Icons.woman),
+    SiteTag(
+        id: 'men',
+        label: '\u7537',
+        icon: Icons.man_outlined,
+        iconSelected: Icons.man),
+    SiteTag(
+        id: 'couples',
+        label: '\u4f34',
+        icon: Icons.people_outline,
+        iconSelected: Icons.people),
+    SiteTag(
+        id: 'trans',
+        label: 'TS',
+        icon: Icons.transgender_outlined,
+        iconSelected: Icons.transgender),
   ];
 
   static const pornhub = SiteDef(
@@ -540,7 +590,7 @@ class SourceCatalog {
       'https://stripchat.global',
       'https://xhamsterlive.com',
     ],
-    tags: liveTags,
+    tags: stripchatTags,
   );
 
   static const chaturbate = SiteDef(
@@ -558,7 +608,7 @@ class SourceCatalog {
       'https://chaturbate.eu',
       'https://chaturbate.global',
     ],
-    tags: liveTags,
+    tags: chaturbateTags,
   );
 
   static const all = <SiteDef>[

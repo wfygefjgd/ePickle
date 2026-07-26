@@ -15,7 +15,9 @@ class WatchHistoryPage extends StatelessWidget {
     if (u.contains('xvideos') || u.contains('xhamster')) {
       return SearchSource.x;
     }
-    if (u.contains('mitao') || u.contains('91porn') || RegExp(r'/vod/play/id/').hasMatch(u)) {
+    if (u.contains('mitao') ||
+        u.contains('91porn') ||
+        RegExp(r'/vod/play/id/').hasMatch(u)) {
       return SearchSource.zhong;
     }
     if (u.contains('pornhub')) return SearchSource.ph;
@@ -34,7 +36,8 @@ class WatchHistoryPage extends StatelessWidget {
             return s;
           }
         }
-        final ph = s.primaryHost.toLowerCase().replaceAll(RegExp(r'^https?://'), '');
+        final ph =
+            s.primaryHost.toLowerCase().replaceAll(RegExp(r'^https?://'), '');
         final phHost = ph.split('/').first;
         if (host == phHost || host.endsWith('.$phHost')) return s;
       }

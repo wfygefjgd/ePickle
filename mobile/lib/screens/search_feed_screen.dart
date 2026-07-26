@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -61,7 +61,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   late final List<VideoItem> _items;
   late int _index;
   int _seq = 0;
-  int _failStreak = 0;
 
   VideoPlayerController? _controller;
   bool _pageLoading = false;
@@ -116,6 +115,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _stallLoweredForItem = false;
   int _stallArmedAfterMs = 0;
   bool _resyncingPage = false;
+  bool _appInForeground = true;
+  bool _resumePlaybackOnForeground = false;
+  final Set<VideoPlayerController> _initializingControllers = {};
 
   late final Map<String, String> _headers = _buildHeaders();
 
@@ -124,10 +126,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// Next-video preload slots (both platforms: 3).
-  int get _preloadSlotCount => 3;
+  /// Keep decoder pressure low on iOS; other platforms use at most two slots.
+  int get _preloadSlotCount =>
+      PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
 
   bool get _multiPreload => _preloadSlotCount > 1;
+  bool get _canRun => mounted && _appInForeground;
 
   Map<String, String> _buildHeaders() {
     switch (widget.source) {
@@ -179,7 +183,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _settings!.addListener(_onSettingsChanged);
     _autoRotate!.start();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _playIndex(_index);
+      if (_canRun) _playIndex(_index);
     });
   }
 
@@ -224,6 +228,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   @override
   void dispose() {
+    _appInForeground = false;
+    _seq++;
+    _cancelBackgroundWork();
     _settings?.removeListener(_onSettingsChanged);
     _settings = null;
     _autoRotate?.dispose();
@@ -243,6 +250,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     try {
       c?.dispose();
     } catch (_) {}
+    _disposeInitializingPlayersSync();
     _disposePreloadSync();
     WakelockPlus.disable();
     super.dispose();
@@ -280,6 +288,68 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex4 = null;
     _preloadStream4 = null;
     _preloadRetries4 = 0;
+  }
+
+  VideoPlayerController _createNetworkPlayer(
+    StreamQuality stream,
+    String pageUrl,
+  ) {
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(stream.url),
+      httpHeaders: {
+        ..._headers,
+        ...AppHttpHeaders.forMediaUrl(
+          stream.url,
+          pageUrl: stream.referer ?? pageUrl,
+        ),
+        ...stream.headers,
+      },
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+    );
+    _initializingControllers.add(player);
+    return player;
+  }
+
+  void _disposeInitializingPlayersSync() {
+    final players = List<VideoPlayerController>.from(_initializingControllers);
+    _initializingControllers.clear();
+    for (final player in players) {
+      unawaited(player.dispose().catchError((_) {}));
+    }
+  }
+
+  void _restartPreloading() {
+    if (!_canRun || _items.isEmpty) return;
+    unawaited(_runPreloadCycle(_seq));
+  }
+
+  Future<void> _runPreloadCycle(int seq) async {
+    for (var slot = 0; slot < _preloadSlotCount; slot++) {
+      final index = _index + slot + 1;
+      if (seq != _seq || !_canRun || index >= _items.length) return;
+      await _prefetchDetail(index);
+      if (seq != _seq || !_canRun) return;
+      if (slot == 0) {
+        await _preloadNext(index);
+      } else {
+        await _preloadNext2(index);
+      }
+    }
+  }
+
+  void _cancelBackgroundWork() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _skipTimer?.cancel();
+    _skipTimer = null;
+    context.read<PhubApi>().cancelRequests('app backgrounded');
+    context.read<XvideosApi>().cancelRequests('app backgrounded');
+    context.read<MitaoApi>().cancelRequests('app backgrounded');
+    context.read<GenericSiteApi>().cancelRequests('app backgrounded');
+    _disposeInitializingPlayersSync();
+    _disposePreloadSync();
   }
 
   Future<void> _toggleFullscreen() async {
@@ -332,23 +402,40 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
+      if (!_appInForeground) return;
+      _appInForeground = false;
+      _resumePlaybackOnForeground =
+          (_controller?.value.isPlaying ?? false) || _pageLoading;
+      _seq++;
       _autoRotate?.listening = false;
       _autoRotate?.stop();
-      _controller?.pause();
-      _preloadController?.pause();
-      _preloadController2?.pause();
-      _preloadController3?.pause();
-      _preloadController4?.pause();
+      _cancelBackgroundWork();
+      final controller = _controller;
+      if (controller != null) {
+        unawaited(controller.pause().catchError((_) {}));
+      }
       WakelockPlus.disable();
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
     } else if (state == AppLifecycleState.resumed) {
+      _appInForeground = true;
       _stallTicks = 0;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 8000;
       _autoRotate?.listening = true;
       _autoRotate?.start();
-      _controller?.play();
-      WakelockPlus.enable();
+      if (!_resumePlaybackOnForeground) return;
+      _resumePlaybackOnForeground = false;
+      final controller = _controller;
+      if (controller != null && controller.value.isInitialized) {
+        unawaited(controller.play().then((_) {
+          if (!_canRun || !identical(controller, _controller)) return;
+          _startTimer();
+          _restartPreloading();
+        }).catchError((_) {}));
+        WakelockPlus.enable();
+      } else if (_items.isNotEmpty) {
+        unawaited(_playIndex(_index.clamp(0, _items.length - 1)));
+      }
     }
   }
 
@@ -412,7 +499,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       _retried.add(fromIndex);
       _retryTimer?.cancel();
       _retryTimer = Timer(const Duration(milliseconds: 800), () {
-        if (!mounted) return;
+        if (!_canRun) return;
         _playIndex(fromIndex);
       });
       return;
@@ -427,7 +514,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _playIndex(int index) async {
-    if (index < 0 || index >= _items.length) return;
+    if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_seq;
     final item = _items[index];
 
@@ -498,13 +585,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         // ignore: unawaited_futures
         previous.dispose().catchError((_) {});
       }
-      if (!mounted || seq != _seq) {
+      if (seq != _seq || !_canRun || !mounted) {
         try {
           await preloaded.dispose();
         } catch (_) {}
         return;
       }
-      _failStreak = 0;
       _index = index;
       _currentStreamHeight = preloadStream?.height ?? 0;
       _stallTicks = 0;
@@ -520,12 +606,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           fallbackDurationSec: preloadDetail.durationSec,
         );
       }
-      if (!mounted || seq != _seq) {
+      if (seq != _seq || !_canRun) {
         try {
           await preloaded.dispose();
         } catch (_) {}
         return;
       }
+      if (!mounted) return;
       _controller = preloaded;
       final dur = PlaybackHelpers.effectiveDuration(
         preloaded,
@@ -545,6 +632,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         _translateTitleOnly(preloadDetail.title);
       }
       await preloaded.play();
+      if (seq != _seq || !_canRun) {
+        if (identical(_controller, preloaded)) _controller = null;
+        await preloaded.pause().catchError((_) {});
+        await preloaded.dispose();
+        return;
+      }
       _startTimer();
       WakelockPlus.enable();
       if (mounted) setState(() {});
@@ -597,7 +690,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _disposePreload();
 
     await _disposePlayer();
-    if (!mounted || seq != _seq) return;
+    if (seq != _seq || !_canRun || !mounted) return;
 
     setState(() {
       _pageLoading = true;
@@ -631,7 +724,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       return;
     }
-    if (!mounted || seq != _seq) return;
+    if (seq != _seq || !_canRun || !mounted) return;
 
     if (detail.countryBlocked) {
       setState(() => _pageLoading = false);
@@ -659,25 +752,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     StreamQuality? stream;
     final playerDeadline = DateTime.now().add(const Duration(seconds: 18));
     for (final c in candidates) {
-      if (!mounted || seq != _seq) {
+      if (seq != _seq || !_canRun) {
         await player?.dispose();
         return;
       }
-      final next = VideoPlayerController.networkUrl(
-        Uri.parse(c.url),
-        httpHeaders: {
-          ..._headers,
-          ...AppHttpHeaders.forMediaUrl(
-            c.url,
-            pageUrl: c.referer ?? detail.url,
-          ),
-          ...c.headers,
-        },
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-      );
+      final next = _createNetworkPlayer(c, detail.url);
       try {
         final remaining = playerDeadline.difference(DateTime.now());
         if (remaining.inMilliseconds <= 0) {
+          _initializingControllers.remove(next);
           await next.dispose();
           break;
         }
@@ -686,6 +769,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ? remaining
                   : const Duration(seconds: 12),
             );
+        _initializingControllers.remove(next);
         if (PlaybackHelpers.isLikelyPreview(
           next,
           detail,
@@ -699,6 +783,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         stream = c;
         break;
       } catch (_) {
+        _initializingControllers.remove(next);
         try {
           await next.dispose();
         } catch (_) {}
@@ -722,16 +807,19 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       return;
     }
-    if (!mounted || seq != _seq) {
+    if (seq != _seq || !_canRun) {
       await player.dispose();
       return;
     }
 
-    _failStreak = 0;
     _currentStreamHeight = stream.height;
     _stallTicks = 0;
     _stallLoweredForItem = false;
     _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
+    if (!mounted) {
+      await player.dispose();
+      return;
+    }
     _muted = context.read<AppSettings>().muted;
     player.setVolume(_muted ? 0 : 1);
     final skip = context.read<AppSettings>().skipIntro;
@@ -742,7 +830,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       fallbackDurationSec: detail.durationSec,
     );
 
-    if (!mounted || seq != _seq) {
+    if (seq != _seq || !_canRun) {
       await player.dispose();
       return;
     }
@@ -760,6 +848,12 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     // ignore: unawaited_futures
     _translateTitleOnly(detail.title);
     await player.play();
+    if (seq != _seq || !_canRun) {
+      if (identical(_controller, player)) _controller = null;
+      await player.pause().catchError((_) {});
+      await player.dispose();
+      return;
+    }
     if (_multiPreload) {
       final n = _preloadSlotCount;
       unawaited(_preloadNext(index + 1));
@@ -796,14 +890,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _prefetchDetail(int index) async {
-    if (index < 0 || index >= _items.length) return;
+    if (!_canRun || index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
     if (_prefetchingIndex == index) return;
     _prefetchingIndex = index;
+    final seq = _seq;
     final url = _items[index].url;
     try {
       final d = await _fetchDetail(url);
-      if (!mounted) return;
+      if (seq != _seq || !_canRun) return;
       _detailCache[index] = d;
       _detailCache.removeWhere((k, _) => (k - _index).abs() > 3);
     } catch (_) {
@@ -848,7 +943,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _preloadNext(int index) async {
-    if (index < 0 || index >= _items.length || index == _index) return;
+    if (!_canRun || index < 0 || index >= _items.length || index == _index) {
+      return;
+    }
     if (_preloadIndex == index && _preloadController != null) return;
     final seq = _seq;
     final detail = _detailCache[index];
@@ -876,21 +973,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _seq) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._headers,
-        ...AppHttpHeaders.forMediaUrl(
-          stream.url,
-          pageUrl: stream.referer ?? detail.url,
-        ),
-        ...stream.headers,
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _seq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -902,6 +989,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       _preloadRetries = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
       if (_preloadRetries < 2 && seq == _seq) {
         _preloadRetries++;
@@ -909,7 +997,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries));
-        if (seq == _seq && mounted) {
+        if (seq == _seq && _canRun) {
           return _preloadNext(index);
         }
       }
@@ -918,7 +1006,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !mounted) {
+    if (seq != _seq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -935,7 +1023,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _preloadNext2(int index) async {
-    if (index < 0 || index >= _items.length || index == _index) return;
+    if (!_canRun || index < 0 || index >= _items.length || index == _index) {
+      return;
+    }
     if (_preloadIndex2 == index && _preloadController2 != null) return;
     final seq = _seq;
     final detail = _detailCache[index];
@@ -963,21 +1053,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _seq) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._headers,
-        ...AppHttpHeaders.forMediaUrl(
-          stream.url,
-          pageUrl: stream.referer ?? detail.url,
-        ),
-        ...stream.headers,
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _seq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -989,6 +1069,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       _preloadRetries2 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
       if (_preloadRetries2 < 2 && seq == _seq) {
         _preloadRetries2++;
@@ -996,7 +1077,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries2));
-        if (seq == _seq && mounted) {
+        if (seq == _seq && _canRun) {
           return _preloadNext2(index);
         }
       }
@@ -1005,7 +1086,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !mounted) {
+    if (seq != _seq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1022,7 +1103,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _preloadNext3(int index) async {
-    if (index < 0 || index >= _items.length || index == _index) return;
+    if (!_canRun || index < 0 || index >= _items.length || index == _index) {
+      return;
+    }
     if (_preloadIndex3 == index && _preloadController3 != null) return;
     final seq = _seq;
     final detail = _detailCache[index];
@@ -1050,21 +1133,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _seq) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._headers,
-        ...AppHttpHeaders.forMediaUrl(
-          stream.url,
-          pageUrl: stream.referer ?? detail.url,
-        ),
-        ...stream.headers,
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _seq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -1076,6 +1149,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       _preloadRetries3 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
       if (_preloadRetries3 < 2 && seq == _seq) {
         _preloadRetries3++;
@@ -1083,7 +1157,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries3));
-        if (seq == _seq && mounted) {
+        if (seq == _seq && _canRun) {
           return _preloadNext3(index);
         }
       }
@@ -1092,7 +1166,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !mounted) {
+    if (seq != _seq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1109,7 +1183,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   }
 
   Future<void> _preloadNext4(int index) async {
-    if (index < 0 || index >= _items.length || index == _index) return;
+    if (!_canRun || index < 0 || index >= _items.length || index == _index) {
+      return;
+    }
     if (_preloadIndex4 == index && _preloadController4 != null) return;
     final seq = _seq;
     final detail = _detailCache[index];
@@ -1137,21 +1213,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         } catch (_) {}
       });
     }
-    if (seq != _seq) return;
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(stream.url),
-      httpHeaders: {
-        ..._headers,
-        ...AppHttpHeaders.forMediaUrl(
-          stream.url,
-          pageUrl: stream.referer ?? detail.url,
-        ),
-        ...stream.headers,
-      },
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-    );
+    if (seq != _seq || !_canRun) return;
+    final player = _createNetworkPlayer(stream, detail.url);
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      _initializingControllers.remove(player);
       if (PlaybackHelpers.isLikelyPreview(
         player,
         detail,
@@ -1163,6 +1229,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       _preloadRetries4 = 0;
     } catch (e) {
+      _initializingControllers.remove(player);
       // Retry up to 2 times for transient failures
       if (_preloadRetries4 < 2 && seq == _seq) {
         _preloadRetries4++;
@@ -1170,7 +1237,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
           await player.dispose();
         } catch (_) {}
         await Future.delayed(Duration(milliseconds: 300 * _preloadRetries4));
-        if (seq == _seq && mounted) {
+        if (seq == _seq && _canRun) {
           return _preloadNext4(index);
         }
       }
@@ -1179,7 +1246,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       } catch (_) {}
       return;
     }
-    if (seq != _seq || !mounted) {
+    if (seq != _seq || !_canRun) {
       try {
         await player.dispose();
       } catch (_) {}
@@ -1216,12 +1283,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   void _startTimer() {
     final ctrl = _controller;
-    if (ctrl == null) return;
+    if (ctrl == null || !_canRun) return;
     _progressTimer?.cancel();
     var lastTickMs = 0;
     var lastPosMs = 0.0;
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!identical(ctrl, _controller) || !ctrl.value.isInitialized) {
+      if (!_canRun ||
+          !identical(ctrl, _controller) ||
+          !ctrl.value.isInitialized) {
         _progressTimer?.cancel();
         _progressTimer = null;
         return;
@@ -1381,7 +1450,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     if (chrome == null ||
         !chrome.immersive ||
         _dragStartX == null ||
-        _dragStartPosition == null) return;
+        _dragStartPosition == null) {
+      return;
+    }
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -1406,9 +1477,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     setState(() {
       _dragTargetPosition = clampedPos;
       if (deltaSec > 0) {
-        _seekPreviewText = '+${deltaSec}秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '+$deltaSec秒 → ${formatTime(clampedPos)}';
       } else if (deltaSec < 0) {
-        _seekPreviewText = '${deltaSec}秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '$deltaSec秒 → ${formatTime(clampedPos)}';
       } else {
         _seekPreviewText = formatTime(clampedPos);
       }
@@ -1461,27 +1532,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
-  Future<void> _openInBrowser() async {
-    final detail = _detailCache[_index];
-    final itemUrl =
-        _index >= 0 && _index < _items.length ? _items[_index].url : null;
-    final raw = detail?.url ?? itemUrl ?? widget.site?.primaryHost;
-    final uri = Uri.tryParse(raw ?? '');
-    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      if (mounted) PlaybackHelpers.toast(context, '没有可打开的网页地址');
-      return;
-    }
-    try {
-      var opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-      if (!opened) {
-        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-      if (!opened) throw StateError('browser unavailable');
-    } catch (_) {
-      if (mounted) PlaybackHelpers.toast(context, '无法打开浏览器');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
@@ -1511,14 +1561,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 foregroundColor: Colors.white,
                 elevation: 0,
                 title: Text(widget.title, style: const TextStyle(fontSize: 16)),
-                actions: [
-                  if (widget.site != null)
-                    IconButton(
-                      tooltip: '使用浏览器访问',
-                      onPressed: _openInBrowser,
-                      icon: const Icon(Icons.public),
-                    ),
-                ],
               ),
         body: chrome.wrapBody(
           context,
@@ -1678,7 +1720,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           onTap: _toggleFullscreen,
                           child: Icon(
                             Icons.fullscreen_exit,
-                            color: Colors.white.withOpacity(0.5),
+                            color: Colors.white.withValues(alpha: 0.5),
                             size: 28,
                             shadows: const [
                               Shadow(color: Colors.black45, blurRadius: 4),
@@ -1696,7 +1738,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                           onTap: _openPlayerSettings,
                           child: Icon(
                             Icons.settings,
-                            color: Colors.white.withOpacity(0.5),
+                            color: Colors.white.withValues(alpha: 0.5),
                             size: 28,
                             shadows: const [
                               Shadow(color: Colors.black45, blurRadius: 4),
@@ -1990,8 +2032,8 @@ class _MinimalButtonState extends State<_MinimalButton> {
           child: Icon(
             widget.icon,
             color: _isDragging
-                ? Colors.white.withOpacity(0.9)
-                : Colors.white.withOpacity(0.5),
+                ? Colors.white.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.5),
             size: 28,
             shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
           ),

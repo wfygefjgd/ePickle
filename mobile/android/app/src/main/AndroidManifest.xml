@@ -8,7 +8,7 @@
         android:label="ePickle"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true">
         <!-- Impeller has killed Android 15 landscape emulators (host process). Use Skia. -->
         <meta-data

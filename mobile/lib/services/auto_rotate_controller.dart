@@ -7,6 +7,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 enum AutoRotateAction {
   enterLandscape,
   exitLandscape,
+
   /// Already landscape; only the left/right side changed.
   switchSide,
 }
@@ -36,6 +37,7 @@ class AutoRotateController {
   final Duration sideSwitchDwell;
 
   bool enabled = true;
+
   /// When false, ignore tilt (inactive tab / background).
   bool listening = true;
 

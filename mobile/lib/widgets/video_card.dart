@@ -40,7 +40,8 @@ class VideoCard extends StatelessWidget {
                           Container(color: const Color(0xFF1A1A1A)),
                       errorWidget: (_, __, ___) => Container(
                         color: const Color(0xFF1A1A1A),
-                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                        child:
+                            const Icon(Icons.broken_image, color: Colors.grey),
                       ),
                     )
                   else

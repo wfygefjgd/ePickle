@@ -9,14 +9,14 @@ on:
       - '.github/workflows/ios-ipa.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: macos-14
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
@@ -26,6 +26,14 @@ jobs:
       - name: pub get
         working-directory: mobile
         run: flutter pub get
+
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Test
+        working-directory: mobile
+        run: flutter test
 
       - name: Build iOS release (device, no codesign)
         working-directory: mobile
@@ -214,7 +222,7 @@ jobs:
           ls -la build/ipa_dist/
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PHUB-Player-iOS
           path: |

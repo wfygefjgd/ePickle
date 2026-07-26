@@ -186,60 +186,60 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
                     child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
                   )
                 : _error != null && _items.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                    ),
-                  )
-                : _items.isEmpty
-                ? const Center(
-                    child: Text(
-                      '输入关键词搜索本站',
-                      style: TextStyle(color: Colors.white38),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _items.length + (_hasMore ? 1 : 0),
-                    itemBuilder: (_, i) {
-                      if (i == _items.length) {
-                        return Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Center(
-                            child: _loadingMore
-                                ? const CircularProgressIndicator(
-                                    color: Color(0xFFFF6B35),
-                                  )
-                                : TextButton.icon(
-                                    onPressed: _loadMore,
-                                    icon: const Icon(Icons.expand_more),
-                                    label: const Text('加载更多'),
-                                  ),
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white54),
                           ),
-                        );
-                      }
-                      return VideoCard(
-                        item: _items[i],
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => SearchFeedScreen(
-                                items: List<VideoItem>.from(_items),
-                                source: _feedSource,
-                                initialIndex: i,
-                                title: site.name,
-                                site: site,
-                              ),
+                        ),
+                      )
+                    : _items.isEmpty
+                        ? const Center(
+                            child: Text(
+                              '输入关键词搜索本站',
+                              style: TextStyle(color: Colors.white38),
                             ),
-                          );
-                        },
-                      );
-                    },
-                  ),
+                          )
+                        : ListView.builder(
+                            itemCount: _items.length + (_hasMore ? 1 : 0),
+                            itemBuilder: (_, i) {
+                              if (i == _items.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Center(
+                                    child: _loadingMore
+                                        ? const CircularProgressIndicator(
+                                            color: Color(0xFFFF6B35),
+                                          )
+                                        : TextButton.icon(
+                                            onPressed: _loadMore,
+                                            icon: const Icon(Icons.expand_more),
+                                            label: const Text('加载更多'),
+                                          ),
+                                  ),
+                                );
+                              }
+                              return VideoCard(
+                                item: _items[i],
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => SearchFeedScreen(
+                                        items: List<VideoItem>.from(_items),
+                                        source: _feedSource,
+                                        initialIndex: i,
+                                        title: site.name,
+                                        site: site,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
           ),
         ],
       ),

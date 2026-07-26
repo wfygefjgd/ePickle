@@ -89,13 +89,26 @@ class LayoutSettings extends ChangeNotifier {
       u = 'https://$u';
     }
     final uri = Uri.tryParse(u);
-    if (uri == null || uri.host.isEmpty) return;
-    final normalized = '${uri.scheme}://${uri.host}';
+    // Custom adapters carry cookies and media referrers, so only accept TLS.
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return;
+    final path =
+        uri.path == '/' ? '' : uri.path.replaceFirst(RegExp(r'/+$'), '');
+    final normalized = Uri(
+      scheme: 'https',
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: path,
+    ).toString();
     if (_customUrls.contains(normalized)) return;
     // Also skip if already a built-in mirror
     for (final s in SourceCatalog.all) {
       for (final m in s.mirrors) {
-        if (m.contains(uri.host)) return;
+        final builtIn = Uri.tryParse(m);
+        if (builtIn != null &&
+            builtIn.host == uri.host &&
+            builtIn.port == uri.port) {
+          return;
+        }
       }
     }
     _customUrls = [..._customUrls, normalized];

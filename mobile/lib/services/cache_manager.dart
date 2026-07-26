@@ -33,7 +33,8 @@ class CacheManager {
     try {
       final cacheSize = await _getCacheSizeInMB();
       if (cacheSize > _maxCacheSizeMB) {
-        debugPrint('Cache size ${cacheSize.toStringAsFixed(0)}MB exceeds limit, cleaning...');
+        debugPrint(
+            'Cache size ${cacheSize.toStringAsFixed(0)}MB exceeds limit, cleaning...');
         await _cleanCache();
         final newSize = await _getCacheSizeInMB();
         debugPrint(
@@ -73,7 +74,8 @@ class CacheManager {
       if (root == null) return 0;
 
       int totalSize = 0;
-      await for (final entity in root.list(recursive: true, followLinks: false)) {
+      await for (final entity
+          in root.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             totalSize += await entity.length();
@@ -93,7 +95,8 @@ class CacheManager {
       final now = DateTime.now();
 
       Future<void> deleteOlderThan(int days) async {
-        await for (final entity in tempDir.list(recursive: true, followLinks: false)) {
+        await for (final entity
+            in tempDir.list(recursive: true, followLinks: false)) {
           if (entity is File) {
             try {
               final stat = await entity.stat();
@@ -119,7 +122,8 @@ class CacheManager {
     try {
       await DefaultCacheManager().emptyCache();
       final tempDir = await getTemporaryDirectory();
-      await for (final entity in tempDir.list(recursive: true, followLinks: false)) {
+      await for (final entity
+          in tempDir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             await entity.delete();

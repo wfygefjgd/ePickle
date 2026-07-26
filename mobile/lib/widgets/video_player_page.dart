@@ -27,7 +27,6 @@ class VideoPlayerPage extends StatefulWidget {
     required this.onFastForward,
     required this.onFullscreen,
     required this.onOpenSettings,
-    this.onOpenBrowser,
     required this.onSeekPreview,
     required this.onSeekStart,
     required this.onSeekEnd,
@@ -51,7 +50,6 @@ class VideoPlayerPage extends StatefulWidget {
   final VoidCallback onFastForward;
   final VoidCallback onFullscreen;
   final VoidCallback onOpenSettings;
-  final VoidCallback? onOpenBrowser;
   final ValueChanged<double> onSeekPreview;
   final VoidCallback onSeekStart;
   final ValueChanged<double> onSeekEnd;
@@ -81,8 +79,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
-    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null)
+    if (!widget.immersive ||
+        _dragStartX == null ||
+        _dragStartPosition == null) {
       return;
+    }
     final ctrl = widget.controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -108,9 +109,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     setState(() {
       _dragTargetPosition = clampedPos;
       if (deltaSec > 0) {
-        _seekPreviewText = '+${deltaSec}秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '+$deltaSec秒 → ${formatTime(clampedPos)}';
       } else if (deltaSec < 0) {
-        _seekPreviewText = '${deltaSec}秒 → ${formatTime(clampedPos)}';
+        _seekPreviewText = '$deltaSec秒 → ${formatTime(clampedPos)}';
       } else {
         _seekPreviewText = formatTime(clampedPos);
       }
@@ -313,7 +314,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   onTap: widget.onFullscreen,
                   child: Icon(
                     Icons.fullscreen_exit,
-                    color: Colors.white.withOpacity(0.5),
+                    color: Colors.white.withValues(alpha: 0.5),
                     size: 28,
                     shadows: const [
                       Shadow(color: Colors.black45, blurRadius: 4),
@@ -331,7 +332,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   onTap: widget.onOpenSettings,
                   child: Icon(
                     Icons.settings,
-                    color: Colors.white.withOpacity(0.5),
+                    color: Colors.white.withValues(alpha: 0.5),
                     size: 28,
                     shadows: const [
                       Shadow(color: Colors.black45, blurRadius: 4),
@@ -387,19 +388,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               ),
             ),
           ),
-          if (widget.onOpenBrowser != null)
-            Positioned(
-              right: 54,
-              top: 8,
-              child: SafeArea(
-                child: _MinimalButton(
-                  storageKey: 'browser_button_normal',
-                  defaultOffset: const Offset(54, 8),
-                  icon: Icons.public,
-                  onTap: widget.onOpenBrowser!,
-                ),
-              ),
-            ),
           // 竖屏：快进按钮（半透明，无背景）
           Positioned(
             left: 10,
@@ -593,8 +581,8 @@ class _MinimalButtonState extends State<_MinimalButton> {
           child: Icon(
             widget.icon,
             color: _isDragging
-                ? Colors.white.withOpacity(0.9)
-                : Colors.white.withOpacity(0.5),
+                ? Colors.white.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.5),
             size: 28,
             shadows: const [
               Shadow(color: Colors.black45, blurRadius: 4),
