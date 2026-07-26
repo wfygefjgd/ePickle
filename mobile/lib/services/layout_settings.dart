@@ -8,8 +8,11 @@ class LayoutSettings extends ChangeNotifier {
   static const _kEnabled = 'layout_enabled_video_ids_v1';
   static const _kLiveId = 'layout_live_id_v1';
   static const _kGlobalSearch = 'layout_global_search_v1';
+  static const _kCatalogVer = 'layout_catalog_ver_v1';
+  static const _catalogVer = 2;
 
-  List<String> _enabledVideoIds = List.from(SourceCatalog.defaultEnabledVideoIds);
+  List<String> _enabledVideoIds =
+      List<String>.from(SourceCatalog.defaultEnabledVideoIds);
   String _liveId = SourceCatalog.defaultLiveId;
   bool _globalSearch = false;
   bool _ready = false;
@@ -33,14 +36,23 @@ class LayoutSettings extends ChangeNotifier {
   Future<void> load() async {
     try {
       final p = await SharedPreferences.getInstance();
-      final raw = p.getStringList(_kEnabled);
-      if (raw != null && raw.isNotEmpty) {
-        _enabledVideoIds = raw
-            .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
-            .toList();
-      }
-      if (_enabledVideoIds.isEmpty) {
-        _enabledVideoIds = List.from(SourceCatalog.defaultEnabledVideoIds);
+      final catVer = p.getInt(_kCatalogVer) ?? 0;
+      if (catVer < _catalogVer) {
+        _enabledVideoIds =
+            List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+        await p.setStringList(_kEnabled, _enabledVideoIds);
+        await p.setInt(_kCatalogVer, _catalogVer);
+      } else {
+        final raw = p.getStringList(_kEnabled);
+        if (raw != null && raw.isNotEmpty) {
+          _enabledVideoIds = raw
+              .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
+              .toList();
+        }
+        if (_enabledVideoIds.isEmpty) {
+          _enabledVideoIds =
+              List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+        }
       }
       final live = p.getString(_kLiveId);
       if (live != null && SourceCatalog.byId(live)?.kind == SiteKind.live) {
@@ -48,7 +60,8 @@ class LayoutSettings extends ChangeNotifier {
       }
       _globalSearch = p.getBool(_kGlobalSearch) ?? false;
     } catch (_) {
-      _enabledVideoIds = List.from(SourceCatalog.defaultEnabledVideoIds);
+      _enabledVideoIds =
+          List<String>.from(SourceCatalog.defaultEnabledVideoIds);
       _liveId = SourceCatalog.defaultLiveId;
       _globalSearch = false;
     }
@@ -61,7 +74,7 @@ class LayoutSettings extends ChangeNotifier {
         .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
         .toList();
     if (clean.isEmpty) {
-      clean.addAll(SourceCatalog.defaultEnabledVideoIds);
+      clean.addAll(List<String>.from(SourceCatalog.defaultEnabledVideoIds));
     }
     _enabledVideoIds = clean;
     notifyListeners();
@@ -117,7 +130,8 @@ class LayoutSettings extends ChangeNotifier {
 
   /// Restore source + home layout only (not proxy / quality).
   Future<void> restoreDefaultLayout() async {
-    _enabledVideoIds = List.from(SourceCatalog.defaultEnabledVideoIds);
+    _enabledVideoIds =
+        List<String>.from(SourceCatalog.defaultEnabledVideoIds);
     _liveId = SourceCatalog.defaultLiveId;
     _globalSearch = false;
     notifyListeners();
@@ -126,6 +140,7 @@ class LayoutSettings extends ChangeNotifier {
       await p.setStringList(_kEnabled, _enabledVideoIds);
       await p.setString(_kLiveId, _liveId);
       await p.setBool(_kGlobalSearch, false);
+      await p.setInt(_kCatalogVer, _catalogVer);
     } catch (_) {}
   }
 }

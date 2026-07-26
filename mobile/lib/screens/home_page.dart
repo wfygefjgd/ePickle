@@ -218,6 +218,9 @@ class _HomePageState extends State<HomePage> {
                   _SiteTile(
                     site: s,
                     onTap: () => _openSite(s),
+                    mirrorHint: s.mirrors.length > 1
+                        ? '${s.mirrors.length} 个域名'
+                        : null,
                   ),
                 ListTile(
                   leading: const Icon(Icons.add_circle_outline,
@@ -353,14 +356,20 @@ class _SiteTile extends StatelessWidget {
     required this.site,
     required this.onTap,
     this.subtitle,
+    this.mirrorHint,
   });
 
   final SiteDef site;
   final VoidCallback onTap;
   final String? subtitle;
+  final String? mirrorHint;
 
   @override
   Widget build(BuildContext context) {
+    final sub = subtitle ??
+        (site.ready
+            ? (mirrorHint != null ? '点击进入 · $mirrorHint' : '点击进入')
+            : (mirrorHint != null ? '即将支持 · $mirrorHint' : '即将支持'));
     return Card(
       color: const Color(0xFF2A2A2A),
       margin: const EdgeInsets.only(bottom: 8),
@@ -368,7 +377,7 @@ class _SiteTile extends StatelessWidget {
         leading: _SiteAvatar(site: site),
         title: Text(site.name, style: const TextStyle(color: Colors.white)),
         subtitle: Text(
-          subtitle ?? (site.ready ? '点击进入' : '即将支持'),
+          sub,
           style: const TextStyle(color: Colors.white38, fontSize: 12),
         ),
         trailing: const Icon(Icons.chevron_right, color: Colors.white38),
