@@ -31,6 +31,8 @@ void main() {
           print('$id feed OK: ${feed.first.url}');
           final detail = await api.getVideoDetail(site, feed.first.url);
           if (detail.streams.isEmpty) throw StateError('no media address');
+          // ignore: avoid_print
+          print('$id media candidate: ${detail.streams.first.url}');
           await _probeMedia(detail.streams.first, detail.url);
           // Useful when this opt-in test is run manually during source repairs.
           // ignore: avoid_print

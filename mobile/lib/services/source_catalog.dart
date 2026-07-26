@@ -433,7 +433,7 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF00695C,
     letter: 'J',
-    ready: false,
+    ready: true,
     mirrors: [
       'https://javmix.com',
     ],

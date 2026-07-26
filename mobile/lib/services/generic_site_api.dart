@@ -1006,10 +1006,16 @@ class GenericSiteApi {
     // avoids mistaking hover previews and ad assets for the full video.
     var streams = <StreamQuality>[];
     if (site.id == 'javmix' || site.id == 'javgg') {
-      // KVS main pages expose non-embed get_file URLs which currently return
-      // an error GIF. The iframe carries the playable `embed=true` URL and
-      // the session cookie/referrer required by the media endpoint.
-      streams = await _followEmbeds(html, url, url, depth: 2);
+      // Current JAVMix pages expose a fresh signed JSON-LD contentUrl while
+      // their player video_url may already be stale. Older KVS pages need the
+      // embed page, so only prefer the main page when contentUrl is present.
+      final hasContentUrl = RegExp(
+        r'''["']contentUrl["']\s*:''',
+        caseSensitive: false,
+      ).hasMatch(html);
+      streams = hasContentUrl
+          ? _extractKvsStreams(html, url)
+          : await _followEmbeds(html, url, url, depth: 2);
     }
     if (streams.isEmpty) {
       streams = <StreamQuality>[
@@ -1420,7 +1426,7 @@ class GenericSiteApi {
     final origin = _originOf(base);
     final cookie = origin == null ? null : _cookieHeader(origin);
     for (final match in RegExp(
-      r'''(?:video_url|event_reporting2|video_alt_url\d*)\s*:\s*["']([^"']+)["']''',
+      r'''(?:["']contentUrl["']\s*:|video_url\s*:|event_reporting2\s*:|video_alt_url\d*\s*:)[\s]*["']([^"']+)["']''',
       caseSensitive: false,
     ).allMatches(html)) {
       var value = match.group(1)!.replaceAll(r'\/', '/').trim();
@@ -1441,8 +1447,16 @@ class GenericSiteApi {
       if (_isPreviewUrl(value) || !seen.add(value)) continue;
       out.add(
         StreamQuality(
-          width: 1280,
-          height: low.contains('m3u8') ? 720 : 480,
+          width: low.contains('1080p')
+              ? 1920
+              : low.contains('720p')
+                  ? 1280
+                  : 854,
+          height: low.contains('1080p')
+              ? 1080
+              : low.contains('720p') || low.contains('m3u8')
+                  ? 720
+                  : 480,
           url: value,
           referer: base,
           headers: {if (cookie != null) 'Cookie': cookie},

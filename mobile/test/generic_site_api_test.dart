@@ -167,6 +167,42 @@ void main() {
     expect(urls, everyElement(isNot(endsWith('.mp4.jpg'))));
   });
 
+  test('prefers playable KVS JSON-LD contentUrl over a stale player URL',
+      () async {
+    const pageUrl = 'https://fixture.test/video/42/example/';
+    const contentUrl = 'https://fixture.test/get_file/good/42/42_720p.mp4/';
+    const staleUrl = 'https://fixture.test/get_file/stale/42/42.mp4/';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script type="application/ld+json">
+            {"contentUrl":"$contentUrl"}
+          </script>
+          <script>
+            const player = {video_url: '$staleUrl'};
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(
+      const SiteDef(
+        id: 'javmix',
+        name: 'JAVMix fixture',
+        kind: SiteKind.video,
+        tags: [],
+        color: 0,
+        letter: 'J',
+        mirrors: ['https://fixture.test'],
+      ),
+      pageUrl,
+    );
+
+    expect(detail.streams.first.url, contentUrl);
+    expect(detail.streams.first.height, 720);
+  });
+
   test('prefers KVS embed media and carries its referrer and session cookie',
       () async {
     const pageUrl = 'https://fixture.test/video/32176/example/';
@@ -478,6 +514,7 @@ void main() {
         'xvideos',
         'mitao',
         'xnxx',
+        'javmix',
       ]),
     );
     expect(SourceCatalog.byId('our55'), isNull);
