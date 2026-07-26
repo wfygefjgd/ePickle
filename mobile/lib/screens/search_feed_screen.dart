@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -109,7 +108,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _stallLoweredForItem = false;
   int _stallArmedAfterMs = 0;
   bool _resyncingPage = false;
-  bool? _lastImmersiveForPage;
 
   late final Map<String, String> _headers = _buildHeaders();
 
@@ -118,14 +116,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// Android: 3 next videos; iOS: 4; others: 1.
-  int get _preloadSlotCount {
-    try {
-      if (Platform.isIOS) return 4;
-      if (Platform.isAndroid) return 3;
-    } catch (_) {}
-    return 1;
-  }
+  /// Next-video preload slots (both platforms: 3).
+  int get _preloadSlotCount => 3;
 
   bool get _multiPreload => _preloadSlotCount > 1;
 
@@ -372,7 +364,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         if (seen.add(e.viewkey)) add.add(e);
       }
       if (add.isEmpty) return;
-      setState(() => _items.addAll(add));
+      setState(() {
+        _items.addAll(add);
+        // Soft cap search-feed list memory.
+        const max = 200;
+        if (_items.length > max) {
+          final drop = _items.length - max;
+          _items.removeRange(0, drop);
+          _index = (_index - drop).clamp(0, _items.length - 1);
+          if (_pageCtrl.hasClients) {
+            try {
+              _pageCtrl.jumpToPage(_index);
+            } catch (_) {}
+          }
+        }
+      });
     } catch (_) {
     } finally {
       _loadingMore = false;
@@ -1375,10 +1381,6 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Widget build(BuildContext context) {
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
-    if (_lastImmersiveForPage != immersive) {
-      _lastImmersiveForPage = immersive;
-      _schedulePageResync();
-    }
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
@@ -1735,9 +1737,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final enabled = _settings?.autoLowerOnStall ??
         context.read<AppSettings>().autoLowerOnStall;
     if (!enabled) return;
-    // Need current detail from cache
     final detail = _detailCache[_index];
-    if (detail == null || detail.streams.isEmpty) return;
+    if (detail == null || detail.streams.length < 2) return;
+    final heights =
+        detail.streams.map((s) => s.height).where((h) => h > 0).toSet();
+    if (heights.length < 2) return;
     final curH = _currentStreamHeight;
     if (curH <= 0) return;
     final lower = detail.streams

@@ -10,8 +10,9 @@ Future<void> main() async {
   final settings = AppSettings();
   await settings.load();
 
-  // Auto-check and clean cache on app launch
-  CacheManager.checkAndCleanIfNeeded();
+  // Throttled; force once on cold start.
+  // ignore: unawaited_futures
+  CacheManager.checkAndCleanIfNeeded(force: true);
 
   runApp(PlayerApp(settings: settings));
 }

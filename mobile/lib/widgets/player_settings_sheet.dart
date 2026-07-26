@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_settings.dart';
@@ -183,17 +184,10 @@ Future<void> showPlayerSettingsSheet(
                             },
                           ),
                         const SizedBox(height: 16),
-                        // Version number display
                         const Center(
                           child: Padding(
                             padding: EdgeInsets.only(bottom: 8),
-                            child: Text(
-                              'v1.9.6',
-                              style: TextStyle(
-                                color: Colors.white24,
-                                fontSize: 11,
-                              ),
-                            ),
+                            child: _AppVersionLabel(),
                           ),
                         ),
                       ],
@@ -384,6 +378,35 @@ class _ProxyEditorState extends State<_ProxyEditor> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AppVersionLabel extends StatefulWidget {
+  const _AppVersionLabel();
+
+  @override
+  State<_AppVersionLabel> createState() => _AppVersionLabelState();
+}
+
+class _AppVersionLabelState extends State<_AppVersionLabel> {
+  String _label = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (!mounted) return;
+      setState(() => _label = 'v${info.version}');
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_label.isEmpty) return const SizedBox.shrink();
+    return Text(
+      _label,
+      style: const TextStyle(color: Colors.white24, fontSize: 11),
     );
   }
 }

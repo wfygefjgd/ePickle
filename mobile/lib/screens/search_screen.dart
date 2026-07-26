@@ -58,6 +58,15 @@ class _SearchScreenState extends State<SearchScreen>
     _Src.zhong: true,
   };
 
+  /// Last opened / tapped index per source (for share).
+  final Map<_Src, int> _lastIndex = {
+    _Src.ph: 0,
+    _Src.x: 0,
+    _Src.zhong: 0,
+  };
+
+  static const _maxResultsPerSrc = 200;
+
   static const _labels = {
     _Src.ph: '热',
     _Src.x: 'X',
@@ -180,17 +189,26 @@ class _SearchScreenState extends State<SearchScreen>
       for (final e in list) {
         if (seen.add(e.viewkey)) fresh.add(e);
       }
-      final merged = replace ? fresh : [...prev, ...fresh];
+      var merged = replace ? fresh : [...prev, ...fresh];
+      if (merged.length > _maxResultsPerSrc) {
+        merged = merged.sublist(merged.length - _maxResultsPerSrc);
+        _hasMore[src] = false;
+      }
       setState(() {
         _results[src] = merged;
         _page[src] = page;
         _loading[src] = false;
         // Empty page or zero new items => stop paging
-        _hasMore[src] = list.isNotEmpty && fresh.isNotEmpty;
+        _hasMore[src] = list.isNotEmpty &&
+            fresh.isNotEmpty &&
+            merged.length < _maxResultsPerSrc;
+        if (replace) _lastIndex[src] = 0;
       });
       // Translate titles for PH/X only (中 usually already Chinese)
       if (src != _Src.zhong && fresh.isNotEmpty) {
-        final start = replace ? 0 : merged.length - fresh.length;
+        final start = replace
+            ? 0
+            : (merged.length - fresh.length).clamp(0, merged.length);
         _translateRange(src, start, gen);
       }
     } catch (e) {
@@ -253,6 +271,7 @@ class _SearchScreenState extends State<SearchScreen>
   void _openFeed(_Src src, int index) {
     final items = _results[src] ?? [];
     if (items.isEmpty) return;
+    _lastIndex[src] = index.clamp(0, items.length - 1);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SearchFeedScreen(
@@ -279,8 +298,8 @@ class _SearchScreenState extends State<SearchScreen>
       return;
     }
 
-    // Share first item of current tab results (list entry point).
-    final videoUrl = items.first.url;
+    final i = (_lastIndex[src] ?? 0).clamp(0, items.length - 1);
+    final videoUrl = items[i].url;
 
     // 复制到剪贴板
     Clipboard.setData(ClipboardData(text: videoUrl));

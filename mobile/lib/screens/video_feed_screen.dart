@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -115,7 +114,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _stallArmedAfterMs = 0;
   /// Ignore PageView callbacks while re-syncing after portrait↔landscape layout.
   bool _resyncingPage = false;
-  bool? _lastImmersiveForPage;
   String get _cacheKey => widget.kind.name;
   late final Map<String, String> _httpHeaders = _buildHeaders();
 
@@ -125,14 +123,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// Android: 3 next videos; iOS: 4; others: 1.
-  int get _preloadSlotCount {
-    try {
-      if (Platform.isIOS) return 4;
-      if (Platform.isAndroid) return 3;
-    } catch (_) {}
-    return 1;
-  }
+  /// Next-video preload slots (both platforms: 3).
+  int get _preloadSlotCount => 3;
+
+  /// Live list hard cap (window around current index).
+  static const _maxLiveItems = 150;
 
   bool get _multiPreload => _preloadSlotCount > 1;
 
@@ -533,6 +528,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       for (final item in list) {
         if (_seen.add(item.viewkey)) _items.add(item);
       }
+      _trimItemsWindow();
       if (!mounted) return;
       setState(() {
         _loadingMore = false;
@@ -543,9 +539,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         }
       });
       // PH / X titles are English — batch translate after list load.
-      if (widget.kind != VideoFeedKind.zhong && _items.length > addedStart) {
+      final translateStart = addedStart.clamp(0, _items.length);
+      if (widget.kind != VideoFeedKind.zhong &&
+          _items.length > translateStart) {
         // ignore: unawaited_futures
-        _translateItemsRange(addedStart);
+        _translateItemsRange(translateStart);
       }
       if (_active && _items.isNotEmpty && _controller == null) {
         _playIndex(_currentIndex.clamp(0, _items.length - 1));
@@ -1330,11 +1328,43 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     WakelockPlus.enable();
     if (mounted) setState(() {});
 
-    // Auto-check cache after video load
-    CacheManager.checkAndCleanIfNeeded();
-
-    // Clean up old detail cache to prevent memory growth
+    CacheManager.onVideoPlayed();
     _cleanupDetailCache(index);
+  }
+
+  /// Drop items far from the play head so memory stays bounded.
+  void _trimItemsWindow() {
+    if (_items.length <= _maxLiveItems) return;
+    final i = _currentIndex.clamp(0, _items.length - 1);
+    final half = _maxLiveItems ~/ 2;
+    var start = (i - half).clamp(0, _items.length);
+    var end = (start + _maxLiveItems).clamp(0, _items.length);
+    if (end - start < _maxLiveItems) {
+      start = (end - _maxLiveItems).clamp(0, end);
+    }
+    if (start == 0 && end == _items.length) return;
+    final kept = _items.sublist(start, end);
+    _items
+      ..clear()
+      ..addAll(kept);
+    _currentIndex = (i - start).clamp(0, _items.length - 1);
+    _seen
+      ..clear()
+      ..addAll(kept.map((e) => e.viewkey));
+    // Rebase detail cache keys to new indices (drop far entries).
+    final rebased = <int, VideoDetail>{};
+    for (final e in _detailCache.entries) {
+      final ni = e.key - start;
+      if (ni >= 0 && ni < _items.length) rebased[ni] = e.value;
+    }
+    _detailCache
+      ..clear()
+      ..addAll(rebased);
+    if (_pageCtrl.hasClients) {
+      try {
+        _pageCtrl.jumpToPage(_currentIndex);
+      } catch (_) {}
+    }
   }
 
   Future<void> _disposeController({int? seqGuard, VideoPlayerController? exclude}) async {
@@ -1603,7 +1633,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         context.read<AppSettings>().autoLowerOnStall;
     if (!enabled) return;
     final detail = _currentDetail;
-    if (detail == null || detail.streams.isEmpty) return;
+    if (detail == null || detail.streams.length < 2) return;
+    final heights = detail.streams.map((s) => s.height).where((h) => h > 0).toSet();
+    if (heights.length < 2) return; // single fake stream (e.g. 中源) — skip
     final curH = _currentStreamHeight;
     if (curH <= 0) return;
     final lower = detail.streams
@@ -1705,11 +1737,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final immersive =
         context.select<PlayerChrome, bool>((c) => c.immersive);
-    // Chrome flip without going through our handlers (rare) — still re-pin page.
-    if (_lastImmersiveForPage != immersive) {
-      _lastImmersiveForPage = immersive;
-      _schedulePageResync();
-    }
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(

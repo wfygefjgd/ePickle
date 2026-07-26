@@ -4,104 +4,122 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Automatic cache cleanup manager.
-/// Monitors cache size and auto-cleans when threshold is reached.
+/// Automatic cache cleanup with throttling (avoid scanning temp every video).
 class CacheManager {
-  static const _maxCacheSizeMB = 500; // 500MB threshold
-  static const _targetCacheSizeMB = 300; // Clean down to 300MB
+  static const _maxCacheSizeMB = 500;
+  static const _targetCacheSizeMB = 300;
+  static const _minInterval = Duration(minutes: 30);
+  static const _minVideosBetween = 40;
 
-  /// Check cache size and clean if needed.
-  /// Call this periodically (e.g., on app launch, after video loads).
-  static Future<void> checkAndCleanIfNeeded() async {
+  static DateTime? _lastCheck;
+  static int _videosSinceCheck = 0;
+  static bool _running = false;
+
+  /// On launch: force one check (still throttled against concurrent runs).
+  static Future<void> checkAndCleanIfNeeded({bool force = false}) async {
+    if (_running) return;
+    final now = DateTime.now();
+    if (!force) {
+      _videosSinceCheck++;
+      if (_lastCheck != null &&
+          now.difference(_lastCheck!) < _minInterval &&
+          _videosSinceCheck < _minVideosBetween) {
+        return;
+      }
+    }
+    _running = true;
+    _lastCheck = now;
+    _videosSinceCheck = 0;
     try {
       final cacheSize = await _getCacheSizeInMB();
       if (cacheSize > _maxCacheSizeMB) {
-        debugPrint('Cache size ${cacheSize}MB exceeds limit, cleaning...');
+        debugPrint('Cache size ${cacheSize.toStringAsFixed(0)}MB exceeds limit, cleaning...');
         await _cleanCache();
         final newSize = await _getCacheSizeInMB();
-        debugPrint('Cache cleaned: ${cacheSize}MB → ${newSize}MB');
+        debugPrint(
+          'Cache cleaned: ${cacheSize.toStringAsFixed(0)}MB → ${newSize.toStringAsFixed(0)}MB',
+        );
       }
     } catch (e) {
       debugPrint('Cache check failed: $e');
+    } finally {
+      _running = false;
     }
   }
 
-  /// Get total cache size in MB.
+  /// Call after a successful play (throttled).
+  static void onVideoPlayed() {
+    // ignore: discarded_futures
+    checkAndCleanIfNeeded();
+  }
+
   static Future<double> _getCacheSizeInMB() async {
     try {
       final tempDir = await getTemporaryDirectory();
-      final cacheDir = Directory(tempDir.path);
-
-      if (!await cacheDir.exists()) return 0;
+      // Prefer flutter_cache_manager / libCachedImageData dirs if present.
+      final candidates = <Directory>[
+        Directory('${tempDir.path}/libCachedImageData'),
+        Directory('${tempDir.path}/flutter_cache_manager'),
+        tempDir,
+      ];
+      Directory? root;
+      for (final d in candidates) {
+        if (await d.exists()) {
+          root = d;
+          // Prefer specific cache dirs over whole temp.
+          if (d.path != tempDir.path) break;
+        }
+      }
+      if (root == null) return 0;
 
       int totalSize = 0;
-      await for (final entity in cacheDir.list(recursive: true)) {
+      await for (final entity in root.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             totalSize += await entity.length();
           } catch (_) {}
         }
       }
-
-      return totalSize / (1024 * 1024); // Convert to MB
+      return totalSize / (1024 * 1024);
     } catch (_) {
       return 0;
     }
   }
 
-  /// Clean cache down to target size.
   static Future<void> _cleanCache() async {
     try {
-      // Clean cached_network_image cache
       await DefaultCacheManager().emptyCache();
-
-      // Also clean old files from temp directory
       final tempDir = await getTemporaryDirectory();
       final now = DateTime.now();
 
-      await for (final entity in tempDir.list(recursive: true)) {
-        if (entity is File) {
-          try {
-            final stat = await entity.stat();
-            final age = now.difference(stat.modified);
-
-            // Delete files older than 7 days
-            if (age.inDays > 7) {
-              await entity.delete();
-            }
-          } catch (_) {}
-        }
-      }
-
-      // Check if we need more aggressive cleaning
-      final currentSize = await _getCacheSizeInMB();
-      if (currentSize > _targetCacheSizeMB) {
-        // Delete files older than 3 days
-        await for (final entity in tempDir.list(recursive: true)) {
+      Future<void> deleteOlderThan(int days) async {
+        await for (final entity in tempDir.list(recursive: true, followLinks: false)) {
           if (entity is File) {
             try {
               final stat = await entity.stat();
-              final age = now.difference(stat.modified);
-
-              if (age.inDays > 3) {
+              if (now.difference(stat.modified).inDays > days) {
                 await entity.delete();
               }
             } catch (_) {}
           }
         }
       }
+
+      await deleteOlderThan(7);
+      final currentSize = await _getCacheSizeInMB();
+      if (currentSize > _targetCacheSizeMB) {
+        await deleteOlderThan(3);
+      }
     } catch (e) {
       debugPrint('Cache cleanup failed: $e');
     }
   }
 
-  /// Manual cache clear (for settings page if needed).
   static Future<void> clearAllCache() async {
     try {
       await DefaultCacheManager().emptyCache();
       final tempDir = await getTemporaryDirectory();
-
-      await for (final entity in tempDir.list(recursive: true)) {
+      await for (final entity in tempDir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             await entity.delete();
