@@ -154,7 +154,7 @@ class PlaybackHelpers {
     if (s.contains('PhubException:')) {
       core = s.replaceFirst('PhubException: ', '');
     } else if (low.contains('403') || low.contains('forbidden')) {
-      core = '访问被拒绝(403)';
+      core = '应用抓取被拦截(403)，不代表网站失效';
     } else if (low.contains('404') || low.contains('not found')) {
       core = '内容不存在(404)';
     } else if (low.contains('timeout') || low.contains('timed out')) {
@@ -183,7 +183,7 @@ class PlaybackHelpers {
         low.contains('cloudflare') ||
         low.contains('cookie') ||
         low.contains('验证页')) {
-      return '$core\n\n站点拒绝了当前请求或要求浏览器验证，可切换网络/TUN 后重试。';
+      return '$core\n\n网页可能仍可正常访问；应用会尝试 iOS 系统网络会话。若仍失败，说明需要 JavaScript / 浏览器验证。';
     }
     if (low.contains('failed host lookup') ||
         low.contains('name not resolved') ||

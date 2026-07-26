@@ -7,6 +7,7 @@ import '../models/video_item.dart';
 import '../utils/des_ecb.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
+import '../utils/native_browser_http.dart';
 import 'phub_api.dart';
 import 'source_catalog.dart';
 
@@ -73,6 +74,11 @@ class GenericSiteApi {
   }) async {
     final origin = _originOf(url);
     final cookieHeader = origin == null ? null : _cookieHeader(origin);
+    final requestHeaders = <String, String>{
+      ...AppHttpHeaders.forSite(origin ?? url),
+      if (cookieHeader != null) 'Cookie': cookieHeader,
+      if (headers != null) ...headers,
+    };
     final token = cancelToken ?? CancelToken();
     _activeRequests.add(token);
     late final Response<String> res;
@@ -83,11 +89,7 @@ class GenericSiteApi {
             cancelToken: token,
             options: Options(
               responseType: ResponseType.plain,
-              headers: {
-                ...AppHttpHeaders.forSite(origin ?? url),
-                if (cookieHeader != null) 'Cookie': cookieHeader,
-                if (headers != null) ...headers,
-              },
+              headers: requestHeaders,
               followRedirects: true,
               validateStatus: (s) => s != null && s < 500,
             ),
@@ -96,13 +98,31 @@ class GenericSiteApi {
     } on TimeoutException {
       if (!token.isCancelled) token.cancel('request timeout');
       rethrow;
+    } on DioException catch (error) {
+      if (!CancelToken.isCancel(error) && _shouldUseNativeFallback(error)) {
+        final native = await _nativeGetHtml(
+          url,
+          origin: origin,
+          headers: requestHeaders,
+          timeout: timeout,
+        );
+        if (native != null) return native;
+      }
+      rethrow;
     } finally {
       _activeRequests.remove(token);
     }
     _storeCookies(origin, res.headers);
     final status = res.statusCode ?? 0;
     if (res.statusCode == 403) {
-      throw PhubException('访问被拒绝 (403)');
+      final native = await _nativeGetHtml(
+        url,
+        origin: origin,
+        headers: requestHeaders,
+        timeout: timeout,
+      );
+      if (native != null) return native;
+      throw PhubException('抓取请求被拦截 (403；不代表网站失效)');
     }
     if (res.statusCode == 404) {
       throw PhubException('页面不存在 (404)');
@@ -114,6 +134,39 @@ class GenericSiteApi {
       throw PhubException('空响应');
     }
     return res.data!;
+  }
+
+  bool _shouldUseNativeFallback(DioException error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('handshake') ||
+        message.contains('certificate') ||
+        message.contains('connection reset') ||
+        error.response?.statusCode == 403;
+  }
+
+  Future<String?> _nativeGetHtml(
+    String url, {
+    required String? origin,
+    required Map<String, String> headers,
+    required Duration timeout,
+  }) async {
+    final response = await NativeBrowserHttp.get(
+      url,
+      headers: headers,
+      timeout: timeout,
+    );
+    if (response == null ||
+        response.statusCode < 200 ||
+        response.statusCode >= 400 ||
+        response.body.isEmpty) {
+      return null;
+    }
+    if (origin != null && response.cookies.isNotEmpty) {
+      _cookies.putIfAbsent(origin, () => <String, String>{}).addAll(
+            response.cookies,
+          );
+    }
+    return response.body;
   }
 
   String? _cookieHeader(String origin) {

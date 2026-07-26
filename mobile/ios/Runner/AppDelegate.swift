@@ -5,6 +5,7 @@ import WebKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var privacyChannel: FlutterMethodChannel?
+  private var browserHttpChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -36,6 +37,65 @@ import WebKit
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+
+    let browserChannel = FlutterMethodChannel(
+      name: "epickle/browser_http",
+      binaryMessenger: messenger
+    )
+    browserHttpChannel = browserChannel
+    browserChannel.setMethodCallHandler { call, result in
+      guard call.method == "get",
+            let arguments = call.arguments as? [String: Any],
+            let rawUrl = arguments["url"] as? String,
+            let url = URL(string: rawUrl) else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+
+      var request = URLRequest(url: url)
+      request.httpMethod = "GET"
+      request.cachePolicy = .reloadIgnoringLocalCacheData
+      let timeoutMs = arguments["timeoutMs"] as? Int ?? 10000
+      request.timeoutInterval = max(1, Double(timeoutMs) / 1000.0)
+      if let headers = arguments["headers"] as? [String: String] {
+        for (name, value) in headers {
+          request.setValue(value, forHTTPHeaderField: name)
+        }
+      }
+
+      URLSession.shared.dataTask(with: request) { data, response, error in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(FlutterError(
+              code: "native_http_failed",
+              message: error.localizedDescription,
+              details: nil
+            ))
+            return
+          }
+          guard let http = response as? HTTPURLResponse else {
+            result(FlutterError(
+              code: "native_http_invalid_response",
+              message: "Missing HTTP response",
+              details: nil
+            ))
+            return
+          }
+          let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+          var cookies: [String: String] = [:]
+          let finalUrl = http.url ?? url
+          HTTPCookieStorage.shared.cookies(for: finalUrl)?.forEach {
+            cookies[$0.name] = $0.value
+          }
+          result([
+            "statusCode": http.statusCode,
+            "body": body,
+            "finalUrl": finalUrl.absoluteString,
+            "cookies": cookies,
+          ])
+        }
+      }.resume()
     }
   }
 }
