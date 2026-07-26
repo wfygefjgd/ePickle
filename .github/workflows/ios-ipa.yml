@@ -223,49 +223,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ios-v${{ github.run_number }}
-          name: PHUB Player iOS v1.7.7 侧载版 (build ${{ github.run_number }})
-          body: |
-            ## PHUB Player iOS v1.7.7 — 三预加载增强版
-
-            **版本**: 1.7.7 (iOS build ${{ github.run_number }})
-
-            ### ✨ 新功能
-            - **三预加载机制**：同时预加载三个视频 (index+1, +2, +3)
-            - **智能槽位提升**：切换视频时自动提升预加载槽位
-            - **多槽位快速路径**：支持任意预加载槽位的视频直接使用
-            - **减少加载转圈**：快速滑动时更流畅的体验
-            - **智能跳过片头**：根据视频时长动态调整（长视频20秒，中等15秒，短视频不跳过）
-
-            ### 📦 文件
-            - `PHUB-Player-iOS.ipa` — 未签名主包（适用于全能签、Sideloadly、AltStore、TrollStore）
-            - `SHA256.txt` — 文件校验
-
-            ### 📱 安装步骤
-            1. 下载 IPA 文件
-            2. 使用你的证书/描述文件进行自签名
-            3. 安装到设备后信任证书（设置 → 通用 → VPN与设备管理）
-
-            ### ℹ️ 应用信息
-            - **Bundle ID**: `com.phub.player.phub_player`
-            - **显示名称**: PHUB Player
-            - **版本**: 1.7.7
-            - **系统要求**: iOS 12.0+
-
-            ### ⚠️ 使用说明
-            - 需要网络代理或 VPN 访问源站
-            - 支持系统代理自动检测
-            - 可手动配置 HTTP/SOCKS5 代理
-
-            **注意**: 本应用仅供个人学习研究使用，请遵守当地法律法规。
-          files: |
-            mobile/build/ipa_dist/PHUB-Player-iOS.ipa
-            mobile/build/ipa_dist/SHA256.txt
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Do NOT publish a GitHub Release here.
+      # Hardcoded "v1.7.7 侧载版" used to steal the "Latest" badge from real
+      # version tags (v1.9.x). Full APK+IPA releases are created only by
+      # release-build.yml on tags matching v*.
+      # Artifacts above are enough for ad-hoc download from Actions.
