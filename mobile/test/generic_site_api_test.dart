@@ -557,6 +557,46 @@ void main() {
     );
   });
 
+  test('Stripchat replaces the male tab with a newest-girls feed', () async {
+    expect(SourceCatalog.stripchatTags.map((tag) => tag.id), [
+      'girls',
+      'new',
+      'couples',
+      'trans',
+    ]);
+    expect(SourceCatalog.stripchatTags.map((tag) => tag.id),
+        isNot(contains('men')));
+
+    const base = 'https://strip-new.fixture.test';
+    const liveSite = SiteDef(
+      id: 'stripchat',
+      name: 'Strip fixture',
+      kind: SiteKind.live,
+      tags: SourceCatalog.stripchatTags,
+      color: 0,
+      letter: 'S',
+      mirrors: [base],
+    );
+    final dio = Dio();
+    final adapter = _FixtureAdapter({
+      '$base/api/front/models?limit=20&offset=0&primaryTag=girls&sortBy=newModels':
+          const _FixtureResponse(
+        '{"models":[{"username":"new-girl-room","isOnline":true}]}',
+      ),
+    });
+    dio.httpClientAdapter = adapter;
+
+    final feed = await GenericSiteApi(dio: dio).fetchFeed(
+      liveSite,
+      tagId: 'new',
+      limit: 1,
+    );
+
+    expect(feed.single.url, '$base/new-girl-room');
+    expect(adapter.requests.single.uri.queryParameters['primaryTag'], 'girls');
+    expect(adapter.requests.single.uri.queryParameters['sortBy'], 'newModels');
+  });
+
   test('directory-only FreePorn is not enabled as a playable source', () {
     expect(SourceCatalog.freeporn.ready, isFalse);
     expect(SourceCatalog.defaultEnabledVideoIds, isNot(contains('freeporn')));

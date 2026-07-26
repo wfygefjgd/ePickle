@@ -159,10 +159,10 @@ class SourceCatalog {
         icon: Icons.woman_outlined,
         iconSelected: Icons.woman),
     SiteTag(
-        id: 'men',
-        label: '\u7537',
-        icon: Icons.man_outlined,
-        iconSelected: Icons.man),
+        id: 'new',
+        label: '\u65b0',
+        icon: Icons.fiber_new_outlined,
+        iconSelected: Icons.fiber_new),
     SiteTag(
         id: 'couples',
         label: '\u4f34',

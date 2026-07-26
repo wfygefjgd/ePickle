@@ -245,6 +245,9 @@ private final class StripchatLivePlatformView: NSObject,
     webView.scrollView.backgroundColor = .black
     webView.scrollView.isScrollEnabled = false
     webView.scrollView.bounces = false
+    webView.scrollView.contentInsetAdjustmentBehavior = .never
+    webView.scrollView.contentInset = .zero
+    webView.scrollView.scrollIndicatorInsets = .zero
     webView.customUserAgent =
       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) " +
       "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 " +
@@ -357,16 +360,26 @@ private final class StripchatLivePlatformView: NSObject,
     let script = """
       (() => {
         window.__epickleMuted = \(flag);
+        var viewport = document.querySelector('meta[name="viewport"]');
+        if (!viewport) {
+          viewport = document.createElement('meta');
+          viewport.name = 'viewport';
+          document.head.appendChild(viewport);
+        }
+        viewport.content = 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';
         if (!document.getElementById('__epickle_live_style')) {
           const style = document.createElement('style');
           style.id = '__epickle_live_style';
           style.textContent = `
             html, body { margin: 0 !important; padding: 0 !important;
               width: 100% !important; height: 100% !important;
+              min-width: 100% !important; min-height: 100% !important;
               overflow: hidden !important; background: #000 !important; }
             video { position: fixed !important; inset: 0 !important;
               width: 100vw !important; height: 100vh !important;
               max-width: none !important; max-height: none !important;
+              margin: 0 !important; padding: 0 !important;
+              transform: none !important;
               object-fit: contain !important; background: #000 !important;
               z-index: 2147483647 !important; visibility: visible !important; }
           `;
@@ -378,23 +391,51 @@ private final class StripchatLivePlatformView: NSObject,
         );
         if (ageButton && !document.querySelector('video')) ageButton.click();
         const videos = Array.from(document.querySelectorAll('video'));
-        const video = videos.find(v => v.srcObject || v.currentSrc) || videos[0];
+        const rankedVideos = videos
+          .map(v => {
+            const rect = v.getBoundingClientRect();
+            const area = Math.max(0, rect.width) * Math.max(0, rect.height);
+            const active = (v.srcObject || v.currentSrc || v.src) ? 100000000 : 0;
+            const ready = v.readyState >= 2 ? 10000000 : 0;
+            return { v, score: active + ready + area };
+          })
+          .sort((a, b) => b.score - a.score);
+        const video = rankedVideos.length ? rankedVideos[0].v : null;
         if (!video) return false;
+
         let node = video;
-        while (node && node.parentElement) {
-          Array.from(node.parentElement.children).forEach(sibling => {
+        while (node) {
+          const parent = node.parentElement;
+          if (parent) Array.from(parent.children).forEach(sibling => {
             if (sibling !== node) {
-              sibling.style.setProperty('visibility', 'hidden', 'important');
+              sibling.style.setProperty('display', 'none', 'important');
               sibling.style.setProperty('pointer-events', 'none', 'important');
             }
           });
+          node.style.setProperty('position', 'fixed', 'important');
+          node.style.setProperty('inset', '0', 'important');
+          node.style.setProperty('width', '100vw', 'important');
+          node.style.setProperty('height', '100vh', 'important');
+          node.style.setProperty('min-width', '100vw', 'important');
+          node.style.setProperty('min-height', '100vh', 'important');
+          node.style.setProperty('max-width', 'none', 'important');
+          node.style.setProperty('max-height', 'none', 'important');
+          node.style.setProperty('margin', '0', 'important');
+          node.style.setProperty('padding', '0', 'important');
+          node.style.setProperty('transform', 'none', 'important');
+          node.style.setProperty('overflow', 'hidden', 'important');
+          node.style.setProperty('background', '#000', 'important');
+          node.style.setProperty('z-index', '2147483647', 'important');
           node.style.setProperty('visibility', 'visible', 'important');
-          node = node.parentElement;
+          if (node === document.documentElement) break;
+          node = parent;
         }
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.controls = false;
         video.muted = window.__epickleMuted;
+        video.style.setProperty('object-fit', 'contain', 'important');
+        window.scrollTo(0, 0);
         if (video.paused) video.play().catch(() => {});
         return true;
       })()
