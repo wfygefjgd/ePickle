@@ -1,11 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/video_item.dart';
-import '../services/app_settings.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 
@@ -29,6 +27,7 @@ class VideoPlayerPage extends StatefulWidget {
     required this.onFastForward,
     required this.onFullscreen,
     required this.onOpenSettings,
+    this.onOpenBrowser,
     required this.onSeekPreview,
     required this.onSeekStart,
     required this.onSeekEnd,
@@ -52,6 +51,7 @@ class VideoPlayerPage extends StatefulWidget {
   final VoidCallback onFastForward;
   final VoidCallback onFullscreen;
   final VoidCallback onOpenSettings;
+  final VoidCallback? onOpenBrowser;
   final ValueChanged<double> onSeekPreview;
   final VoidCallback onSeekStart;
   final ValueChanged<double> onSeekEnd;
@@ -81,7 +81,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
-    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) return;
+    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null)
+      return;
     final ctrl = widget.controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
 
@@ -117,7 +118,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
-    if (!widget.immersive || _dragStartX == null || _dragStartPosition == null) {
+    if (!widget.immersive ||
+        _dragStartX == null ||
+        _dragStartPosition == null) {
       return;
     }
     final ctrl = widget.controller;
@@ -137,9 +140,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
 
     final durMs = ctrl.value.duration.inMilliseconds;
-    final ratio = durMs > 0
-        ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0)
-        : 0.0;
+    final ratio =
+        durMs > 0 ? (targetPos.inMilliseconds / durMs).clamp(0.0, 1.0) : 0.0;
     // Commit via parent so progress timer / stall arm stay in sync.
     widget.onSeekEnd(ratio);
   }
@@ -194,7 +196,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       );
     }
     final i = widget.currentIndex;
-    final thumb = (i >= 0 && i < widget.items.length) ? widget.items[i].thumb : null;
+    final thumb =
+        (i >= 0 && i < widget.items.length) ? widget.items[i].thumb : null;
     return Container(
       color: const Color(0xFF1A1A1A),
       child: Stack(
@@ -384,6 +387,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               ),
             ),
           ),
+          if (widget.onOpenBrowser != null)
+            Positioned(
+              right: 54,
+              top: 8,
+              child: SafeArea(
+                child: _MinimalButton(
+                  storageKey: 'browser_button_normal',
+                  defaultOffset: const Offset(54, 8),
+                  icon: Icons.public,
+                  onTap: widget.onOpenBrowser!,
+                ),
+              ),
+            ),
           // 竖屏：快进按钮（半透明，无背景）
           Positioned(
             left: 10,
@@ -435,7 +451,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Widget _buildTopBar() {
     final title = widget.titleText.isNotEmpty
         ? widget.titleText
-        : (widget.currentIndex < widget.items.length ? widget.items[widget.currentIndex].title : '');
+        : (widget.currentIndex < widget.items.length
+            ? widget.items[widget.currentIndex].title
+            : '');
     return Positioned(
       left: 10,
       right: 10,
@@ -459,8 +477,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             if (widget.speedLabel.isNotEmpty) ...[
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.black45,
                   borderRadius: BorderRadius.circular(6),
@@ -531,9 +548,8 @@ class _MinimalButtonState extends State<_MinimalButton> {
 
   @override
   Widget build(BuildContext context) {
-    final displayOffset = _isDragging
-        ? _currentDragOffset
-        : (_savedOffset ?? Offset.zero);
+    final displayOffset =
+        _isDragging ? _currentDragOffset : (_savedOffset ?? Offset.zero);
 
     return Transform.translate(
       offset: displayOffset,

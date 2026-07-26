@@ -310,13 +310,9 @@ class SourceCatalog {
     color: 0xFFE65100,
     letter: 'F',
     ready: true,
-    // freeporn.com is a hub/landing; use freeporn.xxx / similar tube mirrors.
-    mirrors: [
-      'https://www.freeporn.xxx',
-      'https://freeporn.xxx',
-      'https://www.free-porn.xxx',
-      'https://www.freeporn.com',
-    ],
+    // This is an outbound video directory. The former .xxx mirrors now lead
+    // to domain-sale pages and must not be treated as usable video sources.
+    mirrors: ['https://www.freeporn.com'],
     tags: vodTags,
   );
 
@@ -389,9 +385,9 @@ class SourceCatalog {
     letter: 'J',
     ready: true,
     mirrors: [
+      'https://javmix.com',
       'https://javmix.tv',
       'https://www.javmix.tv',
-      'https://javmix.com',
     ],
     tags: vodTags,
   );
@@ -404,9 +400,9 @@ class SourceCatalog {
     letter: 'G',
     ready: true,
     mirrors: [
+      'https://javgg.com',
       'https://javgg.net',
       'https://www.javgg.net',
-      'https://javgg.com',
       'https://jav.gg',
     ],
     tags: vodTags,
@@ -457,7 +453,6 @@ class SourceCatalog {
     mirrors: [
       'https://jable.tv',
       'https://www.jable.tv',
-      'https://jable.org',
       'https://jable.one',
     ],
     tags: vodTags,
@@ -525,12 +520,12 @@ class SourceCatalog {
     letter: '8',
     ready: true,
     mirrors: [
-      'https://www.88xqq.com',
-      'https://88xqq.com',
       'https://cccdd.y3880.xyz',
       'https://cccdd.y3880.win',
       'https://cccdd.y3880.cc',
       'https://www.y3880.com',
+      'https://www.88xqq.com',
+      'https://88xqq.com',
     ],
     tags: vodTags,
   );

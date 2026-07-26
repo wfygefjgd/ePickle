@@ -1,28 +1,20 @@
 /// Shared browser-like headers for CDN / site requests.
 class AppHttpHeaders {
-  /// Desktop Chrome — many adult CDNs reject bare Mobile UA or wrong Referer.
+  /// Match the iOS Safari engine used by the app's browser fallback.
   static const String userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) '
+      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 '
+      'Mobile/15E148 Safari/604.1';
 
   static const Map<String, String> browser = {
     'User-Agent': userAgent,
-    'Accept':
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,'
-            'image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,'
+        'image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
     'Accept-Encoding': 'gzip, deflate',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache',
     'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Sec-Ch-Ua':
-        '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
   };
 
   /// Headers for a page fetch with correct site origin/referer.
@@ -32,8 +24,6 @@ class AppHttpHeaders {
     return {
       ...browser,
       'Referer': '$origin/',
-      'Origin': origin,
-      'Sec-Fetch-Site': 'same-origin',
     };
   }
 
@@ -47,7 +37,9 @@ class AppHttpHeaders {
         u.contains('xvideos-cdn') ||
         u.contains('xnxx')) {
       siteOrigin = 'https://www.xvideos.com';
-    } else if (u.contains('mitao') || u.contains('mitaohk') || u.contains('jipinvipplay')) {
+    } else if (u.contains('mitao') ||
+        u.contains('mitaohk') ||
+        u.contains('jipinvipplay')) {
       siteOrigin = 'https://mitaohk.com';
     } else if (u.contains('pornhub') ||
         u.contains('phncdn') ||
@@ -82,14 +74,16 @@ class AppHttpHeaders {
     siteOrigin ??= pageOrigin ?? _origin(url);
 
     if (siteOrigin != null && siteOrigin.isNotEmpty) {
+      final pageUri = Uri.tryParse(pageUrl ?? '');
+      final referer =
+          pageUri != null && pageUri.hasScheme && pageUri.host.isNotEmpty
+              ? pageUri.toString()
+              : '$siteOrigin/';
       return {
         ...browser,
-        'Referer': '$siteOrigin/',
-        'Origin': siteOrigin,
+        'Referer': referer,
+        'Origin': pageOrigin ?? siteOrigin,
         'Accept': '*/*',
-        'Sec-Fetch-Dest': 'video',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'cross-site',
       };
     }
     return {

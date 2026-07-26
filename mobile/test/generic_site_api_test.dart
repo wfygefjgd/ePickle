@@ -142,6 +142,114 @@ void main() {
       contains('https://fixture.test/media/fallback.mp4'),
     );
   });
+
+  test('normalizes KVS function URLs and rejects MP4 thumbnail URLs', () async {
+    const pageUrl = 'https://fixture.test/embed/32176';
+    const mediaUrl =
+        'https://fixture.test/get_file/7/abc/32176.mp4/?embed=true';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>
+            video_alt_url1: 'function/0/https://img.test/32176.mp4.jpg',
+            video_url: 'function/0/$mediaUrl'
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final urls = detail.streams.map((stream) => stream.url);
+
+    expect(urls, contains(mediaUrl));
+    expect(urls, everyElement(isNot(endsWith('.mp4.jpg'))));
+  });
+
+  test('decrypts Our55 DES player data into the full HLS URL', () async {
+    const pageUrl = 'https://fixture.test/vod/play/42.html';
+    const mediaUrl = 'https://cdn2.shayubf.com/20200222/Tlr76hci/index.m3u8';
+    const encrypted =
+        'xkoiCz64PL0ivzt27wOsj5aJ5r8Xvt9P5cmuIFXPJizNxnJ2pA3oiyZrIiY2yTE5gtx7f539bcJrKNJfiHy2hslOy1hD2E+k';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>
+            window.config = {
+              video: {
+                id: '56b0f1d57700712f2e77ea43f4624ad6',
+                data: ['$encrypted']
+              }
+            };
+          </script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(detail.streams.map((stream) => stream.url), contains(mediaUrl));
+  });
+
+  test('filters Eporner unavailable clip and parses minute duration', () async {
+    const pageUrl = 'https://fixture.test/watch/eporner';
+    const mediaUrl = 'https://cdn.fixture.test/full.mp4';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <span class="vid-length">17min</span>
+          <video>
+            <source src="https://static.eporner.com/na.mp4">
+            <source src="$mediaUrl">
+          </video>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+    final urls = detail.streams.map((stream) => stream.url);
+
+    expect(detail.durationSec, 1020);
+    expect(urls, contains(mediaUrl));
+    expect(urls, everyElement(isNot(contains('static.eporner.com/na.mp4'))));
+  });
+
+  test('parses ISO 8601 video duration metadata', () async {
+    const pageUrl = 'https://fixture.test/watch/long';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <meta itemprop="duration" content="P0DT2H15M0S">
+          <video src="https://cdn.fixture.test/full.mp4"></video>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(dio: dio).getVideoDetail(site, pageUrl);
+
+    expect(detail.durationSec, 8100);
+  });
+
+  test('prefers Stripchat auto HLS playlist for a stream name', () async {
+    const pageUrl = 'https://fixture.test/model_name';
+    final dio = Dio();
+    dio.httpClientAdapter = _FixtureAdapter({
+      pageUrl: _FixtureResponse(
+        _html('''
+          <script>window.initialState = {"streamName":"live_model_42"};</script>
+        '''),
+      ),
+    });
+
+    final detail = await GenericSiteApi(
+      dio: dio,
+    ).getVideoDetail(SourceCatalog.stripchat, pageUrl);
+
+    expect(detail.streams.first.url, contains('live_model_42_auto.m3u8'));
+  });
 }
 
 String _html(String body) => '<!doctype html><html><head>$body</head><body>'

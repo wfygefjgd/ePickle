@@ -92,6 +92,36 @@ class PlaybackHelpers {
     return out;
   }
 
+  /// Reject hover/ad/fallback clips that initialize successfully but are far
+  /// shorter than the real VOD. Several sites return a valid 9-60 second MP4
+  /// when their protected full-stream request was not authorized.
+  static bool isLikelyPreview(
+    VideoPlayerController controller,
+    VideoDetail detail, {
+    String? siteId,
+    bool isLive = false,
+  }) {
+    if (isLive || !controller.value.isInitialized) return false;
+    final seconds = controller.value.duration.inSeconds;
+    if (seconds <= 0) return false;
+    if (detail.durationSec >= 120 &&
+        seconds < 90 &&
+        seconds * 4 < detail.durationSec) {
+      return true;
+    }
+    const longFormSites = {
+      'eporner',
+      'redtube',
+      '7mmtv',
+      'our55',
+      'xqq88',
+      'javmix',
+      'javgg',
+      'bestjavporn',
+    };
+    return longFormSites.contains(siteId) && seconds <= 75;
+  }
+
   /// Brief non-blocking toast.
   static void toast(
     BuildContext context,
@@ -277,10 +307,8 @@ class FeedProgressBar extends StatelessWidget {
             child: SliderTheme(
               data: SliderThemeData(
                 trackHeight: 3.5,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 7),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 14),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                 activeTrackColor: const Color(0xFFFF6B35),
                 inactiveTrackColor: Colors.white24,
                 thumbColor: const Color(0xFFFF6B35),

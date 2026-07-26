@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../models/video_item.dart';
+import '../utils/des_ecb.dart';
 import '../utils/http_client.dart';
 import '../utils/http_headers.dart';
 import 'phub_api.dart';
@@ -182,7 +183,6 @@ class GenericSiteApi {
         final headers = <String, String>{
           ...AppHttpHeaders.browser,
           'Referer': '$base/',
-          'Origin': base,
           if (extraHeaders != null) ...extraHeaders,
         };
         final html = await _getHtml(
@@ -707,7 +707,7 @@ class GenericSiteApi {
         return VideoDetail(
           url: url,
           title: _extractTitle(html) ?? url,
-          durationSec: 0,
+          durationSec: _extractDurationSec(html),
           thumb: _resolvedThumb(html, url),
           streams: ep,
         );
@@ -747,8 +747,15 @@ class GenericSiteApi {
     }
 
     final thumb = _resolvedThumb(html, url);
-    // Resolve media relative to the actual detail document, not only origin.
-    var streams = _extractStreams(html, url);
+    // Resolve site-specific player formats before broad URL matching. This
+    // avoids mistaking hover previews and ad assets for the full video.
+    var streams = <StreamQuality>[
+      ..._extractEncryptedSiteStreams(html),
+      ..._extractKvsStreams(html, url),
+    ];
+    if (streams.isEmpty) {
+      streams = _extractStreams(html, url);
+    }
 
     // MissAV / Jable often put m3u8 in packed JS or data-src
     if (streams.isEmpty) {
@@ -804,6 +811,21 @@ class GenericSiteApi {
   }
 
   int _extractDurationSec(String html) {
+    final iso = _metaContent(html, {'duration'});
+    if (iso != null) {
+      final match = RegExp(
+        r'^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$',
+        caseSensitive: false,
+      ).firstMatch(iso);
+      if (match != null) {
+        final days = int.tryParse(match.group(1) ?? '') ?? 0;
+        final hours = int.tryParse(match.group(2) ?? '') ?? 0;
+        final minutes = int.tryParse(match.group(3) ?? '') ?? 0;
+        final seconds = int.tryParse(match.group(4) ?? '') ?? 0;
+        final total = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+        if (total > 0) return total;
+      }
+    }
     final meta = RegExp(
       r'<meta[^>]*(?:property|name)=["'
       '](?:video:)?duration["'
@@ -817,6 +839,16 @@ class GenericSiteApi {
       r'''["']video_duration["']\s*:\s*["']?(\d+)''',
     ).firstMatch(html);
     if (flash != null) return int.tryParse(flash.group(1)!) ?? 0;
+    final seconds = RegExp(
+      r'''["'](?:length_sec|duration_sec)["']\s*:\s*["']?(\d+)''',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (seconds != null) return int.tryParse(seconds.group(1)!) ?? 0;
+    final minutes = RegExp(
+      r'''(?:class=["'][^"']*vid-length[^"']*["'][^>]*>|Duration:\s*)(\d+)\s*min''',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (minutes != null) return (int.tryParse(minutes.group(1)!) ?? 0) * 60;
     return 0;
   }
 
@@ -945,7 +977,13 @@ class GenericSiteApi {
             'Referer': pageUrl,
           },
         );
-        var streams = _extractStreams(embHtml, embUrl);
+        var streams = <StreamQuality>[
+          ..._extractEncryptedSiteStreams(embHtml),
+          ..._extractKvsStreams(embHtml, embUrl),
+        ];
+        if (streams.isEmpty) {
+          streams = _extractStreams(embHtml, embUrl);
+        }
         if (streams.isEmpty) {
           streams = _extractStreamsLoose(embHtml, embUrl);
         }
@@ -1106,6 +1144,73 @@ class GenericSiteApi {
     return _filterPreviewStreams(out);
   }
 
+  /// Kernel Video Sharing player used by current JavMix/JavGG mirrors.
+  List<StreamQuality> _extractKvsStreams(String html, String base) {
+    final out = <StreamQuality>[];
+    final seen = <String>{};
+    for (final match in RegExp(
+      r'''(?:video_url|event_reporting2|video_alt_url\d*)\s*:\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      var value = match.group(1)!.replaceAll(r'\/', '/').trim();
+      final absoluteAt = value.indexOf('http');
+      if (absoluteAt > 0 && value.startsWith('function/')) {
+        value = value.substring(absoluteAt);
+      }
+      if (!value.startsWith('http')) value = _abs(base, value);
+      final low = value.toLowerCase();
+      if (!low.contains('/get_file/') &&
+          !low.contains('.mp4') &&
+          !low.contains('.m3u8')) {
+        continue;
+      }
+      if (RegExp(r'''\.(?:jpe?g|png|webp|gif)(?:[?#]|$)''').hasMatch(low)) {
+        continue;
+      }
+      if (_isPreviewUrl(value) || !seen.add(value)) continue;
+      out.add(
+        StreamQuality(
+          width: 1280,
+          height: low.contains('m3u8') ? 720 : 480,
+          url: value,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// Our55/88XQQ family encrypts `label$hlsUrl` with DES-ECB-PKCS7. The key
+  /// is the first eight UTF-8 bytes of the video id, matching CryptoJS DES.
+  List<StreamQuality> _extractEncryptedSiteStreams(String html) {
+    final config = RegExp(
+      r'''video\s*:\s*\{[\s\S]{0,500}?id\s*:\s*["']([^"']+)["'][\s\S]{0,500}?data\s*:\s*\[([^\]]+)\]''',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (config == null) return const [];
+    final id = config.group(1)!;
+    if (utf8.encode(id).length < 8) return const [];
+
+    final out = <StreamQuality>[];
+    final seen = <String>{};
+    for (final encodedMatch in RegExp(
+      r'''["']([A-Za-z0-9+/]{24,}={0,2})["']''',
+    ).allMatches(config.group(2)!)) {
+      try {
+        final clear = DesEcbPkcs7.decryptBase64Utf8(
+          encodedMatch.group(1)!,
+          id,
+        );
+        final url = clear.split(r'$').map((part) => part.trim()).firstWhere(
+              (part) => part.startsWith('http') && part.contains('.m3u8'),
+              orElse: () => '',
+            );
+        if (url.isEmpty || !seen.add(url)) continue;
+        out.add(StreamQuality(width: 1280, height: 720, url: url));
+      } catch (_) {}
+    }
+    return out;
+  }
+
   List<StreamQuality> _extractBestJav(String html, String base) {
     final out = <StreamQuality>[];
     // Hover previews are short — skip data-mediabook unless nothing else
@@ -1144,6 +1249,11 @@ class GenericSiteApi {
     if (low.contains('thumb')) return true;
     if (low.contains('sample') && !low.contains('m3u8')) return true;
     if (low.contains('mediabook')) return true;
+    if (low.contains('static.eporner.com/na.mp4')) return true;
+    if (RegExp(r'''/(?:na|unavailable|not[-_]?found)\.mp4(?:[?#/]|$)''')
+        .hasMatch(low)) {
+      return true;
+    }
     if (low.contains('/preview.')) return true;
     // MindGeek 9s teaser segments often under get_media with very short tokens
     if (RegExp(r'[_-](9|10|15)s[_.-]').hasMatch(low)) return true;
@@ -1253,6 +1363,7 @@ class GenericSiteApi {
         ];
       case 'javgg':
         return [
+          if (p == 1) (b) => '$b/',
           if (tagId == 'new') (b) => '$b/new-post/page/$p/',
           if (tagId == 'asian') (b) => '$b/genre/censored/page/$p/',
           if (tagId == 'best') (b) => '$b/trending/page/$p/',
@@ -1261,6 +1372,7 @@ class GenericSiteApi {
         ];
       case 'javmix':
         return [
+          if (p == 1) (b) => '$b/',
           if (tagId == 'new') (b) => '$b/new/page/$p',
           if (tagId == 'asian') (b) => '$b/genre/censored/page/$p',
           if (tagId == 'best') (b) => '$b/popular/page/$p',
@@ -1277,6 +1389,7 @@ class GenericSiteApi {
         ];
       case 'bestjavporn':
         return [
+          if (p == 1) (b) => '$b/',
           if (tagId == 'new') (b) => '$b/zh/new/page/$p/',
           if (tagId == 'asian') (b) => '$b/zh/censored/page/$p/',
           if (tagId == 'best') (b) => '$b/zh/best/page/$p/',
@@ -1285,6 +1398,7 @@ class GenericSiteApi {
         ];
       case 'our55':
         return [
+          if (p == 1) (b) => '$b/',
           if (tagId == 'new') (b) => '$b/index.php/vod/show/page/$p.html',
           if (tagId == 'asian') (b) => '$b/chinese/page/$p/',
           if (tagId == 'best')
@@ -1294,6 +1408,7 @@ class GenericSiteApi {
         ];
       case 'xqq88':
         return [
+          if (p == 1) (b) => '$b/',
           if (tagId == 'new') (b) => '$b/label/new/page/$p.html',
           if (tagId == 'asian') (b) => '$b/chinese/page/$p/',
           if (tagId == 'best')
@@ -2001,7 +2116,8 @@ class GenericSiteApi {
       }
       // streamName in initial state
       final sn = RegExp(
-        r'''["'](?:streamName|hlsStreamUrl|webcamUrl)["']\s*:\s*["']([^"']+)["']''',
+        r'''["'](?:streamName|hlsStreamUrl|hlsPlaylist|hlsUrl|manifestUrl|streamUrl|webcamUrl)["']\s*:\s*["']([^"']+)["']''',
+        caseSensitive: false,
       ).firstMatch(html);
       if (sn != null) {
         var v = sn.group(1)!.replaceAll(r'\/', '/');
@@ -2013,6 +2129,9 @@ class GenericSiteApi {
           final name = v.isNotEmpty ? v : room;
           // Common doppiocdn edge patterns
           for (final u in [
+            'https://edge-hls.doppiocdn.com/hls/$name/master/${name}_auto.m3u8',
+            'https://edge-hls.doppiocdn.org/hls/$name/master/${name}_auto.m3u8',
+            'https://media-hls.doppiocdn.com/hls/$name/master/${name}_auto.m3u8',
             'https://edge-hls.doppiocdn.com/hls/$name/master/$name.m3u8',
             'https://edge-hls.doppiocdn.org/hls/$name/master/$name.m3u8',
             'https://media-hls.doppiocdn.com/hls/$name/master/$name.m3u8',
@@ -2044,6 +2163,29 @@ class GenericSiteApi {
                 url: m.group(0)!.replaceAll(r'\/', '/'),
               ),
             );
+          }
+          final apiField = RegExp(
+            r'''["'](?:streamName|hlsStreamUrl|hlsPlaylist|hlsUrl|manifestUrl|streamUrl|webcamUrl)["']\s*:\s*["']([^"']+)["']''',
+            caseSensitive: false,
+          ).firstMatch(raw);
+          if (apiField != null) {
+            var value = apiField.group(1)!.replaceAll(r'\/', '/');
+            if (value.contains('.m3u8')) {
+              if (value.startsWith('//')) value = 'https:$value';
+              if (!value.startsWith('http')) value = _abs(base, value);
+              streams.add(
+                StreamQuality(width: 1280, height: 720, url: value),
+              );
+            } else if (value.isNotEmpty) {
+              for (final candidate in [
+                'https://edge-hls.doppiocdn.com/hls/$value/master/${value}_auto.m3u8',
+                'https://edge-hls.doppiocdn.org/hls/$value/master/${value}_auto.m3u8',
+              ]) {
+                streams.add(
+                  StreamQuality(width: 1280, height: 720, url: candidate),
+                );
+              }
+            }
           }
         } catch (_) {}
       }

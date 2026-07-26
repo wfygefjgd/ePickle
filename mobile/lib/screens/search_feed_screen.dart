@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -681,6 +682,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ? remaining
                   : const Duration(seconds: 12),
             );
+        if (PlaybackHelpers.isLikelyPreview(
+          next,
+          detail,
+          siteId: widget.site?.id,
+          isLive: widget.site?.kind == SiteKind.live,
+        )) {
+          await next.dispose();
+          continue;
+        }
         player = next;
         stream = c;
         break;
@@ -873,6 +883,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -947,6 +966,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries2 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1021,6 +1049,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries3 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1095,6 +1132,15 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries4 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1395,6 +1441,27 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     }
   }
 
+  Future<void> _openInBrowser() async {
+    final detail = _detailCache[_index];
+    final itemUrl =
+        _index >= 0 && _index < _items.length ? _items[_index].url : null;
+    final raw = detail?.url ?? itemUrl ?? widget.site?.primaryHost;
+    final uri = Uri.tryParse(raw ?? '');
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      if (mounted) PlaybackHelpers.toast(context, '没有可打开的网页地址');
+      return;
+    }
+    try {
+      var opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!opened) {
+        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      if (!opened) throw StateError('browser unavailable');
+    } catch (_) {
+      if (mounted) PlaybackHelpers.toast(context, '无法打开浏览器');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
@@ -1424,6 +1491,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 foregroundColor: Colors.white,
                 elevation: 0,
                 title: Text(widget.title, style: const TextStyle(fontSize: 16)),
+                actions: [
+                  if (widget.site != null)
+                    IconButton(
+                      tooltip: '使用浏览器访问',
+                      onPressed: _openInBrowser,
+                      icon: const Icon(Icons.public),
+                    ),
+                ],
               ),
         body: chrome.wrapBody(
           context,

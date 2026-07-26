@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -785,6 +786,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -864,6 +874,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries2 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -943,6 +962,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries3 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1022,6 +1050,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
     try {
       await player.initialize().timeout(const Duration(seconds: 12));
+      if (PlaybackHelpers.isLikelyPreview(
+        player,
+        detail,
+        siteId: widget.site?.id,
+        isLive: widget.site?.kind == SiteKind.live,
+      )) {
+        await player.dispose();
+        return;
+      }
       _preloadRetries4 = 0;
     } catch (e) {
       // Retry up to 2 times for transient failures
@@ -1316,6 +1353,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                   ? remaining
                   : const Duration(seconds: 12),
             );
+        if (PlaybackHelpers.isLikelyPreview(
+          next,
+          detail,
+          siteId: widget.site?.id,
+          isLive: widget.site?.kind == SiteKind.live,
+        )) {
+          await next.dispose();
+          continue;
+        }
         player = next;
         stream = c;
         break;
@@ -1758,6 +1804,27 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     );
   }
 
+  Future<void> _openInBrowser() async {
+    final itemUrl = _currentIndex >= 0 && _currentIndex < _items.length
+        ? _items[_currentIndex].url
+        : null;
+    final raw = _currentDetail?.url ?? itemUrl ?? widget.site?.primaryHost;
+    final uri = Uri.tryParse(raw ?? '');
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      if (mounted) PlaybackHelpers.toast(context, '没有可打开的网页地址');
+      return;
+    }
+    try {
+      var opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!opened) {
+        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      if (!opened) throw StateError('browser unavailable');
+    } catch (_) {
+      if (mounted) PlaybackHelpers.toast(context, '无法打开浏览器');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1801,6 +1868,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                   },
                   child: const Text('重新加载'),
                 ),
+                if (widget.site != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _openInBrowser,
+                    icon: const Icon(Icons.public),
+                    label: const Text('使用浏览器访问'),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: () {
@@ -1869,6 +1944,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onFastForward: _fastForward,
               onFullscreen: _toggleFullscreen,
               onOpenSettings: _openPlayerSettings,
+              onOpenBrowser: _openInBrowser,
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,
