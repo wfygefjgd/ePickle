@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/video_item.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
+import 'stripchat_live_view.dart';
 
 class VideoPlayerPage extends StatefulWidget {
   const VideoPlayerPage({
@@ -22,6 +23,7 @@ class VideoPlayerPage extends StatefulWidget {
     required this.totalTime,
     required this.titleText,
     required this.speedLabel,
+    this.browserLiveUrl,
     required this.onPageChanged,
     required this.onMute,
     required this.onFastForward,
@@ -44,6 +46,7 @@ class VideoPlayerPage extends StatefulWidget {
   final String totalTime;
   final String titleText;
   final String speedLabel;
+  final String? browserLiveUrl;
 
   final ValueChanged<int> onPageChanged;
   final VoidCallback onMute;
@@ -183,6 +186,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   Widget _buildActivePlayer() {
+    final browserLiveUrl = widget.browserLiveUrl;
+    if (browserLiveUrl != null && browserLiveUrl.isNotEmpty) {
+      return ColoredBox(
+        color: Colors.black,
+        child: StripchatLiveView(
+          roomUrl: browserLiveUrl,
+          muted: widget.muted,
+        ),
+      );
+    }
     final c = widget.controller;
     if (c != null && c.value.isInitialized) {
       final ar = c.value.aspectRatio;
@@ -237,8 +250,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       onPageChanged: widget.onPageChanged,
       itemBuilder: (_, i) {
         if (i == widget.currentIndex &&
-            widget.controller != null &&
-            widget.controller!.value.isInitialized) {
+            (widget.browserLiveUrl != null ||
+                (widget.controller != null &&
+                    widget.controller!.value.isInitialized))) {
           return _buildActivePlayer();
         }
         final thumb = widget.items[i].thumb;

@@ -136,6 +136,11 @@ class SourceCatalog {
         icon: Icons.woman_outlined,
         iconSelected: Icons.woman),
     SiteTag(
+        id: 'couples',
+        label: '\u4f34',
+        icon: Icons.people_outline,
+        iconSelected: Icons.people),
+    SiteTag(
         id: 'new',
         label: '\u65b0',
         icon: Icons.fiber_new_outlined,
@@ -145,11 +150,6 @@ class SourceCatalog {
         label: '\u4e9a',
         icon: Icons.public_outlined,
         iconSelected: Icons.public),
-    SiteTag(
-        id: 'mature',
-        label: '\u719f',
-        icon: Icons.local_fire_department_outlined,
-        iconSelected: Icons.local_fire_department),
   ];
 
   static const stripchatTags = <SiteTag>[

@@ -6,6 +6,7 @@ import WebKit
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var privacyChannel: FlutterMethodChannel?
   private var browserHttpChannel: FlutterMethodChannel?
+  private var stripchatControlChannel: FlutterMethodChannel?
   private var browserTasks: [UUID: URLSessionDataTask] = [:]
   private var browserRenderRequests: [UUID: BrowserRenderRequest] = [:]
 
@@ -20,6 +21,29 @@ import WebKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
     let messenger = engineBridge.applicationRegistrar.messenger()
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "epickle_stripchat_live"
+    ) {
+      registrar.register(
+        StripchatLiveViewFactory(),
+        withId: "epickle/stripchat_live"
+      )
+    }
+    let stripchatChannel = FlutterMethodChannel(
+      name: "epickle/stripchat_live_control",
+      binaryMessenger: messenger
+    )
+    stripchatControlChannel = stripchatChannel
+    stripchatChannel.setMethodCallHandler { call, result in
+      guard call.method == "setMuted",
+            let muted = call.arguments as? Bool else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      StripchatLivePlatformView.activeView.value?.setMuted(muted)
+      result(nil)
+    }
+
     let channel = FlutterMethodChannel(
       name: "privacy_browser/engine",
       binaryMessenger: messenger
@@ -169,6 +193,213 @@ import WebKit
     let renderRequests = Array(browserRenderRequests.values)
     browserRenderRequests.removeAll()
     renderRequests.forEach { $0.cancel() }
+  }
+}
+
+private final class WeakBox<T: AnyObject> {
+  weak var value: T?
+}
+
+private final class StripchatLiveViewFactory: NSObject, FlutterPlatformViewFactory {
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    StripchatLivePlatformView(frame: frame, arguments: args)
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class StripchatLivePlatformView: NSObject,
+  FlutterPlatformView,
+  WKNavigationDelegate,
+  WKUIDelegate {
+  static let activeView = WeakBox<StripchatLivePlatformView>()
+
+  private let webView: WKWebView
+  private var muted: Bool
+  private var focusTimer: Timer?
+
+  init(frame: CGRect, arguments: Any?) {
+    let values = arguments as? [String: Any]
+    let rawUrl = values?["url"] as? String ?? "https://stripchat.com/"
+    muted = values?["muted"] as? Bool ?? true
+
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .default()
+    configuration.preferences.javaScriptEnabled = true
+    configuration.allowsInlineMediaPlayback = true
+    configuration.mediaTypesRequiringUserActionForPlayback = []
+    webView = WKWebView(frame: frame, configuration: configuration)
+    super.init()
+
+    StripchatLivePlatformView.activeView.value = self
+    webView.navigationDelegate = self
+    webView.uiDelegate = self
+    webView.isOpaque = true
+    webView.backgroundColor = .black
+    webView.scrollView.backgroundColor = .black
+    webView.scrollView.isScrollEnabled = false
+    webView.scrollView.bounces = false
+    webView.customUserAgent =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) " +
+      "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 " +
+      "Mobile/15E148 Safari/604.1"
+
+    let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+    tap.cancelsTouchesInView = false
+    webView.addGestureRecognizer(tap)
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(pauseForBackground),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(resumeFromBackground),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+
+    if let url = URL(string: rawUrl) {
+      var request = URLRequest(url: url)
+      request.cachePolicy = .reloadIgnoringLocalCacheData
+      request.setValue("https://stripchat.com/", forHTTPHeaderField: "Referer")
+      webView.load(request)
+    }
+  }
+
+  deinit {
+    focusTimer?.invalidate()
+    NotificationCenter.default.removeObserver(self)
+    webView.stopLoading()
+    if StripchatLivePlatformView.activeView.value === self {
+      StripchatLivePlatformView.activeView.value = nil
+    }
+  }
+
+  func view() -> UIView {
+    webView
+  }
+
+  func setMuted(_ value: Bool) {
+    muted = value
+    let flag = value ? "true" : "false"
+    webView.evaluateJavaScript(
+      "window.__epickleMuted=\(flag);" +
+      "document.querySelectorAll('video').forEach(v=>{v.muted=\(flag);});"
+    )
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    installVideoFocus()
+    focusTimer?.invalidate()
+    focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+      [weak self] _ in
+      self?.installVideoFocus()
+    }
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+  ) {
+    guard let targetUrl = navigationAction.request.url else {
+      decisionHandler(.cancel)
+      return
+    }
+    if navigationAction.targetFrame == nil {
+      decisionHandler(.cancel)
+      return
+    }
+    let host = targetUrl.host?.lowercased() ?? ""
+    let allowed = host.isEmpty ||
+      host == "stripchat.com" ||
+      host.hasSuffix(".stripchat.com")
+    decisionHandler(allowed ? .allow : .cancel)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    createWebViewWith configuration: WKWebViewConfiguration,
+    for navigationAction: WKNavigationAction,
+    windowFeatures: WKWindowFeatures
+  ) -> WKWebView? {
+    nil
+  }
+
+  @objc private func handleTap() {
+    setMuted(muted)
+    webView.evaluateJavaScript(
+      "document.querySelectorAll('video').forEach(v=>v.play().catch(()=>{}));"
+    )
+  }
+
+  @objc private func pauseForBackground() {
+    webView.evaluateJavaScript(
+      "document.querySelectorAll('video').forEach(v=>v.pause());"
+    )
+  }
+
+  @objc private func resumeFromBackground() {
+    installVideoFocus()
+  }
+
+  private func installVideoFocus() {
+    let flag = muted ? "true" : "false"
+    let script = """
+      (() => {
+        window.__epickleMuted = \(flag);
+        if (!document.getElementById('__epickle_live_style')) {
+          const style = document.createElement('style');
+          style.id = '__epickle_live_style';
+          style.textContent = `
+            html, body { margin: 0 !important; padding: 0 !important;
+              width: 100% !important; height: 100% !important;
+              overflow: hidden !important; background: #000 !important; }
+            video { position: fixed !important; inset: 0 !important;
+              width: 100vw !important; height: 100vh !important;
+              max-width: none !important; max-height: none !important;
+              object-fit: contain !important; background: #000 !important;
+              z-index: 2147483647 !important; visibility: visible !important; }
+          `;
+          document.documentElement.appendChild(style);
+        }
+        const ageButtons = Array.from(document.querySelectorAll('button, a'));
+        const ageButton = ageButtons.find(node =>
+          /18|enter|agree|continue/i.test((node.textContent || '').trim())
+        );
+        if (ageButton && !document.querySelector('video')) ageButton.click();
+        const videos = Array.from(document.querySelectorAll('video'));
+        const video = videos.find(v => v.srcObject || v.currentSrc) || videos[0];
+        if (!video) return false;
+        let node = video;
+        while (node && node.parentElement) {
+          Array.from(node.parentElement.children).forEach(sibling => {
+            if (sibling !== node) {
+              sibling.style.setProperty('visibility', 'hidden', 'important');
+              sibling.style.setProperty('pointer-events', 'none', 'important');
+            }
+          });
+          node.style.setProperty('visibility', 'visible', 'important');
+          node = node.parentElement;
+        }
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.controls = false;
+        video.muted = window.__epickleMuted;
+        if (video.paused) video.play().catch(() => {});
+        return true;
+      })()
+      """
+    webView.evaluateJavaScript(script)
   }
 }
 

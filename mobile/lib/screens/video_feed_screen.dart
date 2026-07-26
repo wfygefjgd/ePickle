@@ -24,6 +24,7 @@ import '../services/watch_history.dart';
 import '../utils/http_headers.dart';
 import '../utils/playback_helpers.dart';
 import '../widgets/player_settings_sheet.dart';
+import '../widgets/stripchat_live_view.dart';
 import '../widgets/video_player_page.dart';
 
 export '../models/feed_kind.dart';
@@ -57,6 +58,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Only the currently playing controller (never multiple).
   VideoPlayerController? _controller;
+  String? _browserLiveUrl;
   int _currentIndex = 0;
   int _loadSeq = 0;
 
@@ -556,6 +558,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       side: immersive ? _chrome?.landscapeSide : null,
     );
     _syncAutoRotateListening();
+    if (_browserLiveUrl != null) {
+      WakelockPlus.enable();
+      return;
+    }
     if (_items.isEmpty) {
       if (!_loadingMore) {
         setState(() => _loading = true);
@@ -581,10 +587,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _cancelBackgroundWork();
     final c = _controller;
     _controller = null;
+    final hadBrowserLive = _browserLiveUrl != null;
+    _browserLiveUrl = null;
     try {
       c?.pause();
     } catch (_) {}
     WakelockPlus.disable();
+    if (hadBrowserLive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    }
     if (releasePlayers && c != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         try {
@@ -703,7 +716,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         // ignore: unawaited_futures
         _translateItemsRange(translateStart);
       }
-      if (_canRun && _items.isNotEmpty && _controller == null) {
+      if (_canRun &&
+          _items.isNotEmpty &&
+          _controller == null &&
+          _browserLiveUrl == null) {
         _playIndex(_currentIndex.clamp(0, _items.length - 1));
       }
       if (isCold && _items.length < 20 && _canRun) {
@@ -1172,6 +1188,40 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (!_canRun || index < 0 || index >= _items.length) return;
     final seq = ++_loadSeq;
     final item = _items[index];
+
+    if (widget.site?.id == 'stripchat') {
+      _disposePreload();
+      await _disposeController();
+      if (seq != _loadSeq || !_canRun || !mounted) return;
+      final sourceUri = Uri.tryParse(item.url);
+      final roomSegments = sourceUri?.pathSegments
+              .where((segment) => segment.trim().isNotEmpty)
+              .toList() ??
+          const <String>[];
+      final room = roomSegments.isEmpty ? null : roomSegments.last;
+      if (room == null || !RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(room)) {
+        setState(() {
+          _pageLoading = false;
+          _browserLiveUrl = null;
+        });
+        PlaybackHelpers.toast(context, 'Stripchat 主播房间地址无效');
+        return;
+      }
+      _currentIndex = index;
+      _currentDetail = null;
+      _browserLiveUrl = 'https://stripchat.com/$room';
+      _titleText = item.title;
+      _totalTime = 'LIVE';
+      _speedLabel = '';
+      _sliderValue.value = 0;
+      _currentTime.value = 'LIVE';
+      setState(() => _pageLoading = false);
+      _recordWatch(item);
+      WakelockPlus.enable();
+      return;
+    }
+
+    _browserLiveUrl = null;
 
     // Check if we have this index preloaded in any slot
     VideoPlayerController? preloaded;
@@ -1769,6 +1819,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _toggleMute() {
     _muted = !_muted;
     _controller?.setVolume(_muted ? 0 : 1);
+    if (_browserLiveUrl != null) {
+      unawaited(StripchatLiveView.setMuted(_muted));
+    }
     context.read<AppSettings>().setMuted(_muted);
     setState(() {});
   }
@@ -1960,6 +2013,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               totalTime: _totalTime,
               titleText: _titleText,
               speedLabel: _speedLabel,
+              browserLiveUrl: _browserLiveUrl,
               onPageChanged: _onPageChanged,
               onMute: _toggleMute,
               onFastForward: _fastForward,

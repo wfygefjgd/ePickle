@@ -341,7 +341,7 @@ void main() {
     expect(detail.durationSec, 8100);
   });
 
-  test('prefers Stripchat auto HLS playlist for a stream name', () async {
+  test('never promotes Stripchat preview HLS to AVPlayer', () async {
     const pageUrl = 'https://fixture.test/model_name';
     final dio = Dio();
     dio.httpClientAdapter = _FixtureAdapter({
@@ -352,11 +352,12 @@ void main() {
       ),
     });
 
-    final detail = await GenericSiteApi(
-      dio: dio,
-    ).getVideoDetail(SourceCatalog.stripchat, pageUrl);
-
-    expect(detail.streams.first.url, contains('live_model_42_auto.m3u8'));
+    await expectLater(
+      GenericSiteApi(
+        dio: dio,
+      ).getVideoDetail(SourceCatalog.stripchat, pageUrl),
+      throwsA(predicate((error) => error.toString().contains('WebRTC'))),
+    );
   });
 
   test('races mirrors and records distinct mirror health', () async {
@@ -423,7 +424,49 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(milliseconds: 250)));
   });
 
-  test('Chaturbate tabs keep female-only distinct categories', () async {
+  test('JAVMix tabs use four distinct real category paths', () async {
+    const base = 'https://javmix.fixture.test';
+    const site = SiteDef(
+      id: 'javmix',
+      name: 'JAVMix fixture',
+      kind: SiteKind.video,
+      tags: SourceCatalog.vodTags,
+      color: 0,
+      letter: 'J',
+      mirrors: [base],
+    );
+    const paths = <String, String>{
+      'hot': '/most-popular/',
+      'new': '/latest-updates/',
+      'asian': '/categories/asian/',
+      'best': '/top-rated/',
+    };
+    final fixtures = <String, _FixtureResponse>{};
+    for (final entry in paths.entries) {
+      fixtures['$base${entry.value}'] = _FixtureResponse(
+        _html(
+          '<div class="video-card"><a href="$base/video/${entry.key}-101/" '
+          'title="${entry.key} category video">${entry.key} category video</a>'
+          '<img src="$base/thumb/${entry.key}.jpg"></div>',
+        ),
+      );
+    }
+    final dio = Dio();
+    final adapter = _FixtureAdapter(fixtures);
+    dio.httpClientAdapter = adapter;
+    final api = GenericSiteApi(dio: dio);
+
+    for (final tag in paths.keys) {
+      final feed = await api.fetchFeed(site, tagId: tag, limit: 1);
+      expect(feed.single.url, '$base/video/$tag-101/');
+    }
+    expect(
+      adapter.requests.map((request) => request.uri.path).toSet(),
+      unorderedEquals(paths.values),
+    );
+  });
+
+  test('Chaturbate keeps couples and replaces male/trans categories', () async {
     const base = 'https://live.fixture.test';
     const liveSite = SiteDef(
       id: 'chaturbate',
@@ -436,16 +479,24 @@ void main() {
     );
     final fixtures = <String, _FixtureResponse>{};
     for (final entry in const {
-      'female': '&genders=f',
-      'new': '&genders=f&sort_order=new',
-      'asian': '&genders=f&tags=asian',
-      'mature': '&genders=f&tags=mature',
+      'female': (query: '&genders=f', fields: '"gender":"f"'),
+      'couples': (query: '&genders=c', fields: '"gender":"c"'),
+      'new': (
+        query: '&genders=f&sort_order=new',
+        fields: '"gender":"f","is_new":true'
+      ),
+      'asian': (
+        query: '&genders=f&tags=asian',
+        fields: '"gender":"f","tags":["asian"]'
+      ),
     }.entries) {
       fixtures[
-              '$base/api/ts/roomlist/room-list/?limit=20&offset=0${entry.value}'] =
+              '$base/api/ts/roomlist/room-list/?limit=20&offset=0${entry.value.query}'] =
           _FixtureResponse(
         '{"rooms":['
-        '{"username":"${entry.key}_room","current_show":"public","is_online":true},'
+        '${entry.key != 'female' ? '{"username":"ignored_female","current_show":"public","is_online":true,"gender":"f"},' : ''}'
+        '{"username":"${entry.key}_room","current_show":"public",'
+        '"is_online":true,${entry.value.fields}},'
         '{"username":"${entry.key}_private","current_show":"private","is_online":true},'
         '{"username":"${entry.key}_offline","current_show":"public","is_online":false}'
         '],"metadata":{"room":"fake_nested_room"}}',
@@ -464,15 +515,15 @@ void main() {
     expect(adapter.requests, hasLength(4));
     expect(
       adapter.requests.map((request) => request.uri.queryParameters['genders']),
-      everyElement('f'),
+      containsAll(<String>['f', 'c']),
     );
     expect(
       adapter.requests.map((request) => request.uri.queryParameters['tags']),
-      containsAll(<String?>['asian', 'mature']),
+      contains('asian'),
     );
   });
 
-  test('Stripchat ignores preview playlist and derives live auto HLS',
+  test('Stripchat feed keeps online room without promoting preview HLS',
       () async {
     const base = 'https://strip.fixture.test';
     const playlist =
@@ -499,15 +550,11 @@ void main() {
     final api = GenericSiteApi(dio: dio);
 
     final feed = await api.fetchFeed(liveSite, tagId: 'girls', limit: 1);
-    final detail = await api.getVideoDetail(liveSite, feed.single.url);
-
     expect(feed.single.url, '$base/model-name');
-    expect(
-      detail.streams.single.url,
-      'https://edge-hls.doppiocdn.com/hls/83306615/master/83306615_auto.m3u8',
+    await expectLater(
+      api.getVideoDetail(liveSite, feed.single.url),
+      throwsA(predicate((error) => error.toString().contains('WebRTC'))),
     );
-    expect(detail.streams.single.url, isNot(contains('_240p.m3u8')));
-    expect(detail.streams.single.url, isNot(contains('20s.mp4')));
   });
 
   test('directory-only FreePorn is not enabled as a playable source', () {

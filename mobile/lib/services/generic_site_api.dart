@@ -495,16 +495,23 @@ class GenericSiteApi {
             pathFn,
             deadline: deadline,
             accept: (html, base) => _parseFeedResponse(
-                    html,
-                    base,
-                    <String>{
-                      ...seen,
-                    },
-                    site)
-                .isNotEmpty,
+              html,
+              base,
+              <String>{
+                ...seen,
+              },
+              site,
+              tagId: tagId,
+            ).isNotEmpty,
           );
           results.addAll(
-            _parseFeedResponse(fetched.html, fetched.base, seen, site),
+            _parseFeedResponse(
+              fetched.html,
+              fetched.base,
+              seen,
+              site,
+              tagId: tagId,
+            ),
           );
         } catch (e) {
           if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -526,16 +533,13 @@ class GenericSiteApi {
   }
 
   List<VideoItem> _parseFeedResponse(
-    String body,
-    String base,
-    Set<String> seen,
-    SiteDef site,
-  ) {
+      String body, String base, Set<String> seen, SiteDef site,
+      {String? tagId}) {
     final trim = body.trimLeft();
     if (trim.startsWith('{') || trim.startsWith('[')) {
       return [
         if (site.kind == SiteKind.live)
-          ..._parseLiveJson(body, base, seen, site),
+          ..._parseLiveJson(body, base, seen, site, tagId: tagId),
         if (site.kind == SiteKind.video)
           ..._parseGenericJsonList(body, base, seen, site),
       ];
@@ -667,15 +671,15 @@ class GenericSiteApi {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
     final categoryQuery = switch (tagId) {
+      'couples' => '&genders=c',
       'new' => '&genders=f&sort_order=new',
       'asian' => '&genders=f&tags=asian',
-      'mature' => '&genders=f&tags=mature',
       _ => '&genders=f',
     };
     final legacyQuery = switch (tagId) {
+      'couples' => '&gender=c',
       'new' => '&gender=f&sort=new',
       'asian' => '&gender=f&tag=asian',
-      'mature' => '&gender=f&tag=mature',
       _ => '&gender=f',
     };
     final endpoints = <String Function(String)>[
@@ -695,7 +699,7 @@ class GenericSiteApi {
           site,
         )[_mirrorIndex[site.id] ?? 0]
             .replaceAll(RegExp(r'/$'), '');
-        out.addAll(_parseLiveJson(html, base, seen, site));
+        out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
         if (out.isNotEmpty) return out;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -738,7 +742,7 @@ class GenericSiteApi {
           site,
         )[_mirrorIndex[site.id] ?? 0]
             .replaceAll(RegExp(r'/$'), '');
-        out.addAll(_parseLiveJson(html, base, seen, site));
+        out.addAll(_parseLiveJson(html, base, seen, site, tagId: tagId));
         if (out.isNotEmpty) return out;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
@@ -902,6 +906,9 @@ class GenericSiteApi {
 
   Future<VideoDetail> getVideoDetail(SiteDef site, String url) async {
     final deadline = DateTime.now().add(_detailResolveTimeout);
+    if (site.id == 'stripchat') {
+      throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
+    }
     if (site.kind == SiteKind.live) {
       final fast = await _getLiveDetailFast(site, url, deadline);
       if (fast != null) return fast;
@@ -1011,31 +1018,10 @@ class GenericSiteApi {
     if (room == null || room.isEmpty) return null;
 
     if (site.id == 'stripchat') {
-      final streamValue = _liveStreamNames['stripchat:${room.toLowerCase()}'];
-      if (streamValue == null || streamValue.isEmpty) return null;
-      final embeddedName = RegExp(
-        r'/hls/([^/]+)/',
-        caseSensitive: false,
-      ).firstMatch(streamValue)?.group(1);
-      final streamName = embeddedName ?? streamValue;
-      if (!RegExp(r'^[a-zA-Z0-9_-]{3,100}$').hasMatch(streamName)) {
-        return null;
-      }
-      final url =
-          'https://edge-hls.doppiocdn.com/hls/$streamName/master/${streamName}_auto.m3u8';
-      return VideoDetail(
-        url: pageUrl,
-        title: room,
-        durationSec: 0,
-        streams: [
-          StreamQuality(
-            width: 1280,
-            height: 720,
-            url: url,
-            referer: pageUrl,
-          ),
-        ],
-      );
+      // Its public HLS path can redirect to a 20-second CPA VOD. The feed
+      // screen therefore uses the room's real WebRTC player in WKWebView and
+      // must never hand this preview URL to AVPlayer.
+      return null;
     }
 
     if (site.id == 'chaturbate') {
@@ -1095,6 +1081,9 @@ class GenericSiteApi {
   ) async {
     // Live rooms: try HLS from room page / API snippets
     if (site.kind == SiteKind.live) {
+      if (site.id == 'stripchat') {
+        throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
+      }
       final live = await _extractLiveStreams(site, url, html, base);
       if (live.isNotEmpty) {
         return VideoDetail(
@@ -1827,12 +1816,11 @@ class GenericSiteApi {
         ];
       case 'javmix':
         return [
-          if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/new/page/$p',
-          if (tagId == 'asian') (b) => '$b/genre/censored/page/$p',
-          if (tagId == 'best') (b) => '$b/popular/page/$p',
-          if (tagId == 'hot') (b) => '$b/genre/uncensored/page/$p',
-          (b) => '$b/page/$p',
+          if (tagId == 'new') (b) => '$b/latest-updates/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'asian')
+            (b) => '$b/categories/asian/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'best') (b) => '$b/top-rated/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'hot') (b) => '$b/most-popular/${p > 1 ? '$p/' : ''}',
         ];
       case '7mmtv':
         return [
@@ -1908,9 +1896,9 @@ class GenericSiteApi {
         ];
       case 'chaturbate':
         final categoryQuery = switch (tagId) {
+          'couples' => '&genders=c',
           'new' => '&genders=f&sort_order=new',
           'asian' => '&genders=f&tags=asian',
-          'mature' => '&genders=f&tags=mature',
           _ => '&genders=f',
         };
         return [
@@ -1986,11 +1974,8 @@ class GenericSiteApi {
   }
 
   List<VideoItem> _parseLiveJson(
-    String raw,
-    String base,
-    Set<String> seen,
-    SiteDef site,
-  ) {
+      String raw, String base, Set<String> seen, SiteDef site,
+      {String? tagId}) {
     final out = <VideoItem>[];
     dynamic decoded;
     try {
@@ -2009,6 +1994,66 @@ class GenericSiteApi {
 
     bool falseValue(dynamic value) =>
         value == false || value == 0 || value == '0' || value == 'false';
+
+    bool trueValue(dynamic value) =>
+        value == true || value == 1 || value == '1' || value == 'true';
+
+    String categoryText(Map<String, dynamic> map) {
+      final values = <String>[];
+      for (final key in const [
+        'tags',
+        'tag_list',
+        'room_subject',
+        'location',
+        'country',
+        'ethnicity',
+      ]) {
+        final value = map[key];
+        if (value is String) values.add(value);
+        if (value is List) values.addAll(value.map((entry) => '$entry'));
+      }
+      return values.join(' ').toLowerCase();
+    }
+
+    bool matchesChaturbateCategory(Map<String, dynamic> map) {
+      if (site.id != 'chaturbate') return true;
+      final requested = tagId ?? 'female';
+      final gender = (map['gender'] ?? map['broadcast_gender'] ?? '')
+          .toString()
+          .toLowerCase();
+      if (requested == 'couples') {
+        // Do not accept an unclassified room here. Some endpoints silently
+        // ignore category parameters; accepting an empty gender would then
+        // duplicate the female tab into the couples tab.
+        return gender == 'c' ||
+            gender.contains('couple') ||
+            gender.contains('pair');
+      }
+      if (gender == 'm' ||
+          gender == 't' ||
+          gender == 'male' ||
+          gender.contains('trans') ||
+          gender.contains('couple')) {
+        return false;
+      }
+      if (requested == 'new') {
+        final secondsOnline = int.tryParse(
+              (map['seconds_online'] ?? map['secondsOnline'] ?? '').toString(),
+            ) ??
+            0;
+        return trueValue(map['is_new'] ?? map['isNew'] ?? map['new_model']) ||
+            (secondsOnline > 0 && secondsOnline <= 7200) ||
+            categoryText(map).contains('new');
+      }
+      if (requested == 'asian') {
+        final text = categoryText(map);
+        return text.contains('asian') ||
+            text.contains('japanese') ||
+            text.contains('korean') ||
+            text.contains('chinese');
+      }
+      return true;
+    }
 
     void visit(dynamic node) {
       if (out.length >= 80) return;
@@ -2044,6 +2089,7 @@ class GenericSiteApi {
 
       if (username != null &&
           RegExp(r'^[a-zA-Z0-9_-]{3,60}$').hasMatch(username)) {
+        if (!matchesChaturbateCategory(map)) return;
         final online = map['is_online'] ?? map['isOnline'] ?? map['online'];
         final status = (stringValue(map, const [
                   'current_show',
