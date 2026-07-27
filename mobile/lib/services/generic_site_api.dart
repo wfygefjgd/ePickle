@@ -182,15 +182,14 @@ class GenericSiteApi {
       headers: headers,
       timeout: timeout,
     );
-    // Accept soft 404 bodies from URLSession; otherwise try WKWebView render.
-    final getOk = response != null &&
-        response.body.isNotEmpty &&
-        (response.statusCode < 400 ||
-            response.statusCode == 404 ||
-            response.statusCode == 403);
-    if (!getOk ||
-        response!.statusCode == 403 ||
-        _isBlockedHtml(response.body)) {
+    // Soft 404/403 bodies may still be useful; challenge pages need WK render.
+    final first = response;
+    final needRender = first == null ||
+        first.body.isEmpty ||
+        first.statusCode == 403 ||
+        first.statusCode >= 500 ||
+        _isBlockedHtml(first.body);
+    if (needRender) {
       response = await NativeBrowserHttp.render(
         url,
         headers: headers,

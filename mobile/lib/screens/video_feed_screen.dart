@@ -220,6 +220,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       // to always start at page 1 and restore the same cached list, making
       // every visit look identical.
       _genericPage = 1 + Random().nextInt(10);
+      FeedListCache.clear(_cacheKey);
     }
     final snap = genericSite ? null : FeedListCache.take(_cacheKey);
     if (snap != null && snap.items.isNotEmpty) {
@@ -627,26 +628,29 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final maxUrls = isCold ? 2 : 5;
     if (_useGeneric && widget.site != null) {
       final requestedPage = _genericPage;
+      final genericApi = context.read<GenericSiteApi>();
+      final site = widget.site!;
+      final tagId = widget.tagId ?? 'hot';
       List<VideoItem> list;
       try {
-        list = await context.read<GenericSiteApi>().fetchFeed(
-              widget.site!,
-              tagId: widget.tagId ?? 'hot',
-              page: requestedPage,
-              exclude: _seen,
-              limit: limit,
-            );
+        list = await genericApi.fetchFeed(
+          site,
+          tagId: tagId,
+          page: requestedPage,
+          exclude: _seen,
+          limit: limit,
+        );
       } catch (_) {
         if (!isCold || requestedPage == 1) rethrow;
         // Some smaller sites have fewer pages. Randomization must never turn
         // a working source into an error, so retry its first page once.
-        list = await context.read<GenericSiteApi>().fetchFeed(
-              widget.site!,
-              tagId: widget.tagId ?? 'hot',
-              page: 1,
-              exclude: _seen,
-              limit: limit,
-            );
+        list = await genericApi.fetchFeed(
+          site,
+          tagId: tagId,
+          page: 1,
+          exclude: _seen,
+          limit: limit,
+        );
         _genericPage = 1;
       }
       list.shuffle();
