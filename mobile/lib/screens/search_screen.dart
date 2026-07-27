@@ -249,9 +249,11 @@ class _SearchScreenState extends State<SearchScreen> {
         backgroundColor: const Color(0xFF1E1E1E),
         foregroundColor: Colors.white,
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
+          // Main content with bottom padding to avoid search bar
+          Positioned.fill(
+            bottom: 80 + bottomInset, // Reserve space for search bar + keyboard
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -335,67 +337,71 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-          // Search bar floats above keyboard (manual inset; no body resize).
-          Container(
-            color: const Color(0xFF1E1E1E),
-            padding: EdgeInsets.only(bottom: bottomInset),
-            child: Material(
+          // Search bar positioned at bottom, always above keyboard
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: bottomInset,
+            child: Container(
               color: const Color(0xFF1E1E1E),
-              elevation: 8,
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          focusNode: _focus,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (_) => _runAll(),
-                          decoration: InputDecoration(
-                            hintText: '搜索全部已启用网站',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: const Color(0xFF2A2A2A),
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
+              child: Material(
+                color: const Color(0xFF1E1E1E),
+                elevation: 8,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            focusNode: _focus,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) => _runAll(),
+                            decoration: InputDecoration(
+                              hintText: '搜索全部已启用网站',
+                              hintStyle: const TextStyle(color: Colors.white38),
+                              filled: true,
+                              fillColor: const Color(0xFF2A2A2A),
+                              isDense: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.search,
+                                color: Colors.white38,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF6B35),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
                               vertical: 12,
                             ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: Colors.white38,
-                              size: 20,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
                             ),
                           ),
+                          onPressed: _runAll,
+                          child: const Text('搜'),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF6B35),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                        ),
-                        onPressed: _runAll,
-                        child: const Text('搜'),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
