@@ -662,9 +662,11 @@ void main() {
       expect(enabled, contains(id), reason: '$id should be ready/enabled');
     }
     expect(SourceCatalog.byId('our55'), isNotNull);
-    expect(SourceCatalog.byId('our55')!.ready, isFalse);
+    expect(SourceCatalog.byId('our55')!.ready, isTrue);
     expect(SourceCatalog.byId('xqq88'), isNotNull);
-    expect(SourceCatalog.byId('xqq88')!.ready, isFalse);
+    expect(SourceCatalog.byId('xqq88')!.ready, isTrue);
+    expect(SourceCatalog.defaultEnabledVideoIds, contains('our55'));
+    expect(SourceCatalog.defaultEnabledVideoIds, contains('xqq88'));
     expect(SourceCatalog.defaultLiveId, 'chaturbate');
     expect(SourceCatalog.chaturbate.ready, isTrue);
     expect(SourceCatalog.stripchat.ready, isTrue);

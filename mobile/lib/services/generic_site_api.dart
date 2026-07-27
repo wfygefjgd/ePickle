@@ -1243,6 +1243,10 @@ class GenericSiteApi {
     // Resolve site-specific player formats before broad URL matching. This
     // avoids mistaking hover previews and ad assets for the full video.
     var streams = <StreamQuality>[];
+    // Our55 / 88XQQ: DES-encrypted player payload (video.id + data[]).
+    if (site.id == 'our55' || site.id == 'xqq88') {
+      streams = _extractEncryptedSiteStreams(html, url);
+    }
     if (site.id == 'javmix' || site.id == 'javgg') {
       // Current JAVMix pages expose a fresh signed JSON-LD contentUrl while
       // their player video_url may already be stale. Older KVS pages need the
@@ -1785,17 +1789,28 @@ class GenericSiteApi {
     String html,
     String pageUrl,
   ) {
+    // Prefer structured video:{ id, data:[] }; also accept decrypt_req(data, id).
     final config = RegExp(
-      r'''video\s*:\s*\{[\s\S]{0,500}?id\s*:\s*["']([^"']+)["'][\s\S]{0,500}?data\s*:\s*\[([^\]]+)\]''',
+      r'''video\s*:\s*\{[\s\S]{0,800}?id\s*:\s*["']([^"']+)["'][\s\S]{0,800}?data\s*:\s*\[([^\]]+)\]''',
       caseSensitive: false,
     ).firstMatch(html);
-    if (config == null) return const [];
-    final id = config.group(1)!;
-    if (utf8.encode(id).length < 8) return const [];
+    String? id = config?.group(1);
+    String encodedBlob = config?.group(2) ?? '';
+    if (id == null || encodedBlob.isEmpty) {
+      final alt = RegExp(
+        r'''decrypt_req\s*\(\s*["']([A-Za-z0-9+/=]{24,})["']\s*,\s*["']([a-f0-9]{16,})["']\s*\)''',
+        caseSensitive: false,
+      ).firstMatch(html);
+      if (alt != null) {
+        encodedBlob = '"${alt.group(1)!}"';
+        id = alt.group(2);
+      }
+    }
+    if (id == null || utf8.encode(id).length < 8) return const [];
 
     final out = <StreamQuality>[];
     final seen = <String>{};
-    final encodedValues = config.group(2)!.replaceAll(r'\/', '/');
+    final encodedValues = encodedBlob.replaceAll(r'\/', '/');
     for (final encodedMatch in RegExp(
       r'''["']([A-Za-z0-9+/]{24,}={0,2})["']''',
     ).allMatches(encodedValues)) {
@@ -1804,22 +1819,29 @@ class GenericSiteApi {
           encodedMatch.group(1)!,
           id,
         );
-        final url = clear.split(r'$').map((part) => part.trim()).firstWhere(
-              (part) => part.startsWith('http') && part.contains('.m3u8'),
-              orElse: () => '',
-            );
-        if (url.isEmpty || !seen.add(url)) continue;
-        final origin = _originOf(pageUrl);
-        final cookie = origin == null ? null : _cookieHeader(origin);
-        out.add(
-          StreamQuality(
-            width: 1280,
-            height: 720,
-            url: url,
-            referer: pageUrl,
-            headers: {if (cookie != null) 'Cookie': cookie},
-          ),
-        );
+        // Payload is usually "清晰度$https://...m3u8" (may have multiple $ parts).
+        for (final part in clear.split(r'$').map((e) => e.trim())) {
+          if (!part.startsWith('http')) continue;
+          final low = part.toLowerCase();
+          if (!low.contains('.m3u8') && !low.contains('.mp4')) continue;
+          if (_isPreviewUrl(part) || !seen.add(part)) continue;
+          final origin = _originOf(pageUrl);
+          final cookie = origin == null ? null : _cookieHeader(origin);
+          final isHls = low.contains('.m3u8');
+          out.add(
+            StreamQuality(
+              width: isHls ? 1280 : 854,
+              height: isHls ? 720 : 480,
+              url: part,
+              referer: pageUrl,
+              headers: {
+                if (cookie != null) 'Cookie': cookie,
+                // Some CDNs check Origin for these Chinese tube mirrors.
+                if (origin != null) 'Origin': origin,
+              },
+            ),
+          );
+        }
       } catch (_) {}
     }
     return out;
@@ -2084,6 +2106,33 @@ class GenericSiteApi {
           (b) => '$b/popular/?page=$p',
           (b) => '$b/',
         ];
+      case 'our55':
+      case 'xqq88':
+        // Hash-path CMS: /video/{md5}.html list cards; category via /type/{md5}.html
+        // Stable category hashes from live homepage (Our55 / 88XQQ family).
+        final typeHot = id == 'xqq88'
+            ? '2d2ad6019f04f0babc490e1d7e5407b0'
+            : '6ab222795552b5f2a80d08e054eb6eb2'; // 主播网红 / default hot
+        final typeAsian = id == 'xqq88'
+            ? '33aa1830f9e40d2da6188b4f089426e4'
+            : 'e2d833626ebb2fcc1f34b4b768ba75ac'; // 中文字幕
+        final typeNew = id == 'xqq88'
+            ? '4038d7e28ac4296f5563e130a16570b4'
+            : '05e63492cd2898bd6fa1c7cf36d5cd8a'; // 国产厂牌
+        final typeBest = id == 'xqq88'
+            ? '076fdd6d986ec12bb88d5128c5353fff'
+            : 'efc9a244d59a9d510b84644f2fa79b88'; // 日本无码
+        final typeId = switch (tagId) {
+          'asian' => typeAsian,
+          'new' => typeNew,
+          'best' => typeBest,
+          _ => typeHot,
+        };
+        return [
+          if (p == 1) (b) => '$b/',
+          (b) => '$b/type/$typeId.html${p > 1 ? '?page=$p' : ''}',
+          (b) => '$b/?page=$p',
+        ];
       case 'stripchat':
         final primaryTag = tagId == 'couples' ? tagId : 'girls';
         final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
@@ -2160,6 +2209,13 @@ class GenericSiteApi {
         return [
           (b) => '$b/zh/search?q=$enc&page=$p',
           (b) => '$b/zh/search/$enc/$p.html',
+        ];
+      case 'our55':
+      case 'xqq88':
+        return [
+          (b) => '$b/search.html?wd=$enc${p > 1 ? '&page=$p' : ''}',
+          (b) => '$b/search/?wd=$enc&page=$p',
+          (b) => '$b/?wd=$enc&page=$p',
         ];
       default:
         return [
@@ -2532,6 +2588,10 @@ class GenericSiteApi {
             h.contains('youporn.com') ||
             h.contains('spankbang.com') ||
             RegExp(r'/video[s./]').hasMatch(h);
+      case 'our55':
+      case 'xqq88':
+        // /video/{32-hex}.html detail cards
+        return RegExp(r'/video/[a-f0-9]{32}\.html').hasMatch(h);
       case 'xhamster':
         return h.contains('/videos/') || RegExp(r'/movies/\d+').hasMatch(h);
       case 'xnxx':

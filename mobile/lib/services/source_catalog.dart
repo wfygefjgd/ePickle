@@ -541,7 +541,8 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF455A64,
     letter: 'O',
-    ready: false,
+    ready: true,
+    // Hash-path CMS + DES-ECB player (same family as 88XQQ).
     mirrors: [
       'https://74214.our55.xyz',
       'https://74214.b999.homes',
@@ -562,7 +563,8 @@ class SourceCatalog {
     kind: SiteKind.video,
     color: 0xFF5D4037,
     letter: '8',
-    ready: false,
+    ready: true,
+    // Same encrypted player payload as Our55 (video.id + DES data[]).
     mirrors: [
       'https://cccdd.y3880.xyz',
       'https://cccdd.y3880.win',
