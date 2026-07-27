@@ -52,6 +52,15 @@ class _SearchScreenState extends State<SearchScreen> {
         .toList(growable: false);
   }
 
+  String? _effectiveActiveId(List<SiteDef> sites) {
+    if (sites.isEmpty) return _activeSiteId;
+    if (_activeSiteId == null ||
+        !sites.any((s) => s.id == _activeSiteId)) {
+      return sites.first.id;
+    }
+    return _activeSiteId;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,8 +96,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final sites = _sites;
     if (sites.isEmpty) return;
 
+    final validatedActiveId = _effectiveActiveId(sites);
     setState(() {
-      _activeSiteId ??= sites.first.id;
+      _activeSiteId = validatedActiveId;
       for (final s in sites) {
         _results[s.id] = [];
         _error[s.id] = null;
@@ -217,12 +227,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final sites = context.watch<LayoutSettings>().enabledVideoSites
         .where((s) => s.ready && s.searchable)
         .toList(growable: false);
-    if (sites.isNotEmpty &&
-        (_activeSiteId == null ||
-            !sites.any((s) => s.id == _activeSiteId))) {
-      _activeSiteId = sites.first.id;
-    }
-    final activeId = _activeSiteId;
+    final activeId = _effectiveActiveId(sites);
     SiteDef? activeSite;
     for (final s in sites) {
       if (s.id == activeId) {

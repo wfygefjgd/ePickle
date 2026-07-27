@@ -63,13 +63,10 @@ class _HomePageState extends State<HomePage> {
         .where((s) => s.ready)
         .toList(growable: false);
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final keyboardOpen = bottomInset > 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      // Manual float: pad search bar by keyboard height (iOS-safe).
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('ePickle'),
         actions: [
@@ -117,69 +114,62 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-          // Float above keyboard when open (do not cover keyboard).
-          AnimatedPadding(
-            duration: const Duration(milliseconds: 120),
-            curve: Curves.easeOut,
-            padding: EdgeInsets.only(bottom: bottomInset),
-            child: Material(
-              color: const Color(0xFF1E1E1E),
-              elevation: 8,
-              child: SafeArea(
-                top: false,
-                bottom: !keyboardOpen,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _searchCtrl,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (_) => _onHomeSearch(),
-                          decoration: InputDecoration(
-                            hintText: '搜索全部已启用网站',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: const Color(0xFF2A2A2A),
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: Colors.white38,
-                              size: 20,
-                            ),
-                          ),
+          Material(
+            color: const Color(0xFF1E1E1E),
+            elevation: 8,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchCtrl,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF6B35),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) => _onHomeSearch(),
+                        decoration: InputDecoration(
+                          hintText: '搜索全部已启用网站',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
                             vertical: 12,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Colors.white38,
+                            size: 20,
                           ),
                         ),
-                        onPressed: _onHomeSearch,
-                        child: const Text('搜'),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B35),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                      ),
+                      onPressed: _onHomeSearch,
+                      child: const Text('搜'),
+                    ),
+                  ],
                 ),
               ),
             ),

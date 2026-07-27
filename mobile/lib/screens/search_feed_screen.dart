@@ -881,11 +881,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     try {
       final zh = await context.read<Translator>().enToZh(title);
       if (!mounted || zh.isEmpty) return;
-      setState(() => _titleText = zh);
       final i = _index;
       if (i >= 0 && i < _items.length && _items[i].title == title) {
         _items[i] = _items[i].copyWith(title: zh);
       }
+      if (mounted) setState(() => _titleText = zh);
     } catch (_) {}
   }
 
