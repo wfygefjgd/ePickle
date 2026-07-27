@@ -198,6 +198,7 @@ Future<void> showPlayerSettingsSheet(
                             ) ??
                             false;
                         if (!ok) return;
+                        if (!ctx.mounted) return;
                         await ctx.read<WatchHistory>().clear();
                         await CacheManager.clearAllCache();
                         if (ctx.mounted) Navigator.pop(ctx);
