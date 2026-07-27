@@ -666,6 +666,15 @@ void main() {
     expect(SourceCatalog.defaultLiveId, 'chaturbate');
     expect(SourceCatalog.chaturbate.ready, isTrue);
     expect(SourceCatalog.stripchat.ready, isTrue);
+    expect(SourceCatalog.usesRandomizedGenericFeed(SourceCatalog.xnxx), isTrue);
+    expect(
+      SourceCatalog.usesRandomizedGenericFeed(SourceCatalog.stripchat),
+      isFalse,
+    );
+    expect(
+      SourceCatalog.usesRandomizedGenericFeed(SourceCatalog.chaturbate),
+      isFalse,
+    );
   });
 }
 

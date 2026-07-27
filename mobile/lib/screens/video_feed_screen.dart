@@ -214,15 +214,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _muted = context.read<AppSettings>().muted;
-    final genericSite = _useGeneric;
-    if (genericSite) {
+    final genericVideoSite = widget.site != null &&
+        SourceCatalog.usesRandomizedGenericFeed(widget.site!);
+    if (genericVideoSite) {
       // Native sources already randomize pages internally. Generic sites used
       // to always start at page 1 and restore the same cached list, making
       // every visit look identical.
       _genericPage = 1 + Random().nextInt(10);
       FeedListCache.clear(_cacheKey);
     }
-    final snap = genericSite ? null : FeedListCache.take(_cacheKey);
+    final snap = genericVideoSite ? null : FeedListCache.take(_cacheKey);
     if (snap != null && snap.items.isNotEmpty) {
       _items.addAll(snap.items);
       _seen.addAll(snap.seen);
@@ -631,6 +632,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       final genericApi = context.read<GenericSiteApi>();
       final site = widget.site!;
       final tagId = widget.tagId ?? 'hot';
+      final randomize = SourceCatalog.usesRandomizedGenericFeed(site);
       List<VideoItem> list;
       try {
         list = await genericApi.fetchFeed(
@@ -641,7 +643,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           limit: limit,
         );
       } catch (_) {
-        if (!isCold || requestedPage == 1) rethrow;
+        if (!randomize || !isCold || requestedPage == 1) rethrow;
         // Some smaller sites have fewer pages. Randomization must never turn
         // a working source into an error, so retry its first page once.
         list = await genericApi.fetchFeed(
@@ -653,7 +655,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         );
         _genericPage = 1;
       }
-      list.shuffle();
+      if (randomize) list.shuffle();
       if (list.isNotEmpty && requestedPage == _genericPage) {
         _genericPage++;
       } else if (list.isNotEmpty && _genericPage == 1) {

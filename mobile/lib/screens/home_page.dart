@@ -31,6 +31,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _openLive() {
+    final layout = context.read<LayoutSettings>();
+    final live = layout.liveSite ?? SourceCatalog.chaturbate;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => SiteFeedPage(site: live)),
+    );
+  }
+
   void _onHomeSearch() {
     final q = _searchCtrl.text.trim();
     final layout = context.read<LayoutSettings>();
@@ -217,6 +225,8 @@ class _HomePageState extends State<HomePage> {
     final sites = layout.enabledVideoSites;
     final builtIn = sites.where((s) => !s.custom).toList();
     final custom = sites.where((s) => s.custom).toList();
+    final lives = SourceCatalog.liveSites;
+    final live = layout.liveSite ?? SourceCatalog.chaturbate;
     final head = builtIn.take(_previewCount).toList();
     final rest = builtIn.length > _previewCount
         ? builtIn.sublist(_previewCount)
@@ -297,6 +307,31 @@ class _HomePageState extends State<HomePage> {
                   onTap: _showAddSites,
                 ),
                 const Divider(color: Colors.white12, height: 28),
+                _ExpandableSiteSection(
+                  title: '直播 (${lives.length})',
+                  initiallyExpanded: true,
+                  children: [
+                    for (final s in lives)
+                      _SiteTile(
+                        site: s,
+                        subtitle: s.id == live.id
+                            ? (s.ready ? '默认直播' : '默认入口 · 适配开发中')
+                            : (s.ready ? '点击进入' : '即将支持'),
+                        mirrorHint: s.mirrors.isNotEmpty
+                            ? '${s.mirrors.length} 个域名'
+                            : null,
+                        onTap: s.ready
+                            ? () {
+                                if (s.id == live.id) {
+                                  _openLive();
+                                } else {
+                                  _openSite(s);
+                                }
+                              }
+                            : null,
+                      ),
+                  ],
+                ),
                 ListTile(
                   leading: const Icon(Icons.search, color: Colors.white70),
                   title:

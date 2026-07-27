@@ -39,7 +39,7 @@ class LayoutSettings extends ChangeNotifier {
 
   SiteDef? get liveSite {
     final site = SourceCatalog.byId(_liveId);
-    return site?.kind == SiteKind.live && site?.ready == true ? site : null;
+    return site?.ready == true ? site : SourceCatalog.chaturbate;
   }
 
   Future<void> load() async {
