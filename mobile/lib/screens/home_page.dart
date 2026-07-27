@@ -18,10 +18,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _searchCtrl = TextEditingController();
+  final _focusNode = FocusNode();
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -64,9 +66,11 @@ class _HomePageState extends State<HomePage> {
         .toList(growable: false);
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
+    // bottomNavigationBar is always laid out above the keyboard by Scaffold.
+    // Do NOT use Stack + Positioned(bottom) for the search bar — that fights
+    // viewInsets / home-indicator and often leaves the field half-covered.
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      // Let Scaffold shrink body above keyboard (same as SearchScreen).
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('ePickle'),
@@ -77,160 +81,131 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: _HomeBody(
-        sites: sites,
-        lives: lives,
-        live: live,
-        searchCtrl: _searchCtrl,
-        onOpenSite: _openSite,
-        onRemoveSite: _removeSite,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        children: [
+          for (final s in sites)
+            _SwipeSiteTile(
+              site: s,
+              onTap: () => _openSite(s),
+              onDelete: () => _removeSite(s),
+              subtitle: s.custom
+                  ? '用户添加'
+                  : (s.mirrors.length > 1
+                      ? '${s.mirrors.length} 个域名'
+                      : null),
+            ),
+          if (lives.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
+              child: Text(
+                '直播',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            ),
+            for (final s in lives)
+              _SwipeSiteTile(
+                site: s,
+                swipeEnabled: false,
+                onTap: () => _openSite(s),
+                onDelete: () {},
+                subtitle: s.id == live.id ? '默认直播' : null,
+              ),
+          ],
+        ],
+      ),
+      bottomNavigationBar: _HomeSearchBar(
+        controller: _searchCtrl,
+        focusNode: _focusNode,
         onSearch: _onHomeSearch,
       ),
     );
   }
 }
 
-class _HomeBody extends StatefulWidget {
-  const _HomeBody({
-    required this.sites,
-    required this.lives,
-    required this.live,
-    required this.searchCtrl,
-    required this.onOpenSite,
-    required this.onRemoveSite,
+/// Search row pinned via [Scaffold.bottomNavigationBar] so keyboard never
+/// covers it (Scaffold repositions this slot with viewInsets).
+class _HomeSearchBar extends StatelessWidget {
+  const _HomeSearchBar({
+    required this.controller,
+    required this.focusNode,
     required this.onSearch,
   });
 
-  final List<SiteDef> sites;
-  final List<SiteDef> lives;
-  final SiteDef live;
-  final TextEditingController searchCtrl;
-  final void Function(SiteDef) onOpenSite;
-  final Future<void> Function(SiteDef) onRemoveSite;
+  final TextEditingController controller;
+  final FocusNode focusNode;
   final VoidCallback onSearch;
 
   @override
-  State<_HomeBody> createState() => _HomeBodyState();
-}
-
-class _HomeBodyState extends State<_HomeBody> {
-  final _focusNode = FocusNode();
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          bottom: 80,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            children: [
-              for (final s in widget.sites)
-                _SwipeSiteTile(
-                  site: s,
-                  onTap: () => widget.onOpenSite(s),
-                  onDelete: () => widget.onRemoveSite(s),
-                  subtitle: s.custom
-                      ? '用户添加'
-                      : (s.mirrors.length > 1
-                          ? '${s.mirrors.length} 个域名'
-                          : null),
-                ),
-              if (widget.lives.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
-                  child: Text(
-                    '直播',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                ),
-                for (final s in widget.lives)
-                  _SwipeSiteTile(
-                    site: s,
-                    swipeEnabled: false,
-                    onTap: () => widget.onOpenSite(s),
-                    onDelete: () {},
-                    subtitle: s.id == widget.live.id ? '默认直播' : null,
-                  ),
-              ],
-            ],
-          ),
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+
+    return Material(
+      color: const Color(0xFF1E1E1E),
+      elevation: 8,
+      child: Padding(
+        // When keyboard is up, home-indicator padding is already absorbed by
+        // Scaffold; only keep a small gap. When closed, keep home-indicator.
+        padding: EdgeInsets.fromLTRB(
+          12,
+          8,
+          12,
+          keyboardOpen ? 10 : (10 + safeBottom),
         ),
-        // bottom:0 is already above keyboard when resizeToAvoidBottomInset:true
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Material(
-            color: const Color(0xFF1E1E1E),
-            elevation: 8,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: widget.searchCtrl,
-                        focusNode: _focusNode,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                        ),
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (_) => widget.onSearch(),
-                        decoration: InputDecoration(
-                          hintText: '搜索全部已启用网站',
-                          hintStyle: const TextStyle(color: Colors.white38),
-                          filled: true,
-                          fillColor: const Color(0xFF2A2A2A),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            color: Colors.white38,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6B35),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                      ),
-                      onPressed: widget.onSearch,
-                      child: const Text('搜'),
-                    ),
-                  ],
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                ),
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => onSearch(),
+                decoration: InputDecoration(
+                  hintText: '搜索全部已启用网站',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: Colors.white38,
+                    size: 20,
+                  ),
                 ),
               ),
             ),
-          ),
+            const SizedBox(width: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+              onPressed: onSearch,
+              child: const Text('搜'),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

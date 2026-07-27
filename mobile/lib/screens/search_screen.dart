@@ -243,175 +243,162 @@ class _SearchScreenState extends State<SearchScreen> {
     final err = activeSite == null ? null : _error[activeSite.id];
     final canPop = Navigator.of(context).canPop();
 
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+
+    // Search bar lives in bottomNavigationBar so Scaffold always keeps it
+    // above the keyboard (no Stack/Positioned fight with viewInsets).
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        // Only show back when this page was pushed (home → search).
         automaticallyImplyLeading: canPop,
         title: const Text('搜索'),
         backgroundColor: const Color(0xFF1E1E1E),
         foregroundColor: Colors.white,
       ),
-      body: Stack(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Main content with bottom padding to avoid search bar
-          Positioned.fill(
-            bottom: 80, // Reserve space for search bar
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Left: site list
-                SizedBox(
-                  width: 108,
-                  child: Material(
-                    color: const Color(0xFF1A1A1A),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: sites.length,
-                      itemBuilder: (_, i) {
-                        final s = sites[i];
-                        final selected = s.id == activeSite?.id;
-                        final count = (_results[s.id] ?? []).length;
-                        final busy = _loading[s.id] ?? false;
-                        return InkWell(
-                          onTap: () => setState(() => _activeSiteId = s.id),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 12,
-                            ),
-                            color: selected
-                                ? const Color(0x22FF6B35)
-                                : Colors.transparent,
-                            child: Column(
-                              children: [
-                                SiteLogo(site: s, size: 36),
-                                const SizedBox(height: 6),
-                                Text(
-                                  s.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: selected
-                                        ? const Color(0xFFFF6B35)
-                                        : Colors.white70,
-                                    fontSize: 11,
-                                    fontWeight: selected
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                if (busy)
-                                  const SizedBox(
-                                    width: 10,
-                                    height: 10,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 1.5,
-                                      color: Color(0xFFFF6B35),
-                                    ),
-                                  )
-                                else if (count > 0)
-                                  Text(
-                                    '$count',
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
+          SizedBox(
+            width: 108,
+            child: Material(
+              color: const Color(0xFF1A1A1A),
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: sites.length,
+                itemBuilder: (_, i) {
+                  final s = sites[i];
+                  final selected = s.id == activeSite?.id;
+                  final count = (_results[s.id] ?? []).length;
+                  final busy = _loading[s.id] ?? false;
+                  return InkWell(
+                    onTap: () => setState(() => _activeSiteId = s.id),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 12,
+                      ),
+                      color: selected
+                          ? const Color(0x22FF6B35)
+                          : Colors.transparent,
+                      child: Column(
+                        children: [
+                          SiteLogo(site: s, size: 36),
+                          const SizedBox(height: 6),
+                          Text(
+                            s.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: selected
+                                  ? const Color(0xFFFF6B35)
+                                  : Colors.white70,
+                              fontSize: 11,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                             ),
                           ),
-                        );
-                      },
+                          const SizedBox(height: 2),
+                          if (busy)
+                            const SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Color(0xFFFF6B35),
+                              ),
+                            )
+                          else if (count > 0)
+                            Text(
+                              '$count',
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                const VerticalDivider(width: 1, color: Colors.white12),
-                // Right: results
-                Expanded(
-                  child: _buildResultsBody(
-                    activeSite,
-                    items,
-                    loading,
-                    err,
-                  ),
-                ),
-              ],
+                  );
+                },
+              ),
             ),
           ),
-          // Search bar positioned at bottom, always above keyboard
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              color: const Color(0xFF1E1E1E),
-              child: Material(
-                color: const Color(0xFF1E1E1E),
-                elevation: 8,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _controller,
-                            focusNode: _focus,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                            ),
-                            textInputAction: TextInputAction.search,
-                            onSubmitted: (_) => _runAll(),
-                            decoration: InputDecoration(
-                              hintText: '搜索全部已启用网站',
-                              hintStyle: const TextStyle(color: Colors.white38),
-                              filled: true,
-                              fillColor: const Color(0xFF2A2A2A),
-                              isDense: true,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              prefixIcon: const Icon(
-                                Icons.search,
-                                color: Colors.white38,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFFF6B35),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                          ),
-                          onPressed: _runAll,
-                          child: const Text('搜'),
-                        ),
-                      ],
+          const VerticalDivider(width: 1, color: Colors.white12),
+          Expanded(
+            child: _buildResultsBody(
+              activeSite,
+              items,
+              loading,
+              err,
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: Material(
+        color: const Color(0xFF1E1E1E),
+        elevation: 8,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            12,
+            8,
+            12,
+            keyboardOpen ? 10 : (10 + safeBottom),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focus,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _runAll(),
+                  decoration: InputDecoration(
+                    hintText: '搜索全部已启用网站',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    filled: true,
+                    fillColor: const Color(0xFF2A2A2A),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Colors.white38,
+                      size: 20,
                     ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6B35),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+                onPressed: _runAll,
+                child: const Text('搜'),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
