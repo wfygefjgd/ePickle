@@ -337,81 +337,9 @@ class SourceCatalog {
     tags: vodTags,
   );
 
-  static const eporner = SiteDef(
-    id: 'eporner',
-    name: 'Eporner',
-    kind: SiteKind.video,
-    color: 0xFF00897B,
-    letter: 'E',
-    ready: true,
-    mirrors: [
-      'https://www.eporner.com',
-      'https://eporner.com',
-      'https://de.eporner.com',
-      'https://fr.eporner.com',
-    ],
-    tags: vodTags,
-  );
-
-  static const freeporn = SiteDef(
-    id: 'freeporn',
-    name: 'FreePorn',
-    kind: SiteKind.video,
-    color: 0xFFE65100,
-    letter: 'F',
-    ready: true,
-    // Outbound directory of tube links. List scrapes external sites; detail
-    // falls back to in-app WebView when direct streams are unavailable.
-    mirrors: ['https://www.freeporn.com'],
-    tags: vodTags,
-  );
-
-  static const spankbang = SiteDef(
-    id: 'spankbang',
-    name: 'SpankBang',
-    kind: SiteKind.video,
-    color: 0xFFC62828,
-    letter: 'B',
-    ready: true,
-    mirrors: [
-      'https://spankbang.com',
-      'https://www.spankbang.com',
-      'https://spankbang.party',
-      'https://ms.spankbang.com',
-      'https://spankbang.media',
-    ],
-    tags: vodTags,
-  );
-
-  static const youporn = SiteDef(
-    id: 'youporn',
-    name: 'YouPorn',
-    kind: SiteKind.video,
-    color: 0xFFAD1457,
-    letter: 'Y',
-    ready: true,
-    mirrors: [
-      'https://www.youporn.com',
-      'https://youporn.com',
-      'https://www.you-porn.com',
-    ],
-    tags: vodTags,
-  );
-
-  static const redtube = SiteDef(
-    id: 'redtube',
-    name: 'RedTube',
-    kind: SiteKind.video,
-    color: 0xFFB71C1C,
-    letter: 'R',
-    ready: true,
-    mirrors: [
-      'https://www.redtube.com',
-      'https://redtube.com',
-      'https://www.redtube.net',
-    ],
-    tags: vodTags,
-  );
+  // Removed from catalog (unstable / blocked for most users):
+  // eporner, freeporn, spankbang, youporn, redtube, javmix, javgg,
+  // av01, missav, 7mmtv, bestjavporn.
 
   static const tnaflix = SiteDef(
     id: 'tnaflix',
@@ -427,67 +355,6 @@ class SourceCatalog {
     tags: vodTags,
   );
 
-  static const javmix = SiteDef(
-    id: 'javmix',
-    name: 'JAVMix',
-    kind: SiteKind.video,
-    color: 0xFF00695C,
-    letter: 'J',
-    ready: true,
-    mirrors: [
-      'https://javmix.com',
-    ],
-    tags: vodTags,
-  );
-
-  static const javgg = SiteDef(
-    id: 'javgg',
-    name: 'JavGG',
-    kind: SiteKind.video,
-    color: 0xFF283593,
-    letter: 'G',
-    ready: true,
-    mirrors: [
-      'https://javgg.com',
-    ],
-    tags: vodTags,
-  );
-
-  static const av01 = SiteDef(
-    id: 'av01',
-    name: 'AV01',
-    kind: SiteKind.video,
-    color: 0xFF37474F,
-    letter: 'A',
-    ready: true,
-    // SPA site; prefer .tv / .xyz which still expose list HTML or API.
-    mirrors: [
-      'https://www.av01.tv',
-      'https://av01.tv',
-      'https://www.av01.xyz',
-      'https://www.av01.media',
-      'https://av01.media',
-    ],
-    tags: vodTags,
-  );
-
-  static const missav = SiteDef(
-    id: 'missav',
-    name: 'MissAV',
-    kind: SiteKind.video,
-    color: 0xFF880E4F,
-    letter: 'M',
-    ready: true,
-    mirrors: [
-      'https://missav.ai',
-      'https://missav.ws',
-      'https://missav.com',
-      'https://missav.live',
-      'https://missav.biz',
-    ],
-    tags: vodTags,
-  );
-
   static const jable = SiteDef(
     id: 'jable',
     name: 'Jable',
@@ -499,38 +366,6 @@ class SourceCatalog {
       'https://jable.tv',
       'https://www.jable.tv',
       'https://jable.one',
-    ],
-    tags: vodTags,
-  );
-
-  static const mmtv7 = SiteDef(
-    id: '7mmtv',
-    name: '7MMTV',
-    kind: SiteKind.video,
-    color: 0xFFBF360C,
-    letter: '7',
-    ready: true,
-    mirrors: [
-      'https://7mmtv.sx',
-      'https://www.7mmtv.sx',
-      'https://7mmtv.tv',
-      'https://7mmtv.com',
-      'https://www.7mmtv.me',
-    ],
-    tags: vodTags,
-  );
-
-  static const bestjavporn = SiteDef(
-    id: 'bestjavporn',
-    name: 'BestJAVPorn',
-    kind: SiteKind.video,
-    color: 0xFF33691E,
-    letter: 'B',
-    ready: true,
-    mirrors: [
-      'https://www.bestjavporn.com',
-      'https://bestjavporn.com',
-      'https://www.bestjavporn.com/zh',
     ],
     tags: vodTags,
   );
@@ -618,19 +453,8 @@ class SourceCatalog {
     mitao,
     xnxx,
     xhamster,
-    eporner,
-    freeporn,
-    spankbang,
-    youporn,
-    redtube,
     tnaflix,
-    javmix,
-    javgg,
-    av01,
-    missav,
     jable,
-    mmtv7,
-    bestjavporn,
     our55,
     xqq88,
     stripchat,

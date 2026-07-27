@@ -162,11 +162,9 @@ class _HomePageState extends State<HomePage> {
                                 subtitle: Text(
                                   !s.ready
                                       ? '解析待修复 · 暂不作为可播放频道'
-                                      : (s.id == 'freeporn'
-                                          ? '目录站 · 解析外链 / 网页兜底'
-                                          : (s.mirrors.isNotEmpty
-                                              ? '${s.mirrors.length} 个域名 · 通用解析'
-                                              : '通用解析')),
+                                      : (s.mirrors.isNotEmpty
+                                          ? '${s.mirrors.length} 个域名 · 通用解析'
+                                          : '通用解析'),
                                   style: const TextStyle(
                                     color: Colors.white38,
                                     fontSize: 12,

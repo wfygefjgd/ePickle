@@ -632,12 +632,7 @@ void main() {
         adapter.requests.single.uri.queryParameters, isNot(contains('tags')));
   });
 
-  test('FreePorn is enabled as directory / WebView-fallback source', () {
-    expect(SourceCatalog.freeporn.ready, isTrue);
-    expect(SourceCatalog.defaultEnabledVideoIds, contains('freeporn'));
-  });
-
-  test('catalog enables repaired VOD sources and both live sources', () {
+  test('catalog keeps stable sources only after removing broken VODs', () {
     final enabled = SourceCatalog.defaultEnabledVideoIds;
     for (final id in [
       'pornhub',
@@ -645,28 +640,29 @@ void main() {
       'mitao',
       'xnxx',
       'xhamster',
-      'javmix',
-      'eporner',
-      'spankbang',
-      'youporn',
-      'redtube',
       'tnaflix',
-      'javgg',
-      'av01',
-      'missav',
       'jable',
-      '7mmtv',
-      'bestjavporn',
-      'freeporn',
+      'our55',
+      'xqq88',
     ]) {
       expect(enabled, contains(id), reason: '$id should be ready/enabled');
     }
-    expect(SourceCatalog.byId('our55'), isNotNull);
-    expect(SourceCatalog.byId('our55')!.ready, isTrue);
-    expect(SourceCatalog.byId('xqq88'), isNotNull);
-    expect(SourceCatalog.byId('xqq88')!.ready, isTrue);
-    expect(SourceCatalog.defaultEnabledVideoIds, contains('our55'));
-    expect(SourceCatalog.defaultEnabledVideoIds, contains('xqq88'));
+    for (final id in [
+      'eporner',
+      'freeporn',
+      'spankbang',
+      'youporn',
+      'redtube',
+      'javmix',
+      'javgg',
+      'av01',
+      'missav',
+      '7mmtv',
+      'bestjavporn',
+    ]) {
+      expect(SourceCatalog.byId(id), isNull, reason: '$id should be removed');
+      expect(enabled, isNot(contains(id)));
+    }
     expect(SourceCatalog.defaultLiveId, 'chaturbate');
     expect(SourceCatalog.chaturbate.ready, isTrue);
     expect(SourceCatalog.stripchat.ready, isTrue);
