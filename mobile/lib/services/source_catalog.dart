@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../models/feed_kind.dart';
 
@@ -590,6 +590,8 @@ class SourceCatalog {
     jable,
     mmtv7,
     bestjavporn,
+    stripchat,
+    chaturbate,
   ];
 
   static SiteDef? byId(String id) {
@@ -608,5 +610,13 @@ class SourceCatalog {
   static List<String> get defaultEnabledVideoIds =>
       videoSites.where((s) => s.ready).map((s) => s.id).toList();
 
-  static const defaultLiveId = '';
+  /// The first three VOD adapters randomize internally. Remaining VOD sites
+  /// use generic random pages; live channels must stay ordered and stable.
+  static bool usesRandomizedGenericFeed(SiteDef site) =>
+      site.kind == SiteKind.video &&
+      site.id != 'pornhub' &&
+      site.id != 'xvideos' &&
+      site.id != 'mitao';
+
+  static const defaultLiveId = 'chaturbate';
 }
