@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../services/layout_settings.dart';
@@ -19,6 +20,22 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _searchCtrl = TextEditingController();
   final _focusNode = FocusNode();
+  String _versionLabel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final v = info.version.trim();
+      if (!mounted || v.isEmpty) return;
+      setState(() => _versionLabel = v);
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -70,7 +87,11 @@ class _HomePageState extends State<HomePage> {
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text('ePickle 2.0'),
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          _versionLabel.isEmpty ? 'ePickle' : 'ePickle $_versionLabel',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -220,20 +241,29 @@ class _SwipeSiteTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tile = Card(
       color: const Color(0xFF2A2A2A),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: SizedBox(
-        height: 84,
-        child: ListTile(
-        leading: SiteLogo(site: site, size: 44),
-        title: Text(site.name, style: const TextStyle(color: Colors.white)),
-        subtitle: subtitle == null
-            ? null
-            : Text(
-                subtitle!,
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-        trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-        onTap: onTap,
+        height: 76,
+        child: Center(
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: SiteLogo(site: site, size: 40),
+            title: Text(
+              site.name,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            subtitle: subtitle == null
+                ? null
+                : Text(
+                    subtitle!,
+                    style: const TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+            trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+            onTap: onTap,
+          ),
         ),
       ),
     );
@@ -243,11 +273,11 @@ class _SwipeSiteTile extends StatelessWidget {
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
-        margin: const EdgeInsets.only(bottom: 8),
+        margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.only(right: 20),
         decoration: BoxDecoration(
           color: const Color(0xFFB71C1C),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
         ),
         child: const Icon(Icons.delete_outline, color: Colors.white),
       ),

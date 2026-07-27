@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/home_page.dart';
@@ -56,6 +57,13 @@ class PlayerApp extends StatelessWidget {
             backgroundColor: Colors.black,
             foregroundColor: Colors.white,
             elevation: 0,
+            scrolledUnderElevation: 0,
+            surfaceTintColor: Colors.transparent,
+            systemOverlayStyle: SystemUiOverlayStyle(
+              statusBarColor: Colors.black,
+              statusBarIconBrightness: Brightness.light,
+              statusBarBrightness: Brightness.dark,
+            ),
           ),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {
