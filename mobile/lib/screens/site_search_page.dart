@@ -142,141 +142,198 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
           ],
         ),
       ),
-      resizeToAvoidBottomInset: true,
-      body: Column(
-        children: [
-          Expanded(
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
-                  )
-                : _error != null && _items.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _error!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14,
-                                ),
+      resizeToAvoidBottomInset: false,
+      body: _SiteSearchBody(
+        site: site,
+        items: _items,
+        loading: _loading,
+        loadingMore: _loadingMore,
+        hasMore: _hasMore,
+        error: _error,
+        ctrl: _ctrl,
+        focus: _focus,
+        feedSource: _feedSource,
+        onRun: _run,
+        onLoadMore: _loadMore,
+      ),
+    );
+  }
+}
+
+class _SiteSearchBody extends StatelessWidget {
+  const _SiteSearchBody({
+    required this.site,
+    required this.items,
+    required this.loading,
+    required this.loadingMore,
+    required this.hasMore,
+    required this.error,
+    required this.ctrl,
+    required this.focus,
+    required this.feedSource,
+    required this.onRun,
+    required this.onLoadMore,
+  });
+
+  final SiteDef site;
+  final List<VideoItem> items;
+  final bool loading;
+  final bool loadingMore;
+  final bool hasMore;
+  final String? error;
+  final TextEditingController ctrl;
+  final FocusNode focus;
+  final SearchSource feedSource;
+  final VoidCallback onRun;
+  final VoidCallback onLoadMore;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          bottom: 80,
+          child: loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
+                )
+              : error != null && items.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
                               ),
-                              const SizedBox(height: 16),
-                              FilledButton(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFF6B35),
-                                ),
-                                onPressed: _loading ? null : _run,
-                                child: const Text('重试'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : _items.isEmpty
-                        ? const Center(
-                            child: Text(
-                              '输入关键词搜索本站',
-                              style: TextStyle(color: Colors.white38),
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: _items.length + (_hasMore ? 1 : 0),
-                            itemBuilder: (_, i) {
-                              if (i == _items.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Center(
-                                    child: _loadingMore
-                                        ? const CircularProgressIndicator(
-                                            color: Color(0xFFFF6B35),
-                                          )
-                                        : TextButton.icon(
-                                            onPressed: _loadMore,
-                                            icon: const Icon(Icons.expand_more),
-                                            label: const Text('加载更多'),
-                                          ),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF6B35),
+                              ),
+                              onPressed: loading ? null : onRun,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : items.isEmpty
+                      ? const Center(
+                          child: Text(
+                            '输入关键词搜索本站',
+                            style: TextStyle(color: Colors.white38),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: items.length + (hasMore ? 1 : 0),
+                          itemBuilder: (_, i) {
+                            if (i == items.length) {
+                              return Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Center(
+                                  child: loadingMore
+                                      ? const CircularProgressIndicator(
+                                          color: Color(0xFFFF6B35),
+                                        )
+                                      : TextButton.icon(
+                                          onPressed: onLoadMore,
+                                          icon: const Icon(Icons.expand_more),
+                                          label: const Text('加载更多'),
+                                        ),
+                                ),
+                              );
+                            }
+                            return VideoCard(
+                              item: items[i],
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => SearchFeedScreen(
+                                      items: List<VideoItem>.from(items),
+                                      source: feedSource,
+                                      initialIndex: i,
+                                      title: site.name,
+                                      site: site,
+                                    ),
                                   ),
                                 );
-                              }
-                              return VideoCard(
-                                item: _items[i],
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => SearchFeedScreen(
-                                        items: List<VideoItem>.from(_items),
-                                        source: _feedSource,
-                                        initialIndex: i,
-                                        title: site.name,
-                                        site: site,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
+                              },
+                            );
+                          },
+                        ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Transform.translate(
+            offset: Offset(0, -bottomInset),
+            child: Material(
+              color: const Color(0xFF1E1E1E),
+              elevation: 8,
+              child: SafeArea(
+                top: false,
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: ctrl,
+                          focusNode: focus,
+                          style: const TextStyle(color: Colors.white),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => onRun(),
+                          decoration: InputDecoration(
+                            hintText: '仅搜索 ${site.name}',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: const Color(0xFF2A2A2A),
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                           ),
-          ),
-          Material(
-            color: const Color(0xFF1E1E1E),
-            elevation: 8,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _ctrl,
-                        focusNode: _focus,
-                        style: const TextStyle(color: Colors.white),
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (_) => _run(),
-                        decoration: InputDecoration(
-                          hintText: '仅搜索 ${site.name}',
-                          hintStyle: const TextStyle(color: Colors.white38),
-                          filled: true,
-                          fillColor: const Color(0xFF2A2A2A),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
                             vertical: 12,
                           ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
                         ),
+                        onPressed: loading ? null : onRun,
+                        child: const Text('搜'),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6B35),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                      ),
-                      onPressed: _loading ? null : _run,
-                      child: const Text('搜'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
