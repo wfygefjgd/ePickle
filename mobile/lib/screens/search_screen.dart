@@ -241,7 +241,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         // Only show back when this page was pushed (home → search).
         automaticallyImplyLeading: canPop,
@@ -253,7 +253,7 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           // Main content with bottom padding to avoid search bar
           Positioned.fill(
-            bottom: 80 + bottomInset, // Reserve space for search bar + keyboard
+            bottom: 80, // Reserve space for search bar
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -341,7 +341,7 @@ class _SearchScreenState extends State<SearchScreen> {
           Positioned(
             left: 0,
             right: 0,
-            bottom: bottomInset,
+            bottom: 0,
             child: Container(
               color: const Color(0xFF1E1E1E),
               child: Material(
