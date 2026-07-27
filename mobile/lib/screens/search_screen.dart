@@ -337,13 +337,12 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           // Search bar floats above keyboard (manual inset; no body resize).
-          Material(
+          Container(
             color: const Color(0xFF1E1E1E),
-            elevation: 8,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              curve: Curves.easeOut,
-              padding: EdgeInsets.only(bottom: keyboardOpen ? bottomInset : 0),
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: Material(
+              color: const Color(0xFF1E1E1E),
+              elevation: 8,
               child: SafeArea(
                 top: false,
                 child: Padding(
