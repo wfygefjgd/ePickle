@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../services/layout_settings.dart';
 import '../services/source_catalog.dart';
 import '../widgets/player_settings_sheet.dart';
-import '../widgets/keyboard_avoiding_bottom_bar.dart';
 import '../widgets/site_logo.dart';
 import 'search_screen.dart';
 import 'site_feed_page.dart';
@@ -68,9 +67,9 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: const Text('ePickle'),
+        title: const Text('ePickle 2.0'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -80,6 +79,11 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Column(
         children: [
+          _HomeSearchBar(
+            controller: _searchCtrl,
+            focusNode: _focusNode,
+            onSearch: _onHomeSearch,
+          ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -114,13 +118,6 @@ class _HomePageState extends State<HomePage> {
                     ),
                 ],
               ],
-            ),
-          ),
-          KeyboardAvoidingBottomBar(
-            child: _HomeSearchBar(
-              controller: _searchCtrl,
-              focusNode: _focusNode,
-              onSearch: _onHomeSearch,
             ),
           ),
         ],

@@ -4,7 +4,6 @@ import 'package:phub_player/app_player.dart';
 import 'package:phub_player/services/app_settings.dart';
 import 'package:phub_player/services/layout_settings.dart';
 import 'package:phub_player/services/watch_history.dart';
-import 'package:phub_player/widgets/keyboard_avoiding_bottom_bar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -40,38 +39,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final searchField = find.byType(TextField).first;
-    final keyboardTop = tester.view.physicalSize.height -
-        tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
-
-    expect(tester.getBottomRight(searchField).dy, lessThan(keyboardTop));
-  });
-
-  testWidgets('Native iOS keyboard inset moves the home search field', (
-    WidgetTester tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(430, 932);
-    tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
-    addTearDown(() {
-      IosKeyboardInsets.instance.debugSetBottom(0);
-      tester.view.reset();
-    });
-
-    SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(
-      PlayerApp(
-        settings: AppSettings(),
-        layout: LayoutSettings(),
-        history: WatchHistory(),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    IosKeyboardInsets.instance.debugSetBottom(320);
-    await tester.pump();
-
-    final searchField = find.byType(TextField).first;
-    expect(tester.view.viewInsets.bottom, 0);
-    expect(tester.getBottomRight(searchField).dy, lessThan(612));
+    expect(tester.getBottomRight(searchField).dy, lessThan(220));
+    expect(find.text('ePickle 2.0'), findsOneWidget);
   });
 }

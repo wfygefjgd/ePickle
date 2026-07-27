@@ -7,8 +7,6 @@ import WebKit
   private var privacyChannel: FlutterMethodChannel?
   private var browserHttpChannel: FlutterMethodChannel?
   private var stripchatControlChannel: FlutterMethodChannel?
-  private var keyboardInsetsChannel: FlutterMethodChannel?
-  private var keyboardObserversInstalled = false
   private var browserTasks: [UUID: URLSessionDataTask] = [:]
   private var browserRenderRequests: [UUID: BrowserRenderRequest] = [:]
 
@@ -23,11 +21,6 @@ import WebKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
     let messenger = engineBridge.applicationRegistrar.messenger()
-    keyboardInsetsChannel = FlutterMethodChannel(
-      name: "epickle/keyboard_insets",
-      binaryMessenger: messenger
-    )
-    installKeyboardObservers()
     if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "epickle_stripchat_live"
     ) {
@@ -117,57 +110,6 @@ import WebKit
   override func applicationDidEnterBackground(_ application: UIApplication) {
     cancelBrowserRequests()
     super.applicationDidEnterBackground(application)
-  }
-
-  private func installKeyboardObservers() {
-    guard !keyboardObserversInstalled else { return }
-    keyboardObserversInstalled = true
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(keyboardFrameChanged(_:)),
-      name: UIResponder.keyboardWillChangeFrameNotification,
-      object: nil
-    )
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(keyboardFrameChanged(_:)),
-      name: UIResponder.keyboardWillHideNotification,
-      object: nil
-    )
-  }
-
-  @objc private func keyboardFrameChanged(_ notification: Notification) {
-    let userInfo = notification.userInfo ?? [:]
-    let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.18
-    var bottom = 0.0
-
-    if notification.name != UIResponder.keyboardWillHideNotification,
-       let endValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue,
-       let window = activeWindow() {
-      let keyboardFrame = window.convert(endValue.cgRectValue, from: nil)
-      if keyboardFrame.maxY >= window.bounds.maxY - 1,
-         keyboardFrame.intersects(window.bounds) {
-        bottom = window.bounds.intersection(keyboardFrame).height
-      }
-    }
-
-    keyboardInsetsChannel?.invokeMethod(
-      "keyboardFrameChanged",
-      arguments: [
-        "bottom": bottom,
-        "durationMs": Int(max(0, duration) * 1000),
-      ]
-    )
-  }
-
-  private func activeWindow() -> UIWindow? {
-    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-    for scene in scenes where scene.activationState == .foregroundActive {
-      if let window = scene.windows.first(where: { $0.isKeyWindow }) {
-        return window
-      }
-    }
-    return scenes.flatMap(\.windows).first(where: { $0.isKeyWindow })
   }
 
   private func startBrowserGet(

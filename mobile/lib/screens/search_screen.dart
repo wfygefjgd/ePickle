@@ -11,7 +11,6 @@ import '../services/source_catalog.dart';
 import '../services/translator.dart';
 import '../services/xvideos_api.dart';
 import '../utils/playback_helpers.dart';
-import '../widgets/keyboard_avoiding_bottom_bar.dart';
 import '../widgets/site_logo.dart';
 import '../widgets/video_card.dart';
 import 'search_feed_screen.dart';
@@ -248,7 +247,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         automaticallyImplyLeading: canPop,
         title: const Text('搜索'),
@@ -256,6 +255,7 @@ class _SearchScreenState extends State<SearchScreen> {
         foregroundColor: Colors.white,
       ),
       body: Column(
+        verticalDirection: VerticalDirection.up,
         children: [
           Expanded(
             child: Row(
@@ -339,66 +339,61 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-          KeyboardAvoidingBottomBar(
-            child: Material(
-              color: const Color(0xFF1E1E1E),
-              elevation: 8,
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          focusNode: _focus,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (_) => _runAll(),
-                          decoration: InputDecoration(
-                            hintText: '搜索全部已启用网站',
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: const Color(0xFF2A2A2A),
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: Colors.white38,
-                              size: 20,
-                            ),
-                          ),
+          Material(
+            color: const Color(0xFF1E1E1E),
+            elevation: 8,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      focusNode: _focus,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                      ),
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _runAll(),
+                      decoration: InputDecoration(
+                        hintText: '搜索全部已启用网站',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF2A2A2A),
+                        isDense: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Colors.white38,
+                          size: 20,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF6B35),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                        ),
-                        onPressed: _runAll,
-                        child: const Text('搜'),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF6B35),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    onPressed: _runAll,
+                    child: const Text('搜'),
+                  ),
+                ],
               ),
             ),
           ),
