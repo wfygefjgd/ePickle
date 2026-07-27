@@ -220,9 +220,19 @@ private final class StripchatLivePlatformView: NSObject,
   WKUIDelegate {
   static let activeView = WeakBox<StripchatLivePlatformView>()
 
+  private let containerView: UIView
   private let webView: WKWebView
+  private let loadingOverlay: UIView
+  private let loadingIndicator: UIActivityIndicatorView
+  private let loadingProgress: UIProgressView
+  private let statusLabel: UILabel
+  private let retryButton: UIButton
   private var muted: Bool
   private var focusTimer: Timer?
+  private var statusTimer: Timer?
+  private var progressObservation: NSKeyValueObservation?
+  private var roomRequest: URLRequest?
+  private var loadingStartedAt: Date?
   private var videoRevealed = false
 
   init(frame: CGRect, arguments: Any?) {
@@ -235,10 +245,25 @@ private final class StripchatLivePlatformView: NSObject,
     configuration.preferences.javaScriptEnabled = true
     configuration.allowsInlineMediaPlayback = true
     configuration.mediaTypesRequiringUserActionForPlayback = []
+    containerView = UIView(frame: frame)
     webView = WKWebView(frame: frame, configuration: configuration)
+    loadingOverlay = UIView(frame: frame)
+    loadingIndicator = UIActivityIndicatorView(style: .large)
+    loadingProgress = UIProgressView(progressViewStyle: .default)
+    statusLabel = UILabel()
+    retryButton = UIButton(type: .system)
     super.init()
 
     StripchatLivePlatformView.activeView.value = self
+    containerView.backgroundColor = .black
+    webView.frame = containerView.bounds
+    webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    loadingOverlay.frame = containerView.bounds
+    loadingOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    configureLoadingOverlay()
+    containerView.addSubview(webView)
+    containerView.addSubview(loadingOverlay)
+
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.isOpaque = true
@@ -259,6 +284,16 @@ private final class StripchatLivePlatformView: NSObject,
     tap.cancelsTouchesInView = false
     webView.addGestureRecognizer(tap)
 
+    progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
+      [weak self] webView, _ in
+      guard let self, !self.videoRevealed else { return }
+      let progress = Float(max(0.04, min(0.96, webView.estimatedProgress)))
+      self.loadingProgress.setProgress(progress, animated: true)
+      if webView.estimatedProgress >= 0.95 {
+        self.statusLabel.text = "网页已加载，正在寻找直播画面…"
+      }
+    }
+
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(pauseForBackground),
@@ -276,12 +311,17 @@ private final class StripchatLivePlatformView: NSObject,
       var request = URLRequest(url: url)
       request.cachePolicy = .reloadIgnoringLocalCacheData
       request.setValue("https://stripchat.com/", forHTTPHeaderField: "Referer")
-      webView.load(request)
+      roomRequest = request
+      startRoomLoad()
+    } else {
+      showFailure("房间地址无效")
     }
   }
 
   deinit {
     focusTimer?.invalidate()
+    statusTimer?.invalidate()
+    progressObservation?.invalidate()
     NotificationCenter.default.removeObserver(self)
     webView.stopLoading()
     if StripchatLivePlatformView.activeView.value === self {
@@ -290,7 +330,116 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   func view() -> UIView {
-    webView
+    containerView
+  }
+
+  private func configureLoadingOverlay() {
+    loadingOverlay.backgroundColor = .black
+
+    loadingIndicator.color = .white
+    loadingIndicator.startAnimating()
+
+    loadingProgress.progressTintColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
+    loadingProgress.trackTintColor = UIColor.white.withAlphaComponent(0.18)
+    loadingProgress.setProgress(0.04, animated: false)
+
+    statusLabel.text = "正在连接 Stripchat…"
+    statusLabel.textColor = .white
+    statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
+    statusLabel.textAlignment = .center
+    statusLabel.numberOfLines = 2
+
+    retryButton.setTitle("重新连接", for: .normal)
+    retryButton.setTitleColor(.white, for: .normal)
+    retryButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+    retryButton.backgroundColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
+    retryButton.layer.cornerRadius = 18
+    retryButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 22, bottom: 8, right: 22)
+    retryButton.isHidden = true
+    retryButton.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
+
+    let stack = UIStackView(arrangedSubviews: [
+      loadingIndicator,
+      statusLabel,
+      loadingProgress,
+      retryButton,
+    ])
+    stack.axis = .vertical
+    stack.alignment = .center
+    stack.spacing = 14
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    loadingOverlay.addSubview(stack)
+
+    loadingProgress.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      stack.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+      stack.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor),
+      stack.leadingAnchor.constraint(greaterThanOrEqualTo: loadingOverlay.leadingAnchor, constant: 28),
+      stack.trailingAnchor.constraint(lessThanOrEqualTo: loadingOverlay.trailingAnchor, constant: -28),
+      loadingProgress.widthAnchor.constraint(equalToConstant: 220),
+    ])
+  }
+
+  private func startRoomLoad() {
+    guard let roomRequest else {
+      showFailure("房间地址无效")
+      return
+    }
+    focusTimer?.invalidate()
+    showLoading(resetClock: true)
+    webView.stopLoading()
+    webView.load(roomRequest)
+  }
+
+  private func showLoading(resetClock: Bool) {
+    videoRevealed = false
+    webView.alpha = 0
+    loadingOverlay.alpha = 1
+    loadingOverlay.isHidden = false
+    loadingIndicator.startAnimating()
+    retryButton.isHidden = true
+    loadingProgress.progressTintColor = UIColor(red: 1, green: 0.42, blue: 0.21, alpha: 1)
+    loadingProgress.setProgress(0.04, animated: false)
+    if resetClock || loadingStartedAt == nil {
+      loadingStartedAt = Date()
+    }
+    statusLabel.text = "正在连接 Stripchat… 0 秒"
+    statusTimer?.invalidate()
+    statusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) {
+      [weak self] _ in
+      self?.updateLoadingStatus()
+    }
+  }
+
+  private func updateLoadingStatus() {
+    guard !videoRevealed, let loadingStartedAt else { return }
+    let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
+    if elapsed >= 30 {
+      showFailure("连接超时，请检查网络或更换主播")
+    } else if webView.estimatedProgress >= 0.95 {
+      statusLabel.text = "网页已加载，正在寻找直播画面… \(elapsed) 秒"
+    } else if elapsed >= 15 {
+      statusLabel.text = "连接较慢，请检查网络… \(elapsed) 秒"
+    } else {
+      statusLabel.text = "正在连接 Stripchat… \(elapsed) 秒"
+    }
+  }
+
+  private func showFailure(_ message: String) {
+    guard !videoRevealed else { return }
+    statusTimer?.invalidate()
+    statusTimer = nil
+    loadingIndicator.stopAnimating()
+    loadingProgress.progressTintColor = .systemRed
+    loadingProgress.setProgress(1, animated: true)
+    statusLabel.text = message
+    retryButton.isHidden = false
+    loadingOverlay.alpha = 1
+    loadingOverlay.isHidden = false
+  }
+
+  @objc private func handleRetry() {
+    startRoomLoad()
   }
 
   func setMuted(_ value: Bool) {
@@ -303,6 +452,8 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    loadingProgress.setProgress(0.96, animated: true)
+    statusLabel.text = "网页已加载，正在寻找直播画面…"
     installVideoFocus()
     focusTimer?.invalidate()
     focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
@@ -315,8 +466,23 @@ private final class StripchatLivePlatformView: NSObject,
     _ webView: WKWebView,
     didStartProvisionalNavigation navigation: WKNavigation!
   ) {
-    videoRevealed = false
-    webView.alpha = 0
+    showLoading(resetClock: loadingStartedAt == nil)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    didFail navigation: WKNavigation!,
+    withError error: Error
+  ) {
+    showFailure("连接失败：\(error.localizedDescription)")
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    didFailProvisionalNavigation navigation: WKNavigation!,
+    withError error: Error
+  ) {
+    showFailure("网络连接失败，请检查网络后重试")
   }
 
   func webView(
@@ -455,12 +621,20 @@ private final class StripchatLivePlatformView: NSObject,
       let focused = (value as? Bool) ?? (value as? NSNumber)?.boolValue ?? false
       guard focused else { return }
       self.videoRevealed = true
+      self.statusTimer?.invalidate()
+      self.statusTimer = nil
+      self.loadingStartedAt = nil
+      self.loadingIndicator.stopAnimating()
       UIView.animate(
         withDuration: 0.18,
         delay: 0,
         options: [.beginFromCurrentState, .curveEaseOut]
       ) {
         self.webView.alpha = 1
+        self.loadingOverlay.alpha = 0
+      } completion: { _ in
+        self.loadingOverlay.isHidden = true
+        self.loadingOverlay.alpha = 1
       }
     }
   }
