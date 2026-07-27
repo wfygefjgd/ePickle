@@ -61,15 +61,10 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
-    final lives = SourceCatalog.liveSites
-        .where((s) => s.ready)
-        .toList(growable: false);
+    final lives =
+        SourceCatalog.liveSites.where((s) => s.ready).toList(growable: false);
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
-    // Scaffold keeps the bar at the viewport bottom; the bar itself applies
-    // viewInsets.bottom so its controls stay above the iOS keyboard.
-    // Do NOT use Stack + Positioned(bottom) for the search bar — that fights
-    // viewInsets / home-indicator and often leaves the field half-covered.
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       resizeToAvoidBottomInset: true,
@@ -82,51 +77,55 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      body: Column(
         children: [
-          for (final s in sites)
-            _SwipeSiteTile(
-              site: s,
-              onTap: () => _openSite(s),
-              onDelete: () => _removeSite(s),
-              subtitle: s.custom
-                  ? '用户添加'
-                  : (s.mirrors.length > 1
-                      ? '${s.mirrors.length} 个域名'
-                      : null),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              children: [
+                for (final s in sites)
+                  _SwipeSiteTile(
+                    site: s,
+                    onTap: () => _openSite(s),
+                    onDelete: () => _removeSite(s),
+                    subtitle: s.custom
+                        ? '用户添加'
+                        : (s.mirrors.length > 1
+                            ? '${s.mirrors.length} 个域名'
+                            : null),
+                  ),
+                if (lives.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
+                    child: Text(
+                      '直播',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                  ),
+                  for (final s in lives)
+                    _SwipeSiteTile(
+                      site: s,
+                      swipeEnabled: false,
+                      onTap: () => _openSite(s),
+                      onDelete: () {},
+                      subtitle: s.id == live.id ? '默认直播' : null,
+                    ),
+                ],
+              ],
             ),
-          if (lives.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
-              child: Text(
-                '直播',
-                style: TextStyle(color: Colors.white54, fontSize: 13),
-              ),
-            ),
-            for (final s in lives)
-              _SwipeSiteTile(
-                site: s,
-                swipeEnabled: false,
-                onTap: () => _openSite(s),
-                onDelete: () {},
-                subtitle: s.id == live.id ? '默认直播' : null,
-              ),
-          ],
+          ),
+          _HomeSearchBar(
+            controller: _searchCtrl,
+            focusNode: _focusNode,
+            onSearch: _onHomeSearch,
+          ),
         ],
-      ),
-      bottomNavigationBar: _HomeSearchBar(
-        controller: _searchCtrl,
-        focusNode: _focusNode,
-        onSearch: _onHomeSearch,
       ),
     );
   }
 }
 
-/// Search row pinned via [Scaffold.bottomNavigationBar] so keyboard never
-/// covers it (Scaffold repositions this slot with viewInsets).
 class _HomeSearchBar extends StatelessWidget {
   const _HomeSearchBar({
     required this.controller,
@@ -140,75 +139,63 @@ class _HomeSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final safeBottom = MediaQuery.paddingOf(context).bottom;
-
     return Material(
       color: const Color(0xFF1E1E1E),
       elevation: 8,
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        top: false,
         child: Padding(
-        // When keyboard is up, home-indicator padding is already absorbed by
-        // Scaffold; only keep a small gap. When closed, keep home-indicator.
-        padding: EdgeInsets.fromLTRB(
-          12,
-          8,
-          12,
-          keyboardOpen ? 10 : (10 + safeBottom),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                ),
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => onSearch(),
-                decoration: InputDecoration(
-                  hintText: '搜索全部已启用网站',
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  filled: true,
-                  fillColor: const Color(0xFF2A2A2A),
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => onSearch(),
+                  decoration: InputDecoration(
+                    hintText: '搜索全部已启用网站',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    filled: true,
+                    fillColor: const Color(0xFF2A2A2A),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Colors.white38,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6B35),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
                     vertical: 12,
                   ),
-                  prefixIcon: const Icon(
-                    Icons.search,
-                    color: Colors.white38,
-                    size: 20,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
                   ),
                 ),
+                onPressed: onSearch,
+                child: const Text('搜'),
               ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B35),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ),
-              onPressed: onSearch,
-              child: const Text('搜'),
-            ),
-          ],
+            ],
           ),
         ),
       ),

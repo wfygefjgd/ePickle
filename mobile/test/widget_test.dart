@@ -18,4 +18,30 @@ void main() {
     await tester.pump();
     expect(find.byType(MaterialApp), findsOneWidget);
   });
+
+  testWidgets('Home search field stays above the iOS keyboard', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.viewPadding = const FakeViewPadding(top: 59, bottom: 34);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      PlayerApp(
+        settings: AppSettings(),
+        layout: LayoutSettings(),
+        history: WatchHistory(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final searchField = find.byType(TextField).first;
+    final keyboardTop = tester.view.physicalSize.height -
+        tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
+
+    expect(tester.getBottomRight(searchField).dy, lessThan(keyboardTop));
+  });
 }
