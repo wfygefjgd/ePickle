@@ -72,6 +72,10 @@ class VideoDetail {
   final bool unavailable;
   final bool countryBlocked;
 
+  /// When stream extraction fails, play this page inside App WKWebView
+  /// (same path as Stripchat). Prefer real [streams] when non-empty.
+  final String? browserPlaybackUrl;
+
   const VideoDetail({
     required this.url,
     required this.title,
@@ -81,7 +85,13 @@ class VideoDetail {
     required this.streams,
     this.unavailable = false,
     this.countryBlocked = false,
+    this.browserPlaybackUrl,
   });
+
+  bool get prefersBrowserPlayer =>
+      streams.isEmpty &&
+      browserPlaybackUrl != null &&
+      browserPlaybackUrl!.trim().isNotEmpty;
 
   String get durationLabel {
     if (durationSec <= 0) return '-';

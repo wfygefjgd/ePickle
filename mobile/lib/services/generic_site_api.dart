@@ -114,26 +114,53 @@ class GenericSiteApi {
     }
     _storeCookies(origin, res.headers);
     final status = res.statusCode ?? 0;
-    if (res.statusCode == 403) {
+    if (res.statusCode == 403 || res.statusCode == 404) {
+      // Browser often still works: soft-block / bot 404 / age gate.
       final native = await _nativeGetHtml(
         url,
         origin: origin,
         headers: requestHeaders,
         timeout: timeout,
       );
-      if (native != null) return native;
-      throw PhubException('抓取请求被拦截 (403；不代表网站失效)');
-    }
-    if (res.statusCode == 404) {
+      if (native != null && native.trim().isNotEmpty) return native;
+      if (res.statusCode == 403) {
+        throw PhubException('抓取请求被拦截 (403；不代表网站失效)');
+      }
       throw PhubException('页面不存在 (404)');
     }
     if (status < 200 || status >= 400) {
+      final native = await _nativeGetHtml(
+        url,
+        origin: origin,
+        headers: requestHeaders,
+        timeout: timeout,
+      );
+      if (native != null && native.trim().isNotEmpty) return native;
       throw PhubException('站点返回异常状态 ($status)');
     }
     if (res.data == null || res.data!.isEmpty) {
+      final native = await _nativeGetHtml(
+        url,
+        origin: origin,
+        headers: requestHeaders,
+        timeout: timeout,
+      );
+      if (native != null && native.trim().isNotEmpty) return native;
       throw PhubException('空响应');
     }
-    return res.data!;
+    final body = res.data!;
+    if (_isBlockedHtml(body)) {
+      final native = await _nativeGetHtml(
+        url,
+        origin: origin,
+        headers: requestHeaders,
+        timeout: timeout,
+      );
+      if (native != null && native.trim().isNotEmpty && !_isBlockedHtml(native)) {
+        return native;
+      }
+    }
+    return body;
   }
 
   bool _shouldUseNativeFallback(DioException error) {
@@ -155,17 +182,27 @@ class GenericSiteApi {
       headers: headers,
       timeout: timeout,
     );
-    if (response == null || response.statusCode == 403) {
+    // Accept soft 404 bodies from URLSession; otherwise try WKWebView render.
+    final getOk = response != null &&
+        response.body.isNotEmpty &&
+        (response.statusCode < 400 ||
+            response.statusCode == 404 ||
+            response.statusCode == 403);
+    if (!getOk ||
+        response!.statusCode == 403 ||
+        _isBlockedHtml(response.body)) {
       response = await NativeBrowserHttp.render(
         url,
         headers: headers,
         timeout: timeout,
       );
     }
-    if (response == null ||
-        response.statusCode < 200 ||
-        response.statusCode >= 400 ||
-        response.body.isEmpty) {
+    if (response == null || response.body.isEmpty) {
+      return null;
+    }
+    // Soft-block pages still return 200/403/404 with challenge HTML.
+    if (response.statusCode >= 500) return null;
+    if (_isBlockedHtml(response.body) && response.statusCode >= 400) {
       return null;
     }
     if (origin != null && response.cookies.isNotEmpty) {
@@ -599,11 +636,16 @@ class GenericSiteApi {
   }) async {
     final q = switch (tagId) {
       'asian' => 'asian',
-      'new' => 'new',
-      'best' => 'best',
-      _ => 'hot',
+      'new' => 'all',
+      'best' => 'all',
+      _ => 'all',
     };
-    final order = tagId == 'new' ? 'latest' : 'top-weekly';
+    final order = switch (tagId) {
+      'new' => 'latest',
+      'best' => 'top-rated',
+      'asian' => 'top-weekly',
+      _ => 'top-weekly',
+    };
     final out = <VideoItem>[];
     for (final base in _mirrorsFor(site)) {
       final b = base.replaceAll(RegExp(r'/$'), '');
@@ -619,6 +661,39 @@ class GenericSiteApi {
           },
           timeout: _requestBudget(deadline),
         );
+        // Prefer structured JSON (url/title/default_thumb.src).
+        try {
+          final decoded = jsonDecode(raw);
+          final list = decoded is Map
+              ? (decoded['videos'] as List? ?? const [])
+              : (decoded is List ? decoded : const []);
+          for (final entry in list) {
+            if (entry is! Map) continue;
+            final map = entry.map((k, v) => MapEntry('$k', v));
+            final u = (map['url'] ?? '').toString().replaceAll(r'\/', '/');
+            if (u.isEmpty || !seen.add(u)) continue;
+            final title = _cleanTitle((map['title'] ?? 'Eporner').toString());
+            String? thumb;
+            final dt = map['default_thumb'];
+            if (dt is Map && dt['src'] != null) {
+              thumb = dt['src'].toString().replaceAll(r'\/', '/');
+            }
+            final lengthMin = (map['length_min'] ?? '-').toString();
+            out.add(
+              VideoItem(
+                url: u,
+                title: title.isEmpty ? 'Eporner' : title,
+                duration: lengthMin,
+                thumb: thumb,
+              ),
+            );
+            if (out.length >= limit) break;
+          }
+          if (out.isNotEmpty) {
+            _mirrorIndex[site.id] = _mirrorsFor(site).indexOf(base);
+            return out;
+          }
+        } catch (_) {}
         final videos = RegExp(
           r'"url"\s*:\s*"(https?:[^"]+eporner[^"]+)"',
           caseSensitive: false,
@@ -627,7 +702,7 @@ class GenericSiteApi {
           r'"title"\s*:\s*"([^"]+)"',
         ).allMatches(raw).toList();
         final thumbs = RegExp(
-          r'"(?:default|medium|big)url"\s*:\s*"(https?:[^"]+)"',
+          r'"src"\s*:\s*"(https?:[^"]+)"',
         ).allMatches(raw).toList();
         var i = 0;
         for (final m in videos) {
@@ -997,11 +1072,33 @@ class GenericSiteApi {
         if (candidate.mirrorIndex != null) {
           _mirrorIndex[site.id] = candidate.mirrorIndex!;
         }
+        // Plan A: real streams first; if empty, keep page URL for in-app WebView.
+        if (detail.streams.isEmpty && site.kind == SiteKind.video) {
+          return VideoDetail(
+            url: detail.url,
+            title: detail.title,
+            description: detail.description,
+            durationSec: detail.durationSec,
+            thumb: detail.thumb,
+            streams: const [],
+            browserPlaybackUrl: candidate.url,
+          );
+        }
         return detail;
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastError = e;
       }
+    }
+    // Last resort: open the original page in App WebView (not system browser).
+    if (site.kind == SiteKind.video && url.startsWith('http')) {
+      return VideoDetail(
+        url: url,
+        title: site.name,
+        durationSec: 0,
+        streams: const [],
+        browserPlaybackUrl: url,
+      );
     }
     if (DateTime.now().isAfter(deadline)) {
       throw PhubException('${site.name} 播放地址解析超时');
@@ -1113,7 +1210,7 @@ class GenericSiteApi {
 
     // MindGeek family (YouPorn / RedTube): mediaDefinitions like Pornhub
     if (site.id == 'youporn' || site.id == 'redtube') {
-      final mg = _extractMindGeekStreams(html);
+      final mg = _extractMindGeekStreams(html, pageUrl: url);
       if (mg.isNotEmpty) {
         return VideoDetail(
           url: url,
@@ -1191,7 +1288,15 @@ class GenericSiteApi {
 
     streams = _filterPreviewStreams(streams);
     if (streams.isEmpty) {
-      throw PhubException('无法解析播放地址：${site.name}');
+      // Do not throw: caller attaches browserPlaybackUrl for in-app WebView.
+      return VideoDetail(
+        url: url,
+        title: title,
+        durationSec: _extractDurationSec(html),
+        thumb: thumb,
+        streams: const [],
+        browserPlaybackUrl: url,
+      );
     }
     streams.sort((a, b) {
       final ah = a.url.toLowerCase().contains('.m3u8') ? 1 : 0;
@@ -1423,15 +1528,43 @@ class GenericSiteApi {
     String base,
   ) async {
     final out = <StreamQuality>[];
-    // Direct in page
+    // Direct in page (gvideo.eporner.com / static mp4)
     out.addAll(_extractStreams(html, base));
     out.addAll(_extractStreamsLoose(html, base));
+    for (final m in RegExp(
+      r'''(https?://(?:gvideo|static)[^"'<\s]+\.mp4[^"'<\s]*)''',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      final u = m.group(1)!.replaceAll(r'\/', '/');
+      if (!_isPreviewUrl(u)) {
+        out.add(
+          StreamQuality(
+            width: 1280,
+            height: 720,
+            url: u,
+            referer: pageUrl,
+          ),
+        );
+      }
+    }
 
     // /xhr/video/ID or download hash links
     final idm = RegExp(r'/video-([A-Za-z0-9]+)/').firstMatch(pageUrl) ??
-        RegExp(r'/video-([A-Za-z0-9]+)/').firstMatch(html);
+        RegExp(r'/hd-porn/([A-Za-z0-9]+)/').firstMatch(pageUrl) ??
+        RegExp(r'/video-([A-Za-z0-9]+)/').firstMatch(html) ??
+        RegExp(r'/embed/([A-Za-z0-9]+)/').firstMatch(pageUrl);
     final vid = idm?.group(1);
     if (vid != null) {
+      // Public progressive URL often works without xhr auth.
+      final progressive = 'https://gvideo.eporner.com/$vid/$vid.mp4';
+      out.add(
+        StreamQuality(
+          width: 1280,
+          height: 720,
+          url: progressive,
+          referer: pageUrl,
+        ),
+      );
       for (final path in [
         '/api/v2/video/id/?id=$vid&format=json',
         '/xhr/video/$vid/',
@@ -1454,8 +1587,16 @@ class GenericSiteApi {
             r'''"(?:src|url)"\s*:\s*"(https?:[^"]+)"''',
           ).allMatches(raw)) {
             final u = m.group(1)!.replaceAll(r'\/', '/');
-            if (u.contains('.mp4') || u.contains('.m3u8')) {
-              out.add(StreamQuality(width: 1280, height: 720, url: u));
+            if ((u.contains('.mp4') || u.contains('.m3u8')) &&
+                !_isPreviewUrl(u)) {
+              out.add(
+                StreamQuality(
+                  width: 1280,
+                  height: 720,
+                  url: u,
+                  referer: pageUrl,
+                ),
+              );
             }
           }
         } catch (e) {
@@ -1466,9 +1607,10 @@ class GenericSiteApi {
     return _filterPreviewStreams(out);
   }
 
-  List<StreamQuality> _extractMindGeekStreams(String html) {
+  List<StreamQuality> _extractMindGeekStreams(String html, {String? pageUrl}) {
     final streams = <StreamQuality>[];
     final seen = <String>{};
+    final origin = pageUrl == null ? null : _originOf(pageUrl);
 
     // mediaDefinitions JSON array (Pornhub / YouPorn / RedTube)
     final block = RegExp(
@@ -1476,15 +1618,19 @@ class GenericSiteApi {
     ).firstMatch(html);
     final blob = block?.group(1) ?? html;
 
+    // Absolute or relative videoUrl (RedTube often uses /media/hls?s=...)
     for (final m in RegExp(
-      r'''\{[^{}]*?"videoUrl"\s*:\s*"(https?:[^"]+)"[^{}]*?\}''',
+      r'''\{[^{}]*?"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"[^{}]*?\}''',
       caseSensitive: false,
     ).allMatches(blob)) {
       final obj = m.group(0)!;
       var url = RegExp(
-        r'''"videoUrl"\s*:\s*"(https?:[^"]+)"''',
+        r'''"videoUrl"\s*:\s*"((?:https?:)?[^"]+)"''',
       ).firstMatch(obj)?.group(1)?.replaceAll(r'\/', '/');
       if (url == null || url.isEmpty) continue;
+      if (url.startsWith('//')) url = 'https:$url';
+      if (url.startsWith('/') && origin != null) url = '$origin$url';
+      if (!url.startsWith('http')) continue;
       if (_isPreviewUrl(url)) continue;
       // Prefer full streams; HLS ordering is applied after all candidates parse.
       var height = int.tryParse(
@@ -1510,14 +1656,39 @@ class GenericSiteApi {
 
     // qualityItems (YouPorn)
     for (final m in RegExp(
-      r'''"quality_(\d+p)"\s*:\s*"(https?:[^"]+)"''',
+      r'''"quality_(\d+p)"\s*:\s*"((?:https?:)?[^"]+)"''',
     ).allMatches(html)) {
-      final url = m.group(2)!.replaceAll(r'\/', '/');
+      var url = m.group(2)!.replaceAll(r'\/', '/');
+      if (url.startsWith('//')) url = 'https:$url';
+      if (url.startsWith('/') && origin != null) url = '$origin$url';
+      if (!url.startsWith('http')) continue;
       if (_isPreviewUrl(url)) continue;
       if (!seen.add(url)) continue;
       final h = int.tryParse(m.group(1)!.replaceAll('p', '')) ?? 720;
       streams.add(
         StreamQuality(width: (h * 16 / 9).round(), height: h, url: url),
+      );
+    }
+
+    // Loose videoUrl / media path scan for RedTube-style pages
+    for (final m in RegExp(
+      r'''["']videoUrl["']\s*:\s*["']((?:https?:)?[^"']+)["']''',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      var url = m.group(1)!.replaceAll(r'\/', '/');
+      if (url.startsWith('//')) url = 'https:$url';
+      if (url.startsWith('/') && origin != null) url = '$origin$url';
+      if (!url.startsWith('http')) continue;
+      if (_isPreviewUrl(url)) continue;
+      if (!seen.add(url)) continue;
+      final isHls = url.contains('hls') || url.contains('m3u8');
+      streams.add(
+        StreamQuality(
+          width: isHls ? 1280 : 854,
+          height: isHls ? 720 : 480,
+          url: url,
+          referer: pageUrl,
+        ),
       );
     }
 
@@ -1788,6 +1959,8 @@ class GenericSiteApi {
           if (tagId == 'asian') (b) => '$b/cat/asian/$p/',
           if (tagId == 'best') (b) => '$b/top-rated/$p/',
           if (tagId == 'hot') (b) => '$b/best-videos/$p/',
+          (b) => '$b/popular-videos/$p/',
+          (b) => '$b/',
         ];
       case 'jable':
         return [
@@ -1796,6 +1969,8 @@ class GenericSiteApi {
           if (tagId == 'best') (b) => '$b/hot/$p/',
           if (tagId == 'hot') (b) => '$b/categories/hot/$p/',
           (b) => '$b/latest-updates/$p/',
+          (b) => '$b/new-release/$p/',
+          (b) => '$b/',
         ];
       case 'missav':
         return [
@@ -1804,14 +1979,20 @@ class GenericSiteApi {
           if (tagId == 'best') (b) => '$b/dm13/release?page=$p',
           if (tagId == 'hot') (b) => '$b/en?page=$p',
           (b) => '$b/dm22/new?page=$p',
+          (b) => '$b/dm1/release?page=$p',
+          (b) => '$b/en/release?page=$p',
+          (b) => '$b/',
         ];
       case 'javgg':
         return [
+          if (tagId == 'new' || tagId == 'hot')
+            (b) => '$b/latest-updates/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'asian')
+            (b) => '$b/categories/asian/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'best')
+            (b) => '$b/most-popular/${p > 1 ? '$p/' : ''}',
+          (b) => '$b/latest-updates/${p > 1 ? '$p/' : ''}',
           if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/new-post/page/$p/',
-          if (tagId == 'asian') (b) => '$b/genre/censored/page/$p/',
-          if (tagId == 'best') (b) => '$b/trending/page/$p/',
-          if (tagId == 'hot') (b) => '$b/jav/page/$p/',
           (b) => '$b/page/$p/',
         ];
       case 'javmix':
@@ -1824,19 +2005,23 @@ class GenericSiteApi {
         ];
       case '7mmtv':
         return [
-          if (tagId == 'new') (b) => '$b/zh/new_list/all/$p.html',
+          if (tagId == 'new') (b) => '$b/zh/chinese_list/all/$p.html',
           if (tagId == 'asian') (b) => '$b/zh/censored_list/all/$p.html',
-          if (tagId == 'best') (b) => '$b/zh/top_list/all/$p.html',
+          if (tagId == 'best') (b) => '$b/zh/chinese_list/all/$p.html',
           if (tagId == 'hot') (b) => '$b/zh/uncensored_list/all/$p.html',
+          (b) => '$b/zh/chinese_list/all/$p.html',
+          (b) => '$b/zh/new_list/all/$p.html',
+          (b) => '$b/zh/amateurjav_list/all/$p.html',
           (b) => '$b/zh?page=$p',
         ];
       case 'bestjavporn':
         return [
           if (p == 1) (b) => '$b/',
-          if (tagId == 'new') (b) => '$b/zh/new/page/$p/',
-          if (tagId == 'asian') (b) => '$b/zh/censored/page/$p/',
-          if (tagId == 'best') (b) => '$b/zh/best/page/$p/',
-          if (tagId == 'hot') (b) => '$b/zh/page/$p/',
+          if (tagId == 'new') (b) => '$b/new/page/$p/',
+          if (tagId == 'asian') (b) => '$b/censored/page/$p/',
+          if (tagId == 'best') (b) => '$b/best/page/$p/',
+          if (tagId == 'hot') (b) => '$b/page/$p/',
+          (b) => '$b/zh/page/$p/',
           (b) => '$b/page/$p/',
         ];
       case 'av01':
@@ -1849,32 +2034,42 @@ class GenericSiteApi {
             (b) => '$b/api/v1/videos?page=$p&limit=40&sort=rating',
           if (tagId == 'hot')
             (b) => '$b/api/v1/videos?page=$p&limit=40&sort=hot',
+          (b) => '$b/api/v1/videos?page=$p&limit=40',
           (b) => '$b/api/videos?page=$p&limit=40',
           (b) => '$b/jp?page=$p',
+          (b) => '$b/',
         ];
       case 'redtube':
         return [
           if (tagId == 'new') (b) => '$b/?page=$p&ordering=newest',
           if (tagId == 'asian') (b) => '$b/?search=asian&page=$p',
-          if (tagId == 'best') (b) => '$b/?id=most_rated&page=$p',
-          if (tagId == 'hot') (b) => '$b/?id=hottest&page=$p',
+          if (tagId == 'best') (b) => '$b/most-favorited/?page=$p',
+          if (tagId == 'hot') (b) => '$b/?page=$p',
+          (b) => '$b/?page=$p',
+          (b) => '$b/',
         ];
       case 'youporn':
         return [
           if (tagId == 'new') (b) => '$b/browse/time/?page=$p',
           if (tagId == 'asian') (b) => '$b/category/asian/?page=$p',
           if (tagId == 'best') (b) => '$b/browse/rating/?page=$p',
-          if (tagId == 'hot') (b) => '$b/popular/?page=$p',
+          if (tagId == 'hot') (b) => '$b/?page=$p',
+          (b) => '$b/popular/?page=$p',
+          (b) => '$b/',
         ];
       case 'spankbang':
         return [
           if (tagId == 'new') (b) => '$b/new_videos/$p/',
           if (tagId == 'asian') (b) => '$b/s/asian/$p/',
-          if (tagId == 'best') (b) => '$b/top_videos/$p/',
+          if (tagId == 'best') (b) => '$b/trending_videos/$p/',
           if (tagId == 'hot') (b) => '$b/trending_videos/$p/',
+          (b) => '$b/new_videos/$p/',
+          (b) => '$b/',
         ];
       case 'freeporn':
+        // Directory of outbound tube links — scrape those as playable entries.
         return [
+          (b) => '$b/',
           if (tagId == 'new') (b) => '$b/videos?sort=new&page=$p',
           if (tagId == 'asian') (b) => '$b/search/asian?page=$p',
           if (tagId == 'best') (b) => '$b/videos?sort=rating&page=$p',
@@ -1883,11 +2078,12 @@ class GenericSiteApi {
         ];
       case 'tnaflix':
         return [
-          if (tagId == 'new') (b) => '$b/new/$p',
-          if (tagId == 'asian') (b) => '$b/search/asian/$p',
-          if (tagId == 'best') (b) => '$b/top-rated/$p',
-          if (tagId == 'hot') (b) => '$b/popular/$p',
-          (b) => '$b/videos/$p',
+          if (tagId == 'new') (b) => '$b/new/?page=$p',
+          if (tagId == 'asian') (b) => '$b/search.php?what=asian&page=$p',
+          if (tagId == 'best') (b) => '$b/toprated/?page=$p',
+          if (tagId == 'hot') (b) => '$b/?page=$p',
+          (b) => '$b/popular/?page=$p',
+          (b) => '$b/',
         ];
       case 'stripchat':
         final primaryTag = tagId == 'couples' ? tagId : 'girls';
@@ -2288,9 +2484,9 @@ class GenericSiteApi {
             RegExp(r'/[a-z0-9]+-[a-z0-9-]+/?$').hasMatch(h);
       case 'missav':
         return RegExp(r'/[a-z]{2,12}-?\d{2,5}').hasMatch(h) ||
-            RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$').hasMatch(h) &&
+            (RegExp(r'/(dm\d+/)?[a-z0-9-]+/?$').hasMatch(h) &&
                 !h.contains('/dm') &&
-                h.split('/').where((e) => e.isNotEmpty).isNotEmpty;
+                h.split('/').where((e) => e.isNotEmpty).isNotEmpty);
       case 'javgg':
       case 'javmix':
       case 'bestjavporn':
@@ -2298,23 +2494,45 @@ class GenericSiteApi {
             RegExp(r'/[a-z]{2,10}-?\d{2,5}').hasMatch(h);
       case '7mmtv':
         return h.contains('/content/') ||
+            h.contains('_content/') ||
             h.contains('/cnplay/') ||
             h.contains('/enplay/') ||
+            RegExp(r'chinese_content/\d+/').hasMatch(h) ||
             RegExp(r'_\d+\.html').hasMatch(h);
       case 'av01':
-        return h.contains('/v/') || h.contains('/video/');
+        return h.contains('/v/') || h.contains('/video/') || h.contains('/watch/');
       case 'spankbang':
         return RegExp(r'/[a-z0-9-]+/video/').hasMatch(h) ||
-            RegExp(r'/\d+/video/').hasMatch(h);
+            RegExp(r'/\d+/video/').hasMatch(h) ||
+            RegExp(r'/[a-z0-9]{4,12}/play/').hasMatch(h);
       case 'youporn':
-      case 'redtube':
         return RegExp(r'/watch/').hasMatch(h) ||
             RegExp(r'/video\?id=').hasMatch(h) ||
             RegExp(r'/\d{5,}').hasMatch(h);
+      case 'redtube':
+        // Paths are often bare numeric IDs: /251932341
+        return RegExp(r'^/\d{6,}$').hasMatch(h) ||
+            RegExp(r'/watch/').hasMatch(h) ||
+            RegExp(r'/video\?id=').hasMatch(h) ||
+            RegExp(r'/\d{6,}').hasMatch(h);
       case 'tnaflix':
-        return h.contains('/video') || RegExp(r'/[^/]+/\d+').hasMatch(h);
+        return h.contains('/video') ||
+            RegExp(r'/[^/]+/\d+').hasMatch(h) ||
+            RegExp(r'/view_video').hasMatch(h);
       case 'eporner':
-        return h.contains('/video-') || h.contains('/hd-porn/');
+        return h.contains('/video-') ||
+            h.contains('/hd-porn/') ||
+            h.contains('/embed/');
+      case 'freeporn':
+        // Directory of external tubes — accept outbound video-site links.
+        return h.contains('xvideos.com') ||
+            h.contains('xnxx.com') ||
+            h.contains('pornhub.com') ||
+            h.contains('xhamster.com') ||
+            h.contains('redtube.com') ||
+            h.contains('youporn.com') ||
+            h.contains('spankbang.com') ||
+            RegExp(r'/video[s./]').hasMatch(h);
       case 'xhamster':
         return h.contains('/videos/') || RegExp(r'/movies/\d+').hasMatch(h);
       case 'xnxx':

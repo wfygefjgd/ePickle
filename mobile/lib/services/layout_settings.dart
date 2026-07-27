@@ -10,7 +10,7 @@ class LayoutSettings extends ChangeNotifier {
   static const _kGlobalSearch = 'layout_global_search_v1';
   static const _kCatalogVer = 'layout_catalog_ver_v1';
   static const _kCustomUrls = 'layout_custom_urls_v1';
-  static const _catalogVer = 8;
+  static const _catalogVer = 9;
 
   List<String> _enabledVideoIds =
       List<String>.from(SourceCatalog.defaultEnabledVideoIds);
@@ -39,7 +39,7 @@ class LayoutSettings extends ChangeNotifier {
 
   SiteDef? get liveSite {
     final site = SourceCatalog.byId(_liveId);
-    return site?.ready == true ? site : SourceCatalog.chaturbate;
+    return site?.kind == SiteKind.live && site?.ready == true ? site : null;
   }
 
   Future<void> load() async {

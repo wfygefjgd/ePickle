@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -213,7 +214,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _muted = context.read<AppSettings>().muted;
-    final snap = FeedListCache.take(_cacheKey);
+    final genericSite = _useGeneric;
+    if (genericSite) {
+      // Native sources already randomize pages internally. Generic sites used
+      // to always start at page 1 and restore the same cached list, making
+      // every visit look identical.
+      _genericPage = 1 + Random().nextInt(10);
+    }
+    final snap = genericSite ? null : FeedListCache.take(_cacheKey);
     if (snap != null && snap.items.isNotEmpty) {
       _items.addAll(snap.items);
       _seen.addAll(snap.seen);
@@ -619,15 +627,33 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final maxUrls = isCold ? 2 : 5;
     if (_useGeneric && widget.site != null) {
       final requestedPage = _genericPage;
-      final list = await context.read<GenericSiteApi>().fetchFeed(
-            widget.site!,
-            tagId: widget.tagId ?? 'hot',
-            page: requestedPage,
-            exclude: _seen,
-            limit: limit,
-          );
+      List<VideoItem> list;
+      try {
+        list = await context.read<GenericSiteApi>().fetchFeed(
+              widget.site!,
+              tagId: widget.tagId ?? 'hot',
+              page: requestedPage,
+              exclude: _seen,
+              limit: limit,
+            );
+      } catch (_) {
+        if (!isCold || requestedPage == 1) rethrow;
+        // Some smaller sites have fewer pages. Randomization must never turn
+        // a working source into an error, so retry its first page once.
+        list = await context.read<GenericSiteApi>().fetchFeed(
+              widget.site!,
+              tagId: widget.tagId ?? 'hot',
+              page: 1,
+              exclude: _seen,
+              limit: limit,
+            );
+        _genericPage = 1;
+      }
+      list.shuffle();
       if (list.isNotEmpty && requestedPage == _genericPage) {
         _genericPage++;
+      } else if (list.isNotEmpty && _genericPage == 1) {
+        _genericPage = 2;
       }
       return list;
     }
@@ -660,21 +686,45 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<VideoDetail> _fetchDetail(String url) {
-    if (_useGeneric && widget.site != null) {
-      return context.read<GenericSiteApi>().getVideoDetail(widget.site!, url);
-    }
-    if (url.contains('xvideos.com') || widget.kind == VideoFeedKind.x) {
+    // Prefer host-based adapters when FreePorn (or other directories) link out.
+    final low = url.toLowerCase();
+    if (low.contains('xvideos.com') || low.contains('xvideos.es')) {
       return context.read<XvideosApi>().getVideoDetail(url);
     }
-    if (url.contains('mitaohk.com') || widget.kind == VideoFeedKind.zhong) {
+    if (low.contains('mitaohk.com')) {
       return context.read<MitaoApi>().getVideoDetail(url);
     }
-    if (url.contains('pornhub.com') ||
-        widget.kind == VideoFeedKind.hot ||
+    if (low.contains('pornhub.com') || low.contains('pornhub.org')) {
+      return context.read<PhubApi>().getVideoDetail(url);
+    }
+    if (_useGeneric && widget.site != null) {
+      // If the card points at another built-in site, parse with that site's rules.
+      SiteDef? hostSite;
+      for (final s in SourceCatalog.all) {
+        if (s.kind != SiteKind.video) continue;
+        final hit = s.mirrors.any((m) {
+          final h = Uri.tryParse(m)?.host.toLowerCase() ?? '';
+          return h.isNotEmpty && low.contains(h);
+        });
+        if (hit) {
+          hostSite = s;
+          break;
+        }
+      }
+      return context
+          .read<GenericSiteApi>()
+          .getVideoDetail(hostSite ?? widget.site!, url);
+    }
+    if (widget.kind == VideoFeedKind.x) {
+      return context.read<XvideosApi>().getVideoDetail(url);
+    }
+    if (widget.kind == VideoFeedKind.zhong) {
+      return context.read<MitaoApi>().getVideoDetail(url);
+    }
+    if (widget.kind == VideoFeedKind.hot ||
         widget.kind == VideoFeedKind.asian) {
       return context.read<PhubApi>().getVideoDetail(url);
     }
-    // Unknown host: try generic custom detail
     return context.read<GenericSiteApi>().getCustomDetail(url);
   }
 
@@ -1207,17 +1257,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         PlaybackHelpers.toast(context, 'Stripchat 主播房间地址无效');
         return;
       }
-      _currentIndex = index;
-      _currentDetail = null;
-      _browserLiveUrl = 'https://stripchat.com/$room';
-      _titleText = item.title;
-      _totalTime = 'LIVE';
-      _speedLabel = '';
-      _sliderValue.value = 0;
-      _currentTime.value = 'LIVE';
-      setState(() => _pageLoading = false);
-      _recordWatch(item);
-      WakelockPlus.enable();
+      await _playInAppBrowser(
+        index: index,
+        item: item,
+        pageUrl: 'https://stripchat.com/$room',
+        title: item.title,
+        live: true,
+        seq: seq,
+      );
       return;
     }
 
@@ -1419,11 +1466,38 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final settings = context.read<AppSettings>();
 
+    // Plan A: real streams first; empty streams → in-app WebView page.
+    if (detail.prefersBrowserPlayer || detail.streams.isEmpty) {
+      final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
+          ? detail.browserPlaybackUrl!.trim()
+          : item.url;
+      await _playInAppBrowser(
+        index: index,
+        item: item,
+        pageUrl: page,
+        title: detail.title.isNotEmpty ? detail.title : item.title,
+        live: false,
+        seq: seq,
+        detail: detail,
+      );
+      return;
+    }
+
     final cap = _effectiveQualityCap;
     final candidates = PlaybackHelpers.streamCandidates(detail, cap);
     if (candidates.isEmpty) {
-      setState(() => _pageLoading = false);
-      PlaybackHelpers.toast(context, '无可用播放地址（不自动跳过）');
+      final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
+          ? detail.browserPlaybackUrl!.trim()
+          : item.url;
+      await _playInAppBrowser(
+        index: index,
+        item: item,
+        pageUrl: page,
+        title: detail.title.isNotEmpty ? detail.title : item.title,
+        live: false,
+        seq: seq,
+        detail: detail,
+      );
       return;
     }
 
@@ -1471,19 +1545,21 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
     }
     if (player == null || stream == null) {
+      // Stream URLs failed → fall back to in-app WebView of the detail page.
       if (mounted && seq == _loadSeq) {
-        setState(() => _pageLoading = false);
-        final tip = settings.proxyEnabled && settings.hasProxyEndpoint
-            ? (settings.proxyType == 'socks5'
-                ? '播放地址初始化失败；播放器可能未走 SOCKS。可开 TUN，或改用 HTTP 代理后重试'
-                : '播放地址已失效或媒体连接被拒绝；可检查代理是否支持视频流')
-            : '播放地址已失效或媒体连接失败；可重试，或启用 TUN 后排除网络限制';
-        PlaybackHelpers.toast(
-          context,
-          tip,
-          duration: const Duration(seconds: 3),
+        final page = detail.browserPlaybackUrl?.trim().isNotEmpty == true
+            ? detail.browserPlaybackUrl!.trim()
+            : (detail.url.startsWith('http') ? detail.url : item.url);
+        await _playInAppBrowser(
+          index: index,
+          item: item,
+          pageUrl: page,
+          title: detail.title.isNotEmpty ? detail.title : item.title,
+          live: false,
+          seq: seq,
+          detail: detail,
         );
-        _scheduleSkipToNext(index);
+        return;
       }
       return;
     }
@@ -1540,6 +1616,41 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     CacheManager.onVideoPlayed();
     _cleanupDetailCache(index);
+  }
+
+  /// Play a site page inside App WKWebView (Stripchat-style), not system Safari.
+  Future<void> _playInAppBrowser({
+    required int index,
+    required VideoItem item,
+    required String pageUrl,
+    required String title,
+    required bool live,
+    required int seq,
+    VideoDetail? detail,
+  }) async {
+    _disposePreload();
+    await _disposeController();
+    if (seq != _loadSeq || !_canRun || !mounted) return;
+    final url = pageUrl.trim();
+    if (!url.startsWith('http')) {
+      setState(() {
+        _pageLoading = false;
+        _browserLiveUrl = null;
+      });
+      PlaybackHelpers.toast(context, '无法打开页面地址');
+      return;
+    }
+    _currentIndex = index;
+    _currentDetail = detail;
+    _browserLiveUrl = url;
+    _titleText = title;
+    _totalTime = live ? 'LIVE' : '-';
+    _speedLabel = live ? '' : '网页';
+    _sliderValue.value = 0;
+    _currentTime.value = live ? 'LIVE' : '0:00';
+    setState(() => _pageLoading = false);
+    _recordWatch(item);
+    WakelockPlus.enable();
   }
 
   /// Drop items far from the play head so memory stays bounded.

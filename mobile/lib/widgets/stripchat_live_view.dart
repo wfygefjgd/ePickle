@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Stripchat's public HLS endpoint is a short CPA preview on some networks.
-/// The real room uses WebRTC in the website, so iOS renders that room directly
-/// in a tightly cropped WKWebView instead of feeding the preview to AVPlayer.
+/// In-app WKWebView player (Stripchat rooms + generic site fallback).
+/// Prefer real AVPlayer streams when GenericSiteApi can extract m3u8/mp4;
+/// when parsing fails, the feed opens the detail page here instead of
+/// jumping to system Safari.
 class StripchatLiveView extends StatelessWidget {
   const StripchatLiveView({
     super.key,
