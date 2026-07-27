@@ -7,17 +7,19 @@ import 'package:flutter/services.dart';
 /// Prefer real streams when GenericSiteApi can extract m3u8/mp4;
 /// when parsing fails, the feed opens the detail page here instead of
 /// jumping to system browser.
-class StripchatLiveView extends StatelessWidget {
+class StripchatLiveView extends StatefulWidget {
   const StripchatLiveView({
     super.key,
     required this.roomUrl,
     required this.muted,
     this.stripchatMode = true,
+    this.onSkip,
   });
 
   final String roomUrl;
   final bool muted;
   final bool stripchatMode;
+  final VoidCallback? onSkip;
 
   static const _control = MethodChannel('epickle/stripchat_live_control');
 
@@ -33,16 +35,39 @@ class StripchatLiveView extends StatelessWidget {
   }
 
   @override
+  State<StripchatLiveView> createState() => _StripchatLiveViewState();
+}
+
+class _StripchatLiveViewState extends State<StripchatLiveView> {
+  @override
+  void initState() {
+    super.initState();
+    StripchatLiveView._control.setMethodCallHandler(_handleNativeCall);
+  }
+
+  @override
+  void dispose() {
+    StripchatLiveView._control.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'skip') {
+      widget.onSkip?.call();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final viewType = 'epickle/stripchat_live';
     final params = <String, dynamic>{
-      'url': roomUrl,
-      'muted': muted,
-      'stripchatMode': stripchatMode,
+      'url': widget.roomUrl,
+      'muted': widget.muted,
+      'stripchatMode': widget.stripchatMode,
     };
     if (Platform.isIOS) {
       return UiKitView(
-        key: ValueKey(roomUrl),
+        key: ValueKey(widget.roomUrl),
         viewType: viewType,
         layoutDirection: TextDirection.ltr,
         creationParams: params,
@@ -50,7 +75,7 @@ class StripchatLiveView extends StatelessWidget {
       );
     }
     return AndroidView(
-      key: ValueKey(roomUrl),
+      key: ValueKey(widget.roomUrl),
       viewType: viewType,
       layoutDirection: TextDirection.ltr,
       creationParams: params,

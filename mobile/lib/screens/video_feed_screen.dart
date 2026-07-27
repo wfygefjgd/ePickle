@@ -1805,6 +1805,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
+  void _onStripchatSkip() {
+    if (!_canRun || !mounted) return;
+    if (_items.isEmpty) return;
+    final next = _currentIndex + 1;
+    if (next >= _items.length) {
+      PlaybackHelpers.toast(context, '已经是最后一个了');
+      return;
+    }
+    _playIndex(next);
+  }
+
   Future<void> _translateTitleOnly(String title) async {
     if (title.isEmpty) return;
     // Already Chinese (e.g. 中 tab) — keep as-is.
@@ -2124,6 +2135,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,
+              onSkip: _onStripchatSkip,
             ),
           ),
         ),
