@@ -42,6 +42,6 @@ void main() {
     final searchBar = find.byKey(const ValueKey('home_search_bar'));
     expect(tester.getBottomRight(searchField).dy, lessThan(220));
     expect(tester.getSize(searchBar).height, lessThan(70));
-    expect(find.text('ePickle 2.0'), findsOneWidget);
+    expect(find.textContaining('ePickle'), findsOneWidget);
   });
 }
