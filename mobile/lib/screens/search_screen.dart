@@ -237,7 +237,6 @@ class _SearchScreenState extends State<SearchScreen> {
         activeSite == null ? false : (_loading[activeSite.id] ?? false);
     final err = activeSite == null ? null : _error[activeSite.id];
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final keyboardOpen = bottomInset > 0;
     final canPop = Navigator.of(context).canPop();
 
     return Scaffold(
