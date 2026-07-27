@@ -191,19 +191,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     }
   }
 
-  String get _feedLabel {
-    switch (widget.kind) {
-      case VideoFeedKind.asian:
-        return '亚';
-      case VideoFeedKind.x:
-        return 'X';
-      case VideoFeedKind.zhong:
-        return '中';
-      case VideoFeedKind.hot:
-        return '热';
-    }
-  }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -763,8 +750,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _loadingMore = false;
         _loading = false;
         if (_items.isEmpty) {
-          _error = '$_feedLabel暂无内容。\n'
-              '若需代理才能访问：设置→网络代理→重新检测，或开 TUN。';
+          _error = '内容不存在(404)';
         }
       });
       // PH / X titles are English — batch translate after list load.
@@ -2052,7 +2038,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                    _error ?? '$_feedLabel暂无内容',
+                  _error ?? '内容不存在(404)',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white70,
@@ -2073,7 +2059,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                     _active = true;
                     _loadMore();
                   },
-                  child: const Text('重新加载'),
+                  child: const Text('重试'),
                 ),
               ],
             ),

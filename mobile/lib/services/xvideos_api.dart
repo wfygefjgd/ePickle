@@ -66,28 +66,40 @@ class XvideosApi {
   Future<List<VideoItem>> search(String query, {int page = 1}) async {
     final raw = query.trim();
     if (raw.isEmpty) return [];
-    final q = Uri.encodeQueryComponent(raw);
+    // Prefer + for spaces (site search form); also try %20.
+    final qPlus = Uri.encodeQueryComponent(raw).replaceAll('%20', '+');
+    final qPct = Uri.encodeQueryComponent(raw);
     final p = (page - 1).clamp(0, 999);
-    // Multiple URL shapes — site HTML changes often
-    final urls = <String>[
-      if (p == 0) ...[
-        'https://www.xvideos.com/?k=$q',
-        'https://www.xvideos.com/?k=$q&sort=relevance',
-        'https://www.xvideos.com/?k=$q&sort=relevance&datef=alltime',
-        'https://www.xvideos.com/search/$q',
-      ] else ...[
-        'https://www.xvideos.com/?k=$q&p=$p',
-        'https://www.xvideos.com/?k=$q&p=$p&sort=relevance',
-        'https://www.xvideos.com/?k=$q&p=$p&sort=relevance&datef=alltime',
-        'https://www.xvideos.com/search/$q/$p',
-      ],
+    // Only ?k= forms work; /search/<kw> currently 404s.
+    final bases = <String>[
+      'https://www.xvideos.com',
+      'https://www.xvideos.es',
     ];
+    final urls = <String>[];
+    for (final b in bases) {
+      if (p == 0) {
+        urls.addAll([
+          '$b/?k=$qPlus',
+          '$b/?k=$qPct',
+          '$b/?k=$qPlus&sort=relevance',
+          '$b/?k=$qPlus&sort=relevance&datef=alltime',
+        ]);
+      } else {
+        urls.addAll([
+          '$b/?k=$qPlus&p=$p',
+          '$b/?k=$qPct&p=$p',
+          '$b/?k=$qPlus&p=$p&sort=relevance',
+          '$b/?k=$qPlus&p=$p&sort=relevance&datef=alltime',
+        ]);
+      }
+    }
     Object? lastErr;
     for (final url in urls) {
       try {
         final html = await _getHtml(url);
         final list = _parseList(html, <String>{});
         if (list.isNotEmpty) return list;
+        // Empty parse on a valid search page → try next shape/mirror.
       } catch (e) {
         if (e is DioException && CancelToken.isCancel(e)) rethrow;
         lastErr = e;
@@ -174,24 +186,45 @@ class XvideosApi {
 
   List<VideoItem> _parseList(String html, Set<String> seen) {
     final out = <VideoItem>[];
-    // Card blocks often use id="video_XXXX" (numeric or mixed)
+    // Card blocks: id="video_XXXX" (hex id) or legacy numeric
     final blocks = html.split(RegExp(r'(?=<div[^>]+id="video_[^"]+")'));
     Iterable<String> iterable;
     if (blocks.length > 1) {
       iterable = blocks.skip(1);
     } else {
-      // Fallback: split on video hrefs (new layout / search pages)
+      // Fallback: split on video hrefs (new layout / search pages / mirrors)
       iterable = html.split(RegExp(
-          r'(?=href="(?:https?://(?:www\.)?xvideos\.com)?/video\.[a-zA-Z0-9]+/)'));
+        r'(?=href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/)',
+      ));
       if (iterable.length <= 1) {
         iterable = html.split(RegExp(r'(?=href="/video\.[a-zA-Z0-9]+/)'));
       }
     }
 
+    final hrefRe = RegExp(
+      r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?(/video\.[a-zA-Z0-9]+/[^"#?\s]+)"',
+    );
+    final titleOnHref = RegExp(
+      r'href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/[^"]+"[^>]*title="([^"]+)"',
+    );
+    final titleBeforeHref = RegExp(
+      r'title="([^"]+)"[^>]*href="(?:https?://(?:www\.)?xvideos\.(?:com|es|net))?/video\.[a-zA-Z0-9]+/',
+    );
+    final pTitleRe = RegExp(
+      r'class="[^"]*title[^"]*"[^>]*>\s*<a[^>]*>([^<]{1,200})',
+      caseSensitive: false,
+    );
+    final thumbRe = RegExp(
+      r'data-src="((?:https?:)?//[^"]+)"|data-srcse="((?:https?:)?//[^"]+)"|data-idthumb="((?:https?:)?//[^"]+)"|data-thumb="((?:https?:)?//[^"]+)"|data-sfwthumb="((?:https?:)?//[^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+      caseSensitive: false,
+    );
+    final durRe = RegExp(
+      r'class="duration"[^>]*>\s*([^<]+)',
+      caseSensitive: false,
+    );
+
     for (final chunk in iterable) {
-      final hm = RegExp(
-        r'href="(?:https?://(?:www\.)?xvideos\.com)?(/video\.[a-zA-Z0-9]+/[^"#?]+)"',
-      ).firstMatch(chunk);
+      final hm = hrefRe.firstMatch(chunk);
       if (hm == null) continue;
       final path = hm.group(1)!;
       final idM = RegExp(r'/video\.([a-zA-Z0-9]+)').firstMatch(path);
@@ -199,19 +232,14 @@ class XvideosApi {
       if (!seen.add(id)) continue;
 
       String? title;
-      // Prefer title on the video link
-      final tLink = RegExp(
-        r'href="(?:https?://(?:www\.)?xvideos\.com)?/video\.[a-zA-Z0-9]+/[^"]+"[^>]*title="([^"]+)"',
-      ).firstMatch(chunk);
-      final tTitleFirst = RegExp(
-        r'title="([^"]+)"[^>]*href="(?:https?://(?:www\.)?xvideos\.com)?/video\.[a-zA-Z0-9]+/',
-      ).firstMatch(chunk);
+      final tLink = titleOnHref.firstMatch(chunk);
+      final tTitleFirst = titleBeforeHref.firstMatch(chunk);
       if (tLink != null) {
         title = tLink.group(1);
       } else if (tTitleFirst != null) {
         title = tTitleFirst.group(1);
       } else {
-        for (final m in RegExp(r'title="([^"]{5,200})"').allMatches(chunk)) {
+        for (final m in RegExp(r'title="([^"]{3,200})"').allMatches(chunk)) {
           final c = m.group(1)!;
           final low = c.toLowerCase();
           if (low.contains('toggle') ||
@@ -219,54 +247,64 @@ class XvideosApi {
               low.contains('menu') ||
               low.contains('search') ||
               low.contains('settings') ||
-              low.contains('xvideos')) {
+              low == 'xvideos' ||
+              low.contains('xvideos.com')) {
             continue;
           }
           title = c;
           break;
         }
       }
-      // <p class="title"> / .thumb-under title text
-      if (title == null || title.length < 3) {
-        final pTitle = RegExp(
-          r'class="[^"]*title[^"]*"[^>]*>\s*<a[^>]*>([^<]{3,200})</a>',
-          caseSensitive: false,
-        ).firstMatch(chunk);
-        if (pTitle != null) title = pTitle.group(1);
+      if (title == null || title.length < 2) {
+        final pTitle = pTitleRe.firstMatch(chunk);
+        if (pTitle != null) {
+          title = pTitle
+              .group(1)!
+              .replaceAll(RegExp(r'<[^>]+>'), ' ')
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
+        }
       }
-      // slug fallback from path
-      if (title == null || title.length < 3) {
+      if (title == null || title.length < 2) {
         final slug = path.split('/').last.replaceAll('_', ' ').trim();
-        if (slug.length >= 3) title = slug;
+        if (slug.length >= 2) title = slug;
       }
-      if (title == null || title.length < 3) continue;
+      if (title == null || title.length < 2) continue;
       title = title
           .replaceAll('&#039;', "'")
           .replaceAll('&amp;', '&')
           .replaceAll('&quot;', '"')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
+      // Strip trailing duration text accidentally captured in anchor body.
+      title = title.replaceAll(RegExp(r'\s+\d+\s*min\s*$'), '').trim();
+      if (title.length < 2) continue;
 
       String? thumb;
-      final tm = RegExp(
-        r'data-src="((?:https?:)?//[^"]+)"|data-srcse="((?:https?:)?//[^"]+)"|data-idthumb="((?:https?:)?//[^"]+)"|data-thumb="((?:https?:)?//[^"]+)"|src="((?:https?:)?//[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-        caseSensitive: false,
-      ).firstMatch(chunk);
+      final tm = thumbRe.firstMatch(chunk);
       if (tm != null) {
         thumb = tm.group(1) ??
             tm.group(2) ??
             tm.group(3) ??
             tm.group(4) ??
-            tm.group(5);
+            tm.group(5) ??
+            tm.group(6);
       }
       if (thumb != null && thumb.startsWith('//')) {
         thumb = 'https:$thumb';
       }
 
+      var duration = '-';
+      final dm = durRe.firstMatch(chunk);
+      if (dm != null) {
+        final d = dm.group(1)!.trim();
+        if (d.isNotEmpty) duration = d;
+      }
+
       out.add(VideoItem(
         url: 'https://www.xvideos.com$path',
         title: title,
-        duration: '-',
+        duration: duration,
         thumb: thumb,
       ));
     }

@@ -64,10 +64,12 @@ class _HomePageState extends State<HomePage> {
         .toList(growable: false);
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = bottomInset > 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      resizeToAvoidBottomInset: true,
+      // Manual float: pad search bar by keyboard height (iOS-safe).
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('ePickle'),
         actions: [
@@ -115,23 +117,19 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-          // Float above keyboard when open
+          // Float above keyboard when open (do not cover keyboard).
           AnimatedPadding(
             duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
-            padding: EdgeInsets.only(bottom: bottomInset > 0 ? 0 : 0),
+            padding: EdgeInsets.only(bottom: bottomInset),
             child: Material(
               color: const Color(0xFF1E1E1E),
               elevation: 8,
               child: SafeArea(
                 top: false,
+                bottom: !keyboardOpen,
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    12,
-                    8,
-                    12,
-                    bottomInset > 0 ? 8 : 10,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
                   child: Row(
                     children: [
                       Expanded(

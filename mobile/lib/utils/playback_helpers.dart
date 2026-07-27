@@ -146,52 +146,44 @@ class PlaybackHelpers {
     );
   }
 
-  /// Map raw exceptions to short Chinese hints (keep original if unknown).
+  /// Map raw exceptions to short Chinese hints (no proxy essays).
   static String friendlyError(Object error) {
     final s = error.toString();
     final low = s.toLowerCase();
-    String core;
     if (s.contains('PhubException:')) {
-      core = s.replaceFirst('PhubException: ', '');
-    } else if (low.contains('403') || low.contains('forbidden')) {
-      core = '应用抓取被拦截(403)，不代表网站失效';
-    } else if (low.contains('404') || low.contains('not found')) {
-      core = '内容不存在(404)';
-    } else if (low.contains('timeout') || low.contains('timed out')) {
-      core = '网络超时';
-    } else if (low.contains('socket') ||
+      final core = s.replaceFirst('PhubException: ', '').trim();
+      if (core.contains('404') ||
+          core.contains('不存在') ||
+          low.contains('not found')) {
+        return '内容不存在(404)';
+      }
+      // Keep short adapter messages; strip long proxy advice if present.
+      final cut = core.split('\n').first.trim();
+      if (cut.contains('404')) return '内容不存在(404)';
+      return cut.length > 80 ? '${cut.substring(0, 80)}…' : cut;
+    }
+    if (low.contains('404') || low.contains('not found')) {
+      return '内容不存在(404)';
+    }
+    if (low.contains('403') || low.contains('forbidden')) {
+      return '访问被拒绝(403)';
+    }
+    if (low.contains('timeout') || low.contains('timed out')) {
+      return '网络超时';
+    }
+    if (low.contains('socket') ||
         low.contains('connection') ||
         low.contains('network') ||
         low.contains('failed host lookup') ||
         low.contains('connection refused') ||
         low.contains('proxy')) {
-      core = '网络异常 / 代理不可达';
-    } else if (low.contains('handshake') || low.contains('certificate')) {
-      core = '安全连接失败';
-    } else if (s.length > 80) {
-      core = '${s.substring(0, 80)}…';
-    } else {
-      core = s;
+      return '网络异常';
     }
-    if (low.contains('结构不匹配') ||
-        low.contains('解析不到') ||
-        low.contains('结构可能已改版')) {
-      return '$core\n\n该频道适配器需要更新；这不是普通代理错误。';
+    if (low.contains('handshake') || low.contains('certificate')) {
+      return '安全连接失败';
     }
-    if (low.contains('403') ||
-        low.contains('forbidden') ||
-        low.contains('cloudflare') ||
-        low.contains('cookie') ||
-        low.contains('验证页')) {
-      return '$core\n\n网页可能仍可正常访问；应用会尝试 iOS 系统网络会话。若仍失败，说明需要 JavaScript / 浏览器验证。';
-    }
-    if (low.contains('failed host lookup') ||
-        low.contains('name not resolved') ||
-        low.contains('dns')) {
-      return '$core\n\n域名无法解析；请检查 DNS、网络或该镜像是否已失效。';
-    }
-    return '$core\n\n'
-        '可尝试：设置 → 网络代理 → 重新检测系统代理，或启用 TUN / 系统 VPN。';
+    if (s.length > 80) return '${s.substring(0, 80)}…';
+    return s;
   }
 
   static String fmtDuration(Duration d) {

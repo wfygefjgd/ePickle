@@ -44,12 +44,17 @@ Future<void> showPlayerSettingsSheet(
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const ListTile(
-                      title: Text(
+                    ListTile(
+                      title: const Text(
                         '设置',
                         style: TextStyle(color: Colors.white70, fontSize: 13),
                       ),
                       dense: true,
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        tooltip: '返回',
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ),
                     SwitchListTile(
                       title: const Text(

@@ -237,11 +237,15 @@ class _SearchScreenState extends State<SearchScreen> {
         activeSite == null ? false : (_loading[activeSite.id] ?? false);
     final err = activeSite == null ? null : _error[activeSite.id];
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = bottomInset > 0;
+    final canPop = Navigator.of(context).canPop();
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
+        // Only show back when this page was pushed (home → search).
+        automaticallyImplyLeading: canPop,
         title: const Text('搜索'),
         backgroundColor: const Color(0xFF1E1E1E),
         foregroundColor: Colors.white,
@@ -332,66 +336,70 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-          // Search bar above keyboard
-          Material(
-            color: const Color(0xFF1E1E1E),
-            elevation: 8,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  12,
-                  8,
-                  12,
-                  bottomInset > 0 ? 8 : 10,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focus,
-                        style: const TextStyle(color: Colors.white, fontSize: 15),
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (_) => _runAll(),
-                        decoration: InputDecoration(
-                          hintText: '搜索全部已启用网站',
-                          hintStyle: const TextStyle(color: Colors.white38),
-                          filled: true,
-                          fillColor: const Color(0xFF2A2A2A),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
-                            borderSide: BorderSide.none,
+          // Search bar floats above keyboard (manual inset; no body resize).
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: Material(
+              color: const Color(0xFF1E1E1E),
+              elevation: 8,
+              child: SafeArea(
+                top: false,
+                bottom: !keyboardOpen,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focus,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _runAll(),
+                          decoration: InputDecoration(
+                            hintText: '搜索全部已启用网站',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: const Color(0xFF2A2A2A),
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.search,
+                              color: Colors.white38,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
                             vertical: 12,
                           ),
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            color: Colors.white38,
-                            size: 20,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
                           ),
                         ),
+                        onPressed: _runAll,
+                        child: const Text('搜'),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6B35),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                      ),
-                      onPressed: _runAll,
-                      child: const Text('搜'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

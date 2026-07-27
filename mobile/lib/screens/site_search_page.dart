@@ -129,7 +129,9 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
     final site = widget.site;
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
+      // Parent [SiteFeedPage] already draws a floating back; hide AppBar leading.
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Row(
           children: [
             SiteLogo(site: site, size: 28),
@@ -140,46 +142,9 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
           ],
         ),
       ),
+      resizeToAvoidBottomInset: false,
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _ctrl,
-                    focusNode: _focus,
-                    style: const TextStyle(color: Colors.white),
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _run(),
-                    decoration: InputDecoration(
-                      hintText: '仅搜索 ${site.name}',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      filled: true,
-                      fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6B35),
-                  ),
-                  onPressed: _loading ? null : _run,
-                  child: const Text('搜'),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: _loading
                 ? const Center(
@@ -189,10 +154,26 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white54),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _error!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFF6B35),
+                                ),
+                                onPressed: _loading ? null : _run,
+                                child: const Text('重试'),
+                              ),
+                            ],
                           ),
                         ),
                       )
@@ -240,6 +221,68 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
                               );
                             },
                           ),
+          ),
+          // Float search bar above keyboard
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Material(
+              color: const Color(0xFF1E1E1E),
+              elevation: 8,
+              child: SafeArea(
+                top: false,
+                bottom: MediaQuery.viewInsetsOf(context).bottom == 0,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _ctrl,
+                          focusNode: _focus,
+                          style: const TextStyle(color: Colors.white),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _run(),
+                          decoration: InputDecoration(
+                            hintText: '仅搜索 ${site.name}',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: const Color(0xFF2A2A2A),
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                        ),
+                        onPressed: _loading ? null : _run,
+                        child: const Text('搜'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
