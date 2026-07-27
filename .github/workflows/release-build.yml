@@ -117,7 +117,7 @@ jobs:
           VER=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: //;s/+.*//')
           echo "VER=$VER" >> "$GITHUB_ENV"
 
-          STAGE="/tmp/phub_ipa_$$"
+          STAGE="/tmp/epickle_ipa_$$"
           rm -rf "$STAGE"
           mkdir -p "$STAGE/Payload"
           /usr/bin/ditto -V --norsrc --noextattr --noqtn "$SRC" "$STAGE/Payload/Runner.app"

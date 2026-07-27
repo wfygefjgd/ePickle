@@ -1,10 +1,10 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:phub_player/services/generic_site_api.dart';
-import 'package:phub_player/services/source_catalog.dart';
+import 'package:epickle/services/generic_site_api.dart';
+import 'package:epickle/services/source_catalog.dart';
 
 void main() {
   const site = SiteDef(

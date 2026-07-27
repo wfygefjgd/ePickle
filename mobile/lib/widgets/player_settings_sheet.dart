@@ -3,7 +3,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_settings.dart';
+import '../services/cache_manager.dart';
 import '../services/layout_settings.dart';
+import '../services/watch_history.dart';
+import '../utils/privacy_wipe.dart';
 
 /// Settings: quality + restore channels (no proxy / global-search toggles).
 Future<void> showPlayerSettingsSheet(
@@ -149,6 +152,57 @@ Future<void> showPlayerSettingsSheet(
                             ),
                           );
                         }
+                      },
+                    ),
+                    const Divider(color: Colors.white12),
+                    ListTile(
+                      title: const Text(
+                        '清除痕迹并退出',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      subtitle: const Text(
+                        '清理 WebView 缓存、Cookie、应用数据后退出。',
+                        style: TextStyle(color: Colors.white38, fontSize: 12),
+                      ),
+                      trailing: const Icon(
+                        Icons.cleaning_services,
+                        color: Color(0xFFFF6B35),
+                      ),
+                      onTap: () async {
+                        final ok = await showDialog<bool>(
+                              context: ctx,
+                              builder: (d) => AlertDialog(
+                                backgroundColor: const Color(0xFF2A2A2A),
+                                title: const Text(
+                                  '清除痕迹？',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                content: const Text(
+                                  '将清理所有 WebView 缓存、Cookie、观看历史和应用数据后退出。',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(d, false),
+                                    child: const Text('取消'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(d, true),
+                                    child: const Text(
+                                      '清理并退出',
+                                      style: TextStyle(color: Color(0xFFFF6B35)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ) ??
+                            false;
+                        if (!ok) return;
+                        await ctx.read<WatchHistory>().clear();
+                        await CacheManager.clearAllCache();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await PrivacyWipe.nuclearWipe();
+                        await PrivacyWipe.exitApp();
                       },
                     ),
                     const Divider(color: Colors.white12),

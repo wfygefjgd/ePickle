@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:phub_player/app_player.dart';
-import 'package:phub_player/services/app_settings.dart';
-import 'package:phub_player/services/layout_settings.dart';
-import 'package:phub_player/services/watch_history.dart';
+import 'package:epickle/app_player.dart';
+import 'package:epickle/services/app_settings.dart';
+import 'package:epickle/services/layout_settings.dart';
+import 'package:epickle/services/watch_history.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

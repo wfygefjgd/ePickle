@@ -1,4 +1,4 @@
-name: phub_player
+name: epickle
 description: ePickle — multi-source video player for Android/iOS sideload
 publish_to: "none"
 version: 2.0.0+201

@@ -229,8 +229,8 @@ private final class StripchatLivePlatformView: NSObject,
   private let retryButton: UIButton
   private let isStripchat: Bool
   private var muted: Bool
-  private var focusTimer: Timer?
-  private var statusTimer: Timer?
+  private var safetyTimer: Timer?
+  private var eventHandler: StripchatLiveEventHandler?
   private var progressObservation: NSKeyValueObservation?
   private var roomRequest: URLRequest?
   private var loadingStartedAt: Date?
@@ -248,6 +248,18 @@ private final class StripchatLivePlatformView: NSObject,
     configuration.preferences.javaScriptEnabled = true
     configuration.allowsInlineMediaPlayback = true
     configuration.mediaTypesRequiringUserActionForPlayback = []
+    let userContent = WKUserContentController()
+    userContent.addUserScript(WKUserScript(
+      source: StripchatLiveEventHandler.userScript,
+      injectionTime: .atDocumentEnd,
+      forMainFrameOnly: false
+    ))
+    let handler = StripchatLiveEventHandler { [weak self] event in
+      self?.handleLiveEvent(event)
+    }
+    userContent.add(handler, name: "epickleLiveEvent")
+    configuration.userContentController = userContent
+    eventHandler = handler
     containerView = UIView(frame: frame)
     webView = WKWebView(frame: frame, configuration: configuration)
     loadingOverlay = UIView(frame: frame)
@@ -324,9 +336,9 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   deinit {
-    focusTimer?.invalidate()
-    statusTimer?.invalidate()
+    safetyTimer?.invalidate()
     progressObservation?.invalidate()
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: "epickleLiveEvent")
     NotificationCenter.default.removeObserver(self)
     webView.stopLoading()
     if StripchatLivePlatformView.activeView.value === self {
@@ -390,7 +402,9 @@ private final class StripchatLivePlatformView: NSObject,
       showFailure("房间地址无效")
       return
     }
-    focusTimer?.invalidate()
+    safetyTimer?.invalidate()
+    safetyTimer = nil
+    videoRevealed = false
     if isStripchat {
       showLoading(resetClock: true)
     } else {

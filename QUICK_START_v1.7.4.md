@@ -5,7 +5,7 @@
 ### Android APK
 
 ```bash
-cd ~/Desktop/_phub_src/mobile
+cd ~/Desktop/ePickle/mobile
 
 # 清理旧构建
 flutter clean
@@ -23,7 +23,7 @@ flutter build apk --release
 ### iOS IPA
 
 ```bash
-cd ~/Desktop/_phub_src/mobile
+cd ~/Desktop/ePickle/mobile
 
 # 清理旧构建
 flutter clean

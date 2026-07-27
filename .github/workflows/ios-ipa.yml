@@ -101,7 +101,7 @@ jobs:
           test -f "$SRC/Runner"
           test -f "$SRC/Info.plist"
 
-          STAGE="/tmp/phub_ipa_stage_$$"
+          STAGE="/tmp/epickle_ipa_stage_$$"
           rm -rf "$STAGE"
           mkdir -p "$STAGE/Payload"
 
@@ -154,12 +154,12 @@ jobs:
             exit 1
           fi
 
-          IPA_OUT="/tmp/PHUB-Player-iOS.ipa"
+          IPA_OUT="/tmp/ePickle-iOS.ipa"
           rm -f "$IPA_OUT"
           python3 <<PY
           import os, zipfile
           stage = "$STAGE"
-          ipa = "/tmp/PHUB-Player-iOS.ipa"
+          ipa = "/tmp/ePickle-iOS.ipa"
           root = os.path.join(stage, "Payload")
           assert os.path.isdir(root)
           with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
@@ -191,12 +191,12 @@ jobs:
           print("wrote", ipa, os.path.getsize(ipa))
           PY
 
-          ls -lh /tmp/PHUB-Player-iOS.ipa
-          file /tmp/PHUB-Player-iOS.ipa
+          ls -lh /tmp/ePickle-iOS.ipa
+          file /tmp/ePickle-iOS.ipa
 
           python3 <<'PY'
           import zipfile, os
-          p = "/tmp/PHUB-Player-iOS.ipa"
+          p = "/tmp/ePickle-iOS.ipa"
           assert os.path.getsize(p) > 3_000_000
           with open(p, "rb") as f:
               assert f.read(2) == b"PK"
@@ -213,12 +213,12 @@ jobs:
           PY
 
           mkdir -p build/ipa_dist
-          cp -f /tmp/PHUB-Player-iOS.ipa build/ipa_dist/PHUB-Player-iOS.ipa
+          cp -f /tmp/ePickle-iOS.ipa build/ipa_dist/ePickle-iOS.ipa
           python3 - <<'PY'
           import os, hashlib
-          p = "build/ipa_dist/PHUB-Player-iOS.ipa"
+          p = "build/ipa_dist/ePickle-iOS.ipa"
           h = hashlib.sha256(open(p,"rb").read()).hexdigest()
-          open("build/ipa_dist/SHA256.txt","w").write(h + "  PHUB-Player-iOS.ipa\n")
+          open("build/ipa_dist/SHA256.txt","w").write(h + "  ePickle-iOS.ipa\n")
           print(h, os.path.getsize(p))
           PY
           ls -la build/ipa_dist/
@@ -226,9 +226,9 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
         with:
-          name: PHUB-Player-iOS
+          name: ePickle-iOS
           path: |
-            mobile/build/ipa_dist/PHUB-Player-iOS.ipa
+            mobile/build/ipa_dist/ePickle-iOS.ipa
             mobile/build/ipa_dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30

@@ -1,12 +1,12 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:phub_player/services/generic_site_api.dart';
-import 'package:phub_player/services/mitao_api.dart';
-import 'package:phub_player/services/phub_api.dart';
-import 'package:phub_player/services/source_catalog.dart';
-import 'package:phub_player/services/xvideos_api.dart';
+import 'package:epickle/services/generic_site_api.dart';
+import 'package:epickle/services/mitao_api.dart';
+import 'package:epickle/services/phub_api.dart';
+import 'package:epickle/services/source_catalog.dart';
+import 'package:epickle/services/xvideos_api.dart';
 
 void main() {
   test('generic adapter propagates cancellation without trying more paths',

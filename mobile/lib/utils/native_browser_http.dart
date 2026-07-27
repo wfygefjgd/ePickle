@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/services.dart';
 
 class NativeBrowserHttpResponse {
@@ -16,9 +14,9 @@ class NativeBrowserHttpResponse {
   final Map<String, String> cookies;
 }
 
-/// iOS URLSession fallback for sites that reject Dart HttpClient's TLS stack.
-/// This does not pretend a 403 means the site is down, and it keeps the native
-/// redirect/cookie session used by subsequent fallback requests.
+/// Native HTTP fallback (URLSession on iOS, HttpURLConnection on Android)
+/// for sites that reject Dart HttpClient's TLS stack.
+/// Keeps native redirect/cookie session used by subsequent fallback requests.
 class NativeBrowserHttp {
   NativeBrowserHttp._();
 
@@ -30,7 +28,6 @@ class NativeBrowserHttp {
     required Map<String, String> headers,
     required Duration timeout,
   }) async {
-    if (!Platform.isIOS) return null;
     try {
       final raw = await _channel.invokeMapMethod<String, dynamic>('get', {
         'url': url,
@@ -38,19 +35,7 @@ class NativeBrowserHttp {
         'timeoutMs': timeout.inMilliseconds,
       });
       if (raw == null) return null;
-      final cookieMap = <String, String>{};
-      final cookies = raw['cookies'];
-      if (cookies is Map) {
-        for (final entry in cookies.entries) {
-          cookieMap[entry.key.toString()] = entry.value.toString();
-        }
-      }
-      return NativeBrowserHttpResponse(
-        statusCode: (raw['statusCode'] as num?)?.toInt() ?? 0,
-        body: raw['body']?.toString() ?? '',
-        finalUrl: raw['finalUrl']?.toString() ?? url,
-        cookies: cookieMap,
-      );
+      return _parse(url, raw);
     } on PlatformException {
       return null;
     } on MissingPluginException {
@@ -58,14 +43,13 @@ class NativeBrowserHttp {
     }
   }
 
-  /// Uses the app's real WKWebView engine when a page needs JavaScript or a
+  /// Uses the app's real WebView engine when a page needs JavaScript or a
   /// browser challenge before its final DOM becomes available.
   static Future<NativeBrowserHttpResponse?> render(
     String url, {
     required Map<String, String> headers,
     required Duration timeout,
   }) async {
-    if (!Platform.isIOS) return null;
     if (_renderBusy) return null;
     _renderBusy = true;
     try {
@@ -75,19 +59,7 @@ class NativeBrowserHttp {
         'timeoutMs': timeout.inMilliseconds,
       });
       if (raw == null) return null;
-      final cookieMap = <String, String>{};
-      final cookies = raw['cookies'];
-      if (cookies is Map) {
-        for (final entry in cookies.entries) {
-          cookieMap[entry.key.toString()] = entry.value.toString();
-        }
-      }
-      return NativeBrowserHttpResponse(
-        statusCode: (raw['statusCode'] as num?)?.toInt() ?? 0,
-        body: raw['body']?.toString() ?? '',
-        finalUrl: raw['finalUrl']?.toString() ?? url,
-        cookies: cookieMap,
-      );
+      return _parse(url, raw);
     } on PlatformException {
       return null;
     } on MissingPluginException {
@@ -95,5 +67,21 @@ class NativeBrowserHttp {
     } finally {
       _renderBusy = false;
     }
+  }
+
+  static NativeBrowserHttpResponse _parse(String url, Map<String, dynamic> raw) {
+    final cookieMap = <String, String>{};
+    final cookies = raw['cookies'];
+    if (cookies is Map) {
+      for (final entry in cookies.entries) {
+        cookieMap[entry.key.toString()] = entry.value.toString();
+      }
+    }
+    return NativeBrowserHttpResponse(
+      statusCode: (raw['statusCode'] as num?)?.toInt() ?? 0,
+      body: raw['body']?.toString() ?? '',
+      finalUrl: raw['finalUrl']?.toString() ?? url,
+      cookies: cookieMap,
+    );
   }
 }

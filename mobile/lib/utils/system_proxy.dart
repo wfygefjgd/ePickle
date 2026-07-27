@@ -24,7 +24,7 @@ class SystemProxyInfo {
 }
 
 class SystemProxy {
-  static const _channel = MethodChannel('phub_player/system_proxy');
+  static const _channel = MethodChannel('epickle/system_proxy');
 
   /// Returns null when the device has no system/env proxy configured.
   static Future<SystemProxyInfo?> detect() async {

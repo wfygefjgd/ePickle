@@ -7,14 +7,14 @@
 - 推荐列表（首页/热门等页面抓取）
 - 搜索 + 加载更多
 - 详情解析 `flashvars` → HLS 多清晰度
-- `media_kit` 播放（带 Referer / UA）
+- `video_player` 播放（HLS 多清晰度）
 - 标题批量翻译（Google 免费接口）
 
 ## 环境
 
 1. 安装 [Flutter](https://docs.flutter.dev/get-started/install)（本机可用 `C:\Users\96335\flutter`）
 2. Android SDK / 模拟器或真机
-3. 手机能直接访问 pornhub.com（VPN 等自行处理）
+3. 手机能访问各源站（VPN 等自行处理）
 
 ## 运行
 
@@ -36,17 +36,16 @@ flutter build apk --release
 lib/
   main.dart
   models/video_item.dart
-  services/phub_api.dart      # 抓取与解析
-  services/translator.dart
+  services/                  # 多源 API / 布局 / 历史
   screens/                   # 推荐 / 搜索 / 播放
-  widgets/video_card.dart
+  widgets/
 ```
 
 ## 说明
 
-- 不依赖 Python / phub 后端
-- 站点改版可能导致解析失败，需改 `phub_api.dart`
-- 成人内容勿上架 Google Play，仅侧载自用
+- 不依赖 Python 后端
+- 站点改版可能导致解析失败，需改对应 `*_api.dart`
+- 成人内容勿上架应用商店，仅侧载自用
 
 ## 免责声明
 

@@ -1,6 +1,6 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:phub_player/services/layout_settings.dart';
-import 'package:phub_player/services/source_catalog.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:epickle/services/layout_settings.dart';
+import 'package:epickle/services/source_catalog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,12 +1,12 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:phub_player/models/video_item.dart';
-import 'package:phub_player/services/generic_site_api.dart';
-import 'package:phub_player/services/source_catalog.dart';
-import 'package:phub_player/utils/http_client.dart';
-import 'package:phub_player/utils/http_headers.dart';
+import 'package:epickle/models/video_item.dart';
+import 'package:epickle/services/generic_site_api.dart';
+import 'package:epickle/services/source_catalog.dart';
+import 'package:epickle/utils/http_client.dart';
+import 'package:epickle/utils/http_headers.dart';
 
 void main() {
   final enabled = Platform.environment['LIVE_SOURCE_TEST'] == '1';
