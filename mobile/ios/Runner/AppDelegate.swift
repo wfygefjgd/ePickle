@@ -227,6 +227,7 @@ private final class StripchatLivePlatformView: NSObject,
   private let loadingProgress: UIProgressView
   private let statusLabel: UILabel
   private let retryButton: UIButton
+  private let isStripchat: Bool
   private var muted: Bool
   private var focusTimer: Timer?
   private var statusTimer: Timer?
@@ -239,6 +240,7 @@ private final class StripchatLivePlatformView: NSObject,
     let values = arguments as? [String: Any]
     let rawUrl = values?["url"] as? String ?? "https://stripchat.com/"
     muted = values?["muted"] as? Bool ?? true
+    isStripchat = values?["stripchatMode"] as? Bool ?? true
 
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = .default()
@@ -267,7 +269,7 @@ private final class StripchatLivePlatformView: NSObject,
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.isOpaque = true
-    webView.alpha = 0
+    webView.alpha = isStripchat ? 0 : 1
     webView.backgroundColor = .black
     webView.scrollView.backgroundColor = .black
     webView.scrollView.isScrollEnabled = false
@@ -286,7 +288,7 @@ private final class StripchatLivePlatformView: NSObject,
 
     progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
       [weak self] webView, _ in
-      guard let self, !self.videoRevealed else { return }
+      guard let self, self.isStripchat, !self.videoRevealed else { return }
       let progress = Float(max(0.04, min(0.96, webView.estimatedProgress)))
       self.loadingProgress.setProgress(progress, animated: true)
       if webView.estimatedProgress >= 0.95 {
@@ -310,7 +312,9 @@ private final class StripchatLivePlatformView: NSObject,
     if let url = URL(string: rawUrl) {
       var request = URLRequest(url: url)
       request.cachePolicy = .reloadIgnoringLocalCacheData
-      request.setValue("https://stripchat.com/", forHTTPHeaderField: "Referer")
+      if isStripchat {
+        request.setValue("https://stripchat.com/", forHTTPHeaderField: "Referer")
+      }
       roomRequest = request
       startRoomLoad()
     } else {
@@ -386,12 +390,18 @@ private final class StripchatLivePlatformView: NSObject,
       return
     }
     focusTimer?.invalidate()
-    showLoading(resetClock: true)
+    if isStripchat {
+      showLoading(resetClock: true)
+    } else {
+      loadingOverlay.isHidden = true
+      webView.alpha = 1
+    }
     webView.stopLoading()
     webView.load(roomRequest)
   }
 
   private func showLoading(resetClock: Bool) {
+    guard isStripchat else { return }
     videoRevealed = false
     webView.alpha = 0
     loadingOverlay.alpha = 1
@@ -412,6 +422,7 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   private func updateLoadingStatus() {
+    guard isStripchat else { return }
     guard !videoRevealed, let loadingStartedAt else { return }
     let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
     if elapsed >= 30 {
@@ -426,6 +437,7 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   private func showFailure(_ message: String) {
+    guard isStripchat else { return }
     guard !videoRevealed else { return }
     statusTimer?.invalidate()
     statusTimer = nil
@@ -452,6 +464,7 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard isStripchat else { return }
     loadingProgress.setProgress(0.96, animated: true)
     statusLabel.text = "网页已加载，正在寻找直播画面…"
     installVideoFocus()
@@ -466,7 +479,9 @@ private final class StripchatLivePlatformView: NSObject,
     _ webView: WKWebView,
     didStartProvisionalNavigation navigation: WKNavigation!
   ) {
-    showLoading(resetClock: loadingStartedAt == nil)
+    if isStripchat {
+      showLoading(resetClock: loadingStartedAt == nil)
+    }
   }
 
   func webView(
@@ -474,7 +489,9 @@ private final class StripchatLivePlatformView: NSObject,
     didFail navigation: WKNavigation!,
     withError error: Error
   ) {
-    showFailure("连接失败：\(error.localizedDescription)")
+    if isStripchat {
+      showFailure("连接失败：\(error.localizedDescription)")
+    }
   }
 
   func webView(
@@ -482,7 +499,9 @@ private final class StripchatLivePlatformView: NSObject,
     didFailProvisionalNavigation navigation: WKNavigation!,
     withError error: Error
   ) {
-    showFailure("网络连接失败，请检查网络后重试")
+    if isStripchat {
+      showFailure("网络连接失败，请检查网络后重试")
+    }
   }
 
   func webView(
@@ -496,6 +515,10 @@ private final class StripchatLivePlatformView: NSObject,
     }
     if navigationAction.targetFrame == nil {
       decisionHandler(.cancel)
+      return
+    }
+    guard isStripchat else {
+      decisionHandler(.allow)
       return
     }
     let host = targetUrl.host?.lowercased() ?? ""
@@ -528,10 +551,13 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   @objc private func resumeFromBackground() {
-    installVideoFocus()
+    if isStripchat {
+      installVideoFocus()
+    }
   }
 
   private func installVideoFocus() {
+    guard isStripchat else { return }
     let flag = muted ? "true" : "false"
     let script = """
       (() => {

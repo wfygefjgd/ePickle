@@ -60,6 +60,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   /// Only the currently playing controller (never multiple).
   VideoPlayerController? _controller;
   String? _browserLiveUrl;
+  bool _browserIsStripchat = false;
   int _currentIndex = 0;
   int _loadSeq = 0;
 
@@ -599,6 +600,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _controller = null;
     final hadBrowserLive = _browserLiveUrl != null;
     _browserLiveUrl = null;
+    _browserIsStripchat = false;
     try {
       c?.pause();
     } catch (_) {}
@@ -1259,6 +1261,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         setState(() {
           _pageLoading = false;
           _browserLiveUrl = null;
+          _browserIsStripchat = false;
         });
         PlaybackHelpers.toast(context, 'Stripchat 主播房间地址无效');
         return;
@@ -1270,11 +1273,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         title: item.title,
         live: true,
         seq: seq,
+        stripchat: true,
       );
       return;
     }
 
     _browserLiveUrl = null;
+    _browserIsStripchat = false;
 
     // Check if we have this index preloaded in any slot
     VideoPlayerController? preloaded;
@@ -1633,6 +1638,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     required bool live,
     required int seq,
     VideoDetail? detail,
+    bool stripchat = false,
   }) async {
     _disposePreload();
     await _disposeController();
@@ -1642,6 +1648,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       setState(() {
         _pageLoading = false;
         _browserLiveUrl = null;
+        _browserIsStripchat = false;
       });
       PlaybackHelpers.toast(context, '无法打开页面地址');
       return;
@@ -1649,6 +1656,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentIndex = index;
     _currentDetail = detail;
     _browserLiveUrl = url;
+    _browserIsStripchat = stripchat;
     _titleText = title;
     _totalTime = live ? 'LIVE' : '-';
     _speedLabel = live ? '' : '网页';
@@ -1936,7 +1944,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _toggleMute() {
     _muted = !_muted;
     _controller?.setVolume(_muted ? 0 : 1);
-    if (_browserLiveUrl != null) {
+    if (_browserLiveUrl != null && _browserIsStripchat) {
       unawaited(StripchatLiveView.setMuted(_muted));
     }
     context.read<AppSettings>().setMuted(_muted);
@@ -2131,6 +2139,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               titleText: _titleText,
               speedLabel: _speedLabel,
               browserLiveUrl: _browserLiveUrl,
+              browserIsStripchat: _browserIsStripchat,
               onPageChanged: _onPageChanged,
               onMute: _toggleMute,
               onFastForward: _fastForward,

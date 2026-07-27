@@ -24,6 +24,7 @@ class VideoPlayerPage extends StatefulWidget {
     required this.titleText,
     required this.speedLabel,
     this.browserLiveUrl,
+    this.browserIsStripchat = false,
     required this.onPageChanged,
     required this.onMute,
     required this.onFastForward,
@@ -47,6 +48,7 @@ class VideoPlayerPage extends StatefulWidget {
   final String titleText;
   final String speedLabel;
   final String? browserLiveUrl;
+  final bool browserIsStripchat;
 
   final ValueChanged<int> onPageChanged;
   final VoidCallback onMute;
@@ -193,6 +195,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         child: StripchatLiveView(
           roomUrl: browserLiveUrl,
           muted: widget.muted,
+          stripchatMode: widget.browserIsStripchat,
         ),
       );
     }

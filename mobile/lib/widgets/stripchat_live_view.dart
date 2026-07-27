@@ -12,10 +12,12 @@ class StripchatLiveView extends StatelessWidget {
     super.key,
     required this.roomUrl,
     required this.muted,
+    this.stripchatMode = true,
   });
 
   final String roomUrl;
   final bool muted;
+  final bool stripchatMode;
 
   static const _control = MethodChannel('epickle/stripchat_live_control');
 
@@ -51,6 +53,7 @@ class StripchatLiveView extends StatelessWidget {
       creationParams: <String, dynamic>{
         'url': roomUrl,
         'muted': muted,
+        'stripchatMode': stripchatMode,
       },
       creationParamsCodec: const StandardMessageCodec(),
     );
