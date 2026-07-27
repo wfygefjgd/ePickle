@@ -66,7 +66,8 @@ class _HomePageState extends State<HomePage> {
         .toList(growable: false);
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
-    // bottomNavigationBar is always laid out above the keyboard by Scaffold.
+    // Scaffold keeps the bar at the viewport bottom; the bar itself applies
+    // viewInsets.bottom so its controls stay above the iOS keyboard.
     // Do NOT use Stack + Positioned(bottom) for the search bar — that fights
     // viewInsets / home-indicator and often leaves the field half-covered.
     return Scaffold(
@@ -145,7 +146,11 @@ class _HomeSearchBar extends StatelessWidget {
     return Material(
       color: const Color(0xFF1E1E1E),
       elevation: 8,
-      child: Padding(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: Padding(
         // When keyboard is up, home-indicator padding is already absorbed by
         // Scaffold; only keep a small gap. When closed, keep home-indicator.
         padding: EdgeInsets.fromLTRB(
@@ -204,6 +209,7 @@ class _HomeSearchBar extends StatelessWidget {
               child: const Text('搜'),
             ),
           ],
+          ),
         ),
       ),
     );

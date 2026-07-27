@@ -226,7 +226,11 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
       bottomNavigationBar: Material(
         color: const Color(0xFF1E1E1E),
         elevation: 8,
-        child: Padding(
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+          child: Padding(
           padding: EdgeInsets.fromLTRB(
             12,
             8,
@@ -275,6 +279,7 @@ class _SiteSearchPageState extends State<SiteSearchPage> {
                 child: const Text('搜'),
               ),
             ],
+          ),
           ),
         ),
       ),

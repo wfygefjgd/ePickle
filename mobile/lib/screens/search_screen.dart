@@ -246,8 +246,8 @@ class _SearchScreenState extends State<SearchScreen> {
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
 
-    // Search bar lives in bottomNavigationBar so Scaffold always keeps it
-    // above the keyboard (no Stack/Positioned fight with viewInsets).
+    // The bottom bar applies viewInsets.bottom so the search controls stay
+    // above the iOS keyboard while the results body is resized by Scaffold.
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       resizeToAvoidBottomInset: true,
@@ -340,7 +340,11 @@ class _SearchScreenState extends State<SearchScreen> {
       bottomNavigationBar: Material(
         color: const Color(0xFF1E1E1E),
         elevation: 8,
-        child: Padding(
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+          child: Padding(
           padding: EdgeInsets.fromLTRB(
             12,
             8,
@@ -397,6 +401,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: const Text('搜'),
               ),
             ],
+          ),
           ),
         ),
       ),
