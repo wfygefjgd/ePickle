@@ -46,11 +46,11 @@ class PlayerApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+          scaffoldBackgroundColor: Colors.black,
           colorScheme: const ColorScheme.dark(
             primary: Color(0xFFFF6B35),
             secondary: Color(0xFFFF6B35),
-            surface: Color(0xFF1E1E1E),
+            surface: Colors.black,
           ),
           appBarTheme: const AppBarTheme(
             backgroundColor: Colors.black,

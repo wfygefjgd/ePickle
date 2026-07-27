@@ -66,7 +66,7 @@ class _HomePageState extends State<HomePage> {
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: Colors.black,
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Colors.black,
@@ -87,7 +87,7 @@ class _HomePageState extends State<HomePage> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               children: [
                 for (final s in sites)
                   _SwipeSiteTile(
@@ -102,7 +102,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 if (lives.isNotEmpty) ...[
                   const Padding(
-                    padding: EdgeInsets.fromLTRB(4, 0, 4, 4),
+                    padding: EdgeInsets.fromLTRB(4, 0, 4, 2),
                     child: Text(
                       '直播',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
@@ -141,10 +141,10 @@ class _HomeSearchBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       key: const ValueKey('home_search_bar'),
-      color: const Color(0xFF1E1E1E),
+      color: Colors.black,
       elevation: 0,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          padding: const EdgeInsets.fromLTRB(12, 5, 12, 5),
         child: Row(
           children: [
             Expanded(
@@ -221,7 +221,9 @@ class _SwipeSiteTile extends StatelessWidget {
     final tile = Card(
       color: const Color(0xFF2A2A2A),
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
+      child: SizedBox(
+        height: 84,
+        child: ListTile(
         leading: SiteLogo(site: site, size: 44),
         title: Text(site.name, style: const TextStyle(color: Colors.white)),
         subtitle: subtitle == null
@@ -232,6 +234,7 @@ class _SwipeSiteTile extends StatelessWidget {
               ),
         trailing: const Icon(Icons.chevron_right, color: Colors.white38),
         onTap: onTap,
+        ),
       ),
     );
     if (!swipeEnabled) return tile;
