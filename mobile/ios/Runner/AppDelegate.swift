@@ -234,6 +234,7 @@ private final class StripchatLivePlatformView: NSObject,
   private var progressObservation: NSKeyValueObservation?
   private var roomRequest: URLRequest?
   private var loadingStartedAt: Date?
+  private var pageLoadedAt: Date?
   private var videoRevealed = false
 
   init(frame: CGRect, arguments: Any?) {
@@ -412,6 +413,7 @@ private final class StripchatLivePlatformView: NSObject,
     loadingProgress.setProgress(0.04, animated: false)
     if resetClock || loadingStartedAt == nil {
       loadingStartedAt = Date()
+      pageLoadedAt = nil  // 重置网页加载时间
     }
     statusLabel.text = "正在连接 Stripchat… 0 秒"
     statusTimer?.invalidate()
@@ -425,10 +427,22 @@ private final class StripchatLivePlatformView: NSObject,
     guard isStripchat else { return }
     guard !videoRevealed, let loadingStartedAt else { return }
     let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
+
+    // 总超时 30 秒
     if elapsed >= 30 {
       showFailure("连接超时，请检查网络或更换主播")
-    } else if webView.estimatedProgress >= 0.95 {
-      statusLabel.text = "网页已加载，正在寻找直播画面… \(elapsed) 秒"
+      return
+    }
+
+    // 网页加载完成后,15 秒内找不到视频就超时
+    if let pageLoadedAt, Date().timeIntervalSince(pageLoadedAt) >= 15 {
+      showFailure("未能捕获直播画面，主播可能离线或切换房间")
+      return
+    }
+
+    if webView.estimatedProgress >= 0.95 {
+      let pageElapsed = pageLoadedAt.map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
+      statusLabel.text = "网页已加载，正在寻找直播画面… \(pageElapsed) 秒"
     } else if elapsed >= 15 {
       statusLabel.text = "连接较慢，请检查网络… \(elapsed) 秒"
     } else {
@@ -465,8 +479,9 @@ private final class StripchatLivePlatformView: NSObject,
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard isStripchat else { return }
+    pageLoadedAt = Date()  // 记录网页加载完成时间
     loadingProgress.setProgress(0.96, animated: true)
-    statusLabel.text = "网页已加载，正在寻找直播画面…"
+    statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
     installVideoFocus()
     focusTimer?.invalidate()
     focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
