@@ -2052,7 +2052,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _error ?? '$_feedLabel暂无内容',
+                    _error ?? '$_feedLabel暂无内容',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white70,
@@ -2074,16 +2074,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
                     _loadMore();
                   },
                   child: const Text('重新加载'),
-                ),
-                const SizedBox(height: 10),
-                TextButton(
-                  onPressed: () {
-                    showPlayerSettingsSheet(context);
-                  },
-                  child: const Text(
-                    '打开网络代理设置',
-                    style: TextStyle(color: Color(0xFFFF6B35)),
-                  ),
                 ),
               ],
             ),

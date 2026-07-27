@@ -642,8 +642,6 @@ void main() {
       'xhamster',
       'tnaflix',
       'jable',
-      'our55',
-      'xqq88',
     ]) {
       expect(enabled, contains(id), reason: '$id should be ready/enabled');
     }
@@ -659,6 +657,8 @@ void main() {
       'missav',
       '7mmtv',
       'bestjavporn',
+      'our55',
+      'xqq88',
     ]) {
       expect(SourceCatalog.byId(id), isNull, reason: '$id should be removed');
       expect(enabled, isNot(contains(id)));
