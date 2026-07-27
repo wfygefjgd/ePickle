@@ -53,7 +53,7 @@ class PlayerApp extends StatelessWidget {
             surface: Color(0xFF1E1E1E),
           ),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF1E1E1E),
+            backgroundColor: Colors.black,
             foregroundColor: Colors.white,
             elevation: 0,
           ),

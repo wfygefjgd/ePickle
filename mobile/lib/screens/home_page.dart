@@ -66,9 +66,10 @@ class _HomePageState extends State<HomePage> {
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF1E1E1E),
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
+        backgroundColor: Colors.black,
         title: const Text('ePickle 2.0'),
         actions: [
           IconButton(
@@ -86,7 +87,7 @@ class _HomePageState extends State<HomePage> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               children: [
                 for (final s in sites)
                   _SwipeSiteTile(
@@ -100,12 +101,11 @@ class _HomePageState extends State<HomePage> {
                             : null),
                   ),
                 if (lives.isNotEmpty) ...[
-                  const SizedBox(height: 8),
                   const Padding(
-                    padding: EdgeInsets.fromLTRB(4, 4, 4, 8),
+                    padding: EdgeInsets.fromLTRB(4, 0, 4, 4),
                     child: Text(
                       '直播',
-                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                   ),
                   for (final s in lives)
@@ -140,63 +140,61 @@ class _HomeSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
+      key: const ValueKey('home_search_bar'),
       color: const Color(0xFF1E1E1E),
-      elevation: 8,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                  ),
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => onSearch(),
-                  decoration: InputDecoration(
-                    hintText: '搜索全部已启用网站',
-                    hintStyle: const TextStyle(color: Colors.white38),
-                    filled: true,
-                    fillColor: const Color(0xFF2A2A2A),
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    prefixIcon: const Icon(
-                      Icons.search,
-                      color: Colors.white38,
-                      size: 20,
-                    ),
-                  ),
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF6B35),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => onSearch(),
+                decoration: InputDecoration(
+                  hintText: '搜索全部已启用网站',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: const Color(0xFF2A2A2A),
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
                     vertical: 12,
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: Colors.white38,
+                    size: 20,
                   ),
                 ),
-                onPressed: onSearch,
-                child: const Text('搜'),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+              onPressed: onSearch,
+              child: const Text('搜'),
+            ),
+          ],
         ),
       ),
     );
