@@ -268,9 +268,7 @@ private final class StripchatLivePlatformView: NSObject,
       injectionTime: .atDocumentEnd,
       forMainFrameOnly: false
     ))
-    let handler = StripchatLiveEventHandler { [weak self] event in
-      self?.handleLiveEvent(event)
-    }
+    let handler = StripchatLiveEventHandler()
     userContent.add(handler, name: "epickleLiveEvent")
     configuration.userContentController = userContent
     eventHandler = handler
@@ -284,6 +282,9 @@ private final class StripchatLivePlatformView: NSObject,
     skipButton = UIButton(type: .system)
     super.init()
 
+    handler.onEvent = { [weak self] event in
+      self?.handleLiveEvent(event)
+    }
     StripchatLivePlatformView.activeView.value = self
     containerView.backgroundColor = .black
     webView.frame = containerView.bounds
@@ -775,12 +776,7 @@ private final class StripchatLivePlatformView: NSObject,
 }
 
 private final class StripchatLiveEventHandler: NSObject, WKScriptMessageHandler {
-  private let onEvent: (String) -> Void
-
-  init(_ onEvent: @escaping (String) -> Void) {
-    self.onEvent = onEvent
-    super.init()
-  }
+  var onEvent: ((String) -> Void)?
 
   func userContentController(
     _ userContentController: WKUserContentController,
@@ -790,7 +786,7 @@ private final class StripchatLiveEventHandler: NSObject, WKScriptMessageHandler 
        let body = message.body as? [String: Any],
        let event = body["event"] as? String {
       DispatchQueue.main.async { [weak self] in
-        self?.onEvent(event)
+        self?.onEvent?(event)
       }
     }
   }
