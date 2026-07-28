@@ -1,6 +1,5 @@
 package com.epickle.player
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.ProxyInfo
@@ -20,6 +19,10 @@ import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.URI
 import java.net.URL
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -40,30 +43,10 @@ class MainActivity : FlutterActivity() {
         AppContextHolder.ctx = this
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
+        // Dio cannot see Android system proxy; WebView can. Expose it to Dart.
         MethodChannel(messenger, channelProxy).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getSystemProxy" -> result.success(readSystemProxy())
-                "applyJvmHttpProxy" -> {
-                    val enabled = call.argument<Boolean>("enabled") ?: false
-                    if (enabled) {
-                        val host = call.argument<String>("host")?.trim().orEmpty()
-                        val port = call.argument<Int>("port") ?: 0
-                        if (host.isNotEmpty() && port in 1..65535) {
-                            System.setProperty("http.proxyHost", host)
-                            System.setProperty("http.proxyPort", port.toString())
-                            System.setProperty("https.proxyHost", host)
-                            System.setProperty("https.proxyPort", port.toString())
-                            System.clearProperty("http.nonProxyHosts")
-                            System.clearProperty("https.nonProxyHosts")
-                        }
-                    } else {
-                        System.clearProperty("http.proxyHost")
-                        System.clearProperty("http.proxyPort")
-                        System.clearProperty("https.proxyHost")
-                        System.clearProperty("https.proxyPort")
-                    }
-                    result.success(null)
-                }
                 else -> result.notImplemented()
             }
         }
@@ -104,16 +87,33 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        MethodChannel(messenger, channelStripchat).setMethodCallHandler { call, result ->
+        val stripchatCh = MethodChannel(messenger, channelStripchat)
+        StripchatSkipBridge.channel = stripchatCh
+        stripchatCh.setMethodCallHandler { call, result ->
             when (call.method) {
                 "setMuted" -> {
                     val muted = call.arguments as? Boolean ?: true
                     stripchatView?.setMuted(muted)
                     result.success(null)
                 }
+                "kickPlayback" -> {
+                    stripchatView?.kickPlayback()
+                    result.success(null)
+                }
+                "pauseLive" -> {
+                    stripchatView?.pauseLive()
+                    result.success(null)
+                }
+                "resumeLive" -> {
+                    stripchatView?.resumeLive()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+
+        // Prefer highest refresh rate when available (120Hz etc.).
+        preferHighRefreshRate()
 
         MethodChannel(messenger, channelPrivacy).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -133,6 +133,8 @@ class MainActivity : FlutterActivity() {
             "epickle/stripchat_live",
             object : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
                 override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+                    // Point control channel at newest instance (Flutter disposes the old one).
+                    stripchatView = null
                     val params = (args as? Map<*, *>)
                     val url = params?.get("url") as? String ?: "https://stripchat.com/"
                     val muted = params?.get("muted") as? Boolean ?: true
@@ -145,14 +147,27 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    // ---------- System Proxy ----------
+    private fun preferHighRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val display = windowManager.defaultDisplay
+            val modes = display.supportedModes ?: return
+            val best = modes.maxByOrNull { it.refreshRate } ?: return
+            if (best.refreshRate < 59f) return
+            val lp = window.attributes
+            lp.preferredDisplayModeId = best.modeId
+            window.attributes = lp
+        } catch (_: Exception) {}
+    }
+
+    // ---------- System proxy (for Dio; WebView already follows it) ----------
 
     private fun emptyProxy(): Map<String, Any?> = mapOf(
         "host" to null, "port" to null, "type" to null, "source" to "none"
     )
 
-    @SuppressLint("NewApi")
     private fun readSystemProxy(): Map<String, Any?> {
+        // 1) JVM props (rare on Android apps)
         val hostProp = System.getProperty("http.proxyHost")
             ?: System.getProperty("https.proxyHost")
         val portProp = System.getProperty("http.proxyPort")
@@ -166,6 +181,8 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+
+        // 2) ConnectivityManager.defaultProxy (Clash/V2Ray 系统代理)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -182,20 +199,18 @@ class MainActivity : FlutterActivity() {
                 }
             } catch (_: Exception) {}
         }
+
+        // 3) ProxySelector fallback
         try {
-            val list = java.net.ProxySelector.getDefault()
-                ?.select(java.net.URI("https://www.google.com"))
+            val list = ProxySelector.getDefault()?.select(URI("https://www.google.com"))
             if (list != null) {
                 for (px in list) {
-                    if (px.type() == java.net.Proxy.Type.HTTP ||
-                        px.type() == java.net.Proxy.Type.SOCKS
-                    ) {
-                        val addr = px.address() as? java.net.InetSocketAddress ?: continue
+                    if (px.type() == Proxy.Type.HTTP || px.type() == Proxy.Type.SOCKS) {
+                        val addr = px.address() as? InetSocketAddress ?: continue
                         val h = addr.hostString ?: continue
                         val p = addr.port
                         if (p in 1..65535) {
-                            val t =
-                                if (px.type() == java.net.Proxy.Type.SOCKS) "socks5" else "http"
+                            val t = if (px.type() == Proxy.Type.SOCKS) "socks5" else "http"
                             return mapOf(
                                 "host" to h, "port" to p,
                                 "type" to t, "source" to "proxy_selector"
@@ -205,6 +220,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
         } catch (_: Exception) {}
+
         return emptyProxy()
     }
 
@@ -261,122 +277,14 @@ class MainActivity : FlutterActivity() {
     private fun httpRender(
         rawUrl: String, headers: Map<String, String>, timeoutMs: Int
     ): Map<String, Any?> {
-        val result = mutableMapOf<String, Any?>()
-        val lock = Object()
-        var done = false
-        val handler = Handler(mainLooper)
-
-        handler.post {
-            val webView = WebView(this@MainActivity).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.userAgentString = headers["user-agent"]
-                    ?: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36"
-            }
-            val timeoutRunnable = Runnable {
-                synchronized(lock) {
-                    if (done) return@Runnable
-                    done = true
-                }
-                result["error"] = "browser_render_timeout"
-                webView.stopLoading()
-                webView.destroy()
-            }
-            handler.postDelayed(timeoutRunnable, timeoutMs.toLong())
-            webView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(v: WebView?, url: String?) {
-                    synchronized(lock) {
-                        if (done) return
-                    }
-                    handler.postDelayed({
-                        synchronized(lock) {
-                            if (done) return
-                        }
-                        webView.evaluateJavascript(
-                            """(function(){var resources=new Set();try{performance.getEntriesByType('resource').forEach(function(e){resources.add(e.name)})}catch(e){}document.querySelectorAll('video,source,iframe').forEach(function(n){if(n.src)resources.add(n.src);if(n.currentSrc)resources.add(n.currentSrc)});return JSON.stringify({html:document.documentElement.outerHTML,href:location.href,resources:Array.from(resources).slice(0,400)})})()"""
-                        ) { value ->
-                            synchronized(lock) {
-                                if (done) return@synchronized
-                                done = true
-                            }
-                            handler.removeCallbacks(timeoutRunnable)
-                            val raw = value?.trim()?.trim('"')
-                                ?.replace("\\n", "\n")
-                                ?.replace("\\\"", "\"")
-                                ?.replace("\\/", "/")
-                                ?: "{}"
-                            var html = ""
-                            var href = rawUrl
-                            try {
-                                val htmlMatch = Regex("\"html\":\"((?:[^\"\\\\]|\\\\.)*)\"", RegexOption.DOT_MATCHES_ALL)
-                                    .find(raw ?: "")
-                                if (htmlMatch != null) {
-                                    html = htmlMatch.groupValues[1]
-                                        .replace("\\\"", "\"")
-                                        .replace("\\n", "\n")
-                                        .replace("\\t", "\t")
-                                        .replace("\\/", "/")
-                                        .replace("\\\\", "\\")
-                                }
-                                val hrefMatch = Regex("\"href\":\"([^\"]+)\"").find(raw ?: "")
-                                if (hrefMatch != null) href = hrefMatch.groupValues[1]
-                            } catch (_: Exception) {}
-                            val cm = CookieManager.getInstance()
-                            val cookieStr = cm.getCookie(href)
-                            val cookies = mutableMapOf<String, String>()
-                            cookieStr?.split(";")?.forEach { part ->
-                                val idx = part.indexOf('=')
-                                if (idx > 0) cookies[part.substring(0, idx).trim()] = part.substring(idx + 1).trim()
-                            }
-                            val resources = Regex("\"resources\":\\[([^\\]]*)\\]")
-                                .find(raw ?: "")?.groupValues?.get(1)
-                                ?.split(",")?.mapNotNull { it.trim().trim('"').ifEmpty { null } } ?: emptyList()
-                            val augmented = if (resources.isNotEmpty()) {
-                                html + "\n<!-- WebView resource URLs -->\n" + resources.joinToString("") { "<source src=\"$it\">" }
-                            } else html
-                            result["statusCode"] = 200
-                            result["body"] = augmented
-                            result["finalUrl"] = href
-                            result["cookies"] = cookies
-                            webView.stopLoading()
-                            webView.destroy()
-                            synchronized(lock) { lock.notifyAll() }
-                        }
-                    }, 800)
-                }
-
-                override fun onReceivedError(
-                    v: WebView?, request: WebResourceRequest?,
-                    error: android.webkit.WebResourceError?
-                ) {
-                    if (request?.isForMainFrame != true) return
-                    synchronized(lock) {
-                        if (done) return
-                        done = true
-                    }
-                    handler.removeCallbacks(timeoutRunnable)
-                    result["error"] = "browser_render_failed:" + (error?.description?.toString() ?: "unknown")
-                    webView.stopLoading()
-                    webView.destroy()
-                    synchronized(lock) { lock.notifyAll() }
-                }
-            }
-            webView.loadUrl(rawUrl, headers.filterKeys { it.lowercase() != "user-agent" })
+        // Detached WebView is flaky on some OEMs; fall back to plain HTTP GET.
+        // JS-heavy sites still benefit from NativeBrowserHttp only when needed
+        // and when the live platform view path is used instead.
+        return try {
+            httpGet(rawUrl, headers, timeoutMs)
+        } catch (e: Exception) {
+            throw Exception("browser_render_failed:${e.message}")
         }
-
-        synchronized(lock) {
-            if (!done) lock.wait(timeoutMs.toLong() + 2000)
-        }
-        if (result.containsKey("error")) {
-            throw Exception(result["error"].toString())
-        }
-        return mapOf(
-            "statusCode" to (result["statusCode"] ?: 200),
-            "body" to (result["body"] ?: ""),
-            "finalUrl" to (result["finalUrl"] ?: rawUrl),
-            "cookies" to (result["cookies"] ?: emptyMap<String, String>())
-        )
     }
 
     // ---------- Privacy Wipe ----------
@@ -407,7 +315,7 @@ object AppContextHolder {
     var ctx: Context? = null
 }
 
-// ---------- Stripchat Live WebView ----------
+// ---------- Stripchat Live WebView (aligned with iOS loading UX) ----------
 
 class StripchatLiveView(
     private val context: Context,
@@ -415,90 +323,493 @@ class StripchatLiveView(
     private var muted: Boolean,
     private val isStripchat: Boolean
 ) : PlatformView {
+    private val root = android.widget.FrameLayout(context)
     private val webView: WebView = WebView(context)
+    private val overlay = android.widget.FrameLayout(context)
+    private val statusLabel = android.widget.TextView(context)
+    private val progress = android.widget.ProgressBar(
+        context, null, android.R.attr.progressBarStyleHorizontal
+    )
+    private val spinner = android.widget.ProgressBar(context)
+    private val retryBtn = android.widget.Button(context)
+    private val skipBtn = android.widget.Button(context)
     private val handler = Handler(Looper.getMainLooper())
     private var videoRevealed = false
+    private var disposed = false
+    private var loadingStartedAt = 0L
+    private var pageLoadedAt = 0L
+    private var focusAttempts = 0
+    private var errorRetries = 0
+
+    private val statusTick = object : Runnable {
+        override fun run() {
+            if (disposed || videoRevealed || !isStripchat) return
+            val elapsed = ((System.currentTimeMillis() - loadingStartedAt) / 1000).toInt()
+            if (elapsed >= 35) {
+                showFailure("连接超时，请检查网络或换主播")
+                return
+            }
+            if (pageLoadedAt > 0 &&
+                System.currentTimeMillis() - pageLoadedAt >= 18_000
+            ) {
+                showFailure("未能捕获直播画面，主播可能离线")
+                return
+            }
+            statusLabel.text = when {
+                pageLoadedAt > 0 -> {
+                    val pe = ((System.currentTimeMillis() - pageLoadedAt) / 1000).toInt()
+                    "网页已加载，正在寻找直播画面… $pe 秒"
+                }
+                elapsed >= 12 -> "连接较慢，请检查网络… $elapsed 秒"
+                else -> "正在连接直播… $elapsed 秒"
+            }
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    private val focusTick = object : Runnable {
+        override fun run() {
+            if (disposed || videoRevealed || !isStripchat) return
+            installVideoFocus()
+            if (!disposed && !videoRevealed && focusAttempts < 25) {
+                handler.postDelayed(this, 1000)
+            }
+        }
+    }
 
     init {
+        root.setBackgroundColor(0xFF000000.toInt())
+        root.layoutParams = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        webView.layoutParams = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        overlay.layoutParams = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        configureOverlay()
         setupWebView()
-        loadRoom()
+        // Hide site chrome until video is found (same idea as iOS).
+        if (isStripchat) {
+            webView.alpha = 0f
+            overlay.visibility = android.view.View.VISIBLE
+        } else {
+            webView.alpha = 1f
+            overlay.visibility = android.view.View.GONE
+        }
+        root.addView(webView)
+        root.addView(overlay)
+        loadRoom(resetClock = true)
+    }
+
+    private fun configureOverlay() {
+        overlay.setBackgroundColor(0xFF000000.toInt())
+        val stack = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setPadding(48, 0, 48, 0)
+        }
+        val stackLp = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.CENTER
+        )
+        spinner.isIndeterminate = true
+        progress.max = 100
+        progress.progress = 4
+        progress.layoutParams = android.widget.LinearLayout.LayoutParams(440, 12).apply {
+            topMargin = 28
+            bottomMargin = 20
+        }
+        statusLabel.setTextColor(0xFFFFFFFF.toInt())
+        statusLabel.textSize = 14f
+        statusLabel.gravity = android.view.Gravity.CENTER
+        statusLabel.text = "正在连接直播…"
+        statusLabel.setPadding(0, 24, 0, 0)
+        fun styleAction(btn: android.widget.Button, fill: Int) {
+            btn.setTextColor(0xFFFFFFFF.toInt())
+            btn.setBackgroundColor(fill)
+            btn.textSize = 14f
+            btn.visibility = android.view.View.GONE
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = 28
+            btn.layoutParams = lp
+            btn.setPadding(48, 20, 48, 20)
+        }
+        retryBtn.text = "重新连接"
+        styleAction(retryBtn, 0xFFFF6B35.toInt())
+        retryBtn.setOnClickListener { if (!disposed) loadRoom(resetClock = true) }
+        skipBtn.text = "跳过"
+        styleAction(skipBtn, 0xFF404040.toInt())
+        skipBtn.setOnClickListener {
+            try {
+                // Dart listens on stripchat control channel for 'skip'
+                // MainActivity holds channel; fire via static if available
+                StripchatSkipBridge.emit()
+            } catch (_: Exception) {}
+        }
+        stack.addView(spinner)
+        stack.addView(statusLabel)
+        stack.addView(progress)
+        stack.addView(retryBtn)
+        stack.addView(skipBtn)
+        overlay.addView(stack, stackLp)
     }
 
     private fun setupWebView() {
-        webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            mediaPlaybackRequiresUserGesture = false
-            loadsImagesAutomatically = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
-        }
-        webView.setBackgroundColor(0xFF000000.toInt())
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(v: WebView?, url: String?) {
-                super.onPageFinished(v, url)
-                if (isStripchat && !videoRevealed) {
-                    handler.postDelayed({ installVideoFocus() }, 800)
+        try {
+            webView.settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                loadsImagesAutomatically = true
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                // Avoid hardware decoder thrash on weak networks.
+                // setLayerType software is too slow; keep hardware with crash guards.
+            }
+            webView.setBackgroundColor(0xFF000000.toInt())
+            webView.isVerticalScrollBarEnabled = false
+            webView.isHorizontalScrollBarEnabled = false
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+            webView.webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    if (disposed || videoRevealed || !isStripchat) return
+                    progress.progress = newProgress.coerceIn(4, 96)
+                    if (newProgress >= 95 && pageLoadedAt == 0L) {
+                        statusLabel.text = "网页已加载，正在寻找直播画面…"
+                    }
                 }
             }
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    if (disposed || !isStripchat || videoRevealed) return
+                    showLoading()
+                }
 
-            override fun shouldOverrideUrlLoading(
-                v: WebView?, request: WebResourceRequest?
-            ): Boolean {
-                if (!isStripchat || request == null) return false
-                val host = request.url.host?.lowercase() ?: return true
-                return !(host == "stripchat.com" || host.endsWith(".stripchat.com"))
-            }
+                override fun onPageFinished(v: WebView?, url: String?) {
+                    if (disposed || !isStripchat || videoRevealed) return
+                    if (pageLoadedAt == 0L) pageLoadedAt = System.currentTimeMillis()
+                    progress.progress = 96
+                    statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
+                    focusAttempts = 0
+                    handler.removeCallbacks(focusTick)
+                    handler.postDelayed(focusTick, 600)
+                }
 
-            override fun onReceivedError(
-                v: WebView?, request: WebResourceRequest?,
-                error: android.webkit.WebResourceError?
-            ) {
-                if (request?.isForMainFrame == true && isStripchat) {
-                    handler.postDelayed({ if (!videoRevealed) loadRoom() }, 3000)
+                override fun shouldOverrideUrlLoading(
+                    v: WebView?, request: WebResourceRequest?
+                ): Boolean {
+                    if (!isStripchat || request == null) return false
+                    // Block popups / external ads that often crash WebView.
+                    if (!request.isForMainFrame) return true
+                    val host = request.url.host?.lowercase() ?: return true
+                    val allowed = host == "stripchat.com" ||
+                        host.endsWith(".stripchat.com") ||
+                        host.contains("stripchat") ||
+                        host.contains("doppiocdn") ||
+                        host.contains("stripcdn")
+                    return !allowed
+                }
+
+                override fun onReceivedError(
+                    v: WebView?, request: WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    if (disposed || request?.isForMainFrame != true || !isStripchat) return
+                    if (videoRevealed) return
+                    // One soft retry, then fail UI — never loop forever (crash risk).
+                    if (errorRetries < 1) {
+                        errorRetries++
+                        statusLabel.text = "网络异常，正在重试…"
+                        handler.postDelayed({
+                            if (!disposed && !videoRevealed) loadRoom(resetClock = false)
+                        }, 1500)
+                    } else {
+                        showFailure("网络连接失败，请检查网络后重试")
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: android.webkit.WebResourceResponse?
+                ) {
+                    if (disposed || request?.isForMainFrame != true || !isStripchat) return
+                    if (videoRevealed) return
+                    val code = errorResponse?.statusCode ?: 0
+                    if (code == 403 || code == 404 || code >= 500) {
+                        showFailure("房间不可用 ($code)")
+                    }
                 }
             }
+        } catch (_: Exception) {
+            showFailure("直播组件初始化失败")
         }
     }
 
-    private fun loadRoom() {
-        webView.stopLoading()
-        val extraHeaders = hashMapOf<String, String>()
-        if (isStripchat) extraHeaders["Referer"] = "https://stripchat.com/"
-        webView.loadUrl(roomUrl, extraHeaders)
+    private fun showLoading() {
+        if (disposed || !isStripchat) return
+        videoRevealed = false
+        webView.alpha = 0f
+        overlay.alpha = 1f
+        overlay.visibility = android.view.View.VISIBLE
+        spinner.visibility = android.view.View.VISIBLE
+        retryBtn.visibility = android.view.View.GONE
+        skipBtn.visibility = android.view.View.GONE
+        progress.progress = 4
+        if (loadingStartedAt == 0L) loadingStartedAt = System.currentTimeMillis()
+        statusLabel.text = "正在连接直播… 0 秒"
+        handler.removeCallbacks(statusTick)
+        handler.post(statusTick)
+    }
+
+    private fun showFailure(message: String) {
+        if (disposed || !isStripchat || videoRevealed) return
+        handler.removeCallbacks(statusTick)
+        handler.removeCallbacks(focusTick)
+        spinner.visibility = android.view.View.GONE
+        progress.progress = 100
+        statusLabel.text = message
+        retryBtn.visibility = android.view.View.VISIBLE
+        skipBtn.visibility = android.view.View.VISIBLE
+        overlay.visibility = android.view.View.VISIBLE
+        overlay.alpha = 1f
+        // Keep WebView hidden so site chrome never flashes on failure.
+        webView.alpha = 0f
+        try {
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+        } catch (_: Exception) {}
+    }
+
+    private fun revealVideo() {
+        if (disposed || videoRevealed) return
+        videoRevealed = true
+        handler.removeCallbacks(statusTick)
+        handler.removeCallbacks(focusTick)
+        webView.animate().alpha(1f).setDuration(180).start()
+        overlay.animate().alpha(0f).setDuration(180).withEndAction {
+            if (!disposed) overlay.visibility = android.view.View.GONE
+        }.start()
+    }
+
+    private fun loadRoom(resetClock: Boolean) {
+        if (disposed) return
+        try {
+            handler.removeCallbacks(focusTick)
+            handler.removeCallbacks(statusTick)
+            if (isStripchat) {
+                if (resetClock) {
+                    loadingStartedAt = System.currentTimeMillis()
+                    pageLoadedAt = 0L
+                    errorRetries = 0
+                    focusAttempts = 0
+                }
+                showLoading()
+            }
+            webView.stopLoading()
+            val extraHeaders = hashMapOf<String, String>()
+            if (isStripchat) extraHeaders["Referer"] = "https://stripchat.com/"
+            webView.loadUrl(roomUrl, extraHeaders)
+            if (isStripchat) {
+                handler.removeCallbacks(statusTick)
+                handler.post(statusTick)
+            }
+        } catch (e: Exception) {
+            showFailure("加载失败：${e.message ?: "unknown"}")
+        }
     }
 
     private fun installVideoFocus() {
-        if (!isStripchat || videoRevealed) return
+        if (disposed || !isStripchat || videoRevealed) return
+        focusAttempts++
         val flag = if (muted) "true" else "false"
-        val script = """(function(){window.__epickleMuted=$flag;var v=document.querySelector('meta[name=viewport]');if(!v){v=document.createElement('meta');v.name='viewport';document.head.appendChild(v)}v.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';if(!document.getElementById('__epickle_live_style')){var s=document.createElement('style');s.id='__epickle_live_style';s.textContent='html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#000!important}video{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;object-fit:contain!important;background:#000!important;z-index:2147483647!important}';document.documentElement.appendChild(s)}var videos=Array.from(document.querySelectorAll('video'));if(!videos.length)return false;var ranked=videos.map(function(v){var r=v.getBoundingClientRect();var area=Math.max(0,r.width)*Math.max(0,r.height);var active=(v.srcObject||v.currentSrc||v.src)?100000000:0;var ready=v.readyState>=2?10000000:0;return{v:v,score:active+ready+area}}).sort(function(a,b){return b.score-a.score});var video=ranked[0].v;video.setAttribute('playsinline','');video.controls=false;video.muted=$flag;window.scrollTo(0,0);if(video.paused)video.play().catch(function(){});return true})()"""
-        webView.evaluateJavascript(script) { value ->
-            val focused = value == "true"
-            if (focused) {
-                videoRevealed = true
-            } else {
-                handler.postDelayed({ installVideoFocus() }, 1000)
+        // Hide non-video UI + promote largest video (same strategy as iOS).
+        val script = """
+            (function(){
+              try {
+                window.__epickleMuted=$flag;
+                var viewport=document.querySelector('meta[name="viewport"]');
+                if(!viewport){viewport=document.createElement('meta');viewport.name='viewport';document.head.appendChild(viewport)}
+                viewport.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';
+                if(!document.getElementById('__epickle_live_style')){
+                  var s=document.createElement('style');s.id='__epickle_live_style';
+                  s.textContent='html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#000!important}'+
+                    'video{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;object-fit:contain!important;background:#000!important;z-index:2147483647!important;visibility:visible!important}';
+                  document.documentElement.appendChild(s);
+                }
+                var age=Array.from(document.querySelectorAll('button,a')).find(function(n){return /18|enter|agree|continue/i.test((n.textContent||'').trim())});
+                if(age && !document.querySelector('video')) try{age.click()}catch(e){}
+                var videos=Array.from(document.querySelectorAll('video'));
+                if(!videos.length) return false;
+                var ranked=videos.map(function(v){
+                  var r=v.getBoundingClientRect();
+                  var area=Math.max(0,r.width)*Math.max(0,r.height);
+                  var active=(v.srcObject||v.currentSrc||v.src)?1e8:0;
+                  var ready=v.readyState>=2?1e7:0;
+                  return {v:v,score:active+ready+area};
+                }).sort(function(a,b){return b.score-a.score});
+                var video=ranked[0].v;
+                var node=video;
+                while(node){
+                  var parent=node.parentElement;
+                  if(parent) Array.from(parent.children).forEach(function(sib){
+                    if(sib!==node){sib.style.setProperty('display','none','important');sib.style.setProperty('pointer-events','none','important')}
+                  });
+                  node.style.setProperty('position','fixed','important');
+                  node.style.setProperty('inset','0','important');
+                  node.style.setProperty('width','100vw','important');
+                  node.style.setProperty('height','100vh','important');
+                  node.style.setProperty('z-index','2147483647','important');
+                  node.style.setProperty('background','#000','important');
+                  if(node===document.documentElement) break;
+                  node=parent;
+                }
+                video.setAttribute('playsinline','');
+                video.setAttribute('webkit-playsinline','');
+                video.controls=false;
+                video.muted=$flag;
+                video.style.setProperty('object-fit','contain','important');
+                window.scrollTo(0,0);
+                if(video.paused) video.play().catch(function(){});
+                return true;
+              } catch(e) { return false; }
+            })()
+        """.trimIndent()
+        try {
+            webView.evaluateJavascript(script) { value ->
+                if (disposed || videoRevealed) return@evaluateJavascript
+                val focused = value == "true"
+                if (focused) {
+                    revealVideo()
+                } else if (focusAttempts >= 20) {
+                    showFailure("未能捕获直播画面，主播可能离线")
+                }
             }
+        } catch (_: Exception) {
+            // Ignore JS failures on dead WebView.
         }
     }
 
     fun setMuted(value: Boolean) {
         muted = value
+        if (disposed) return
         val flag = if (value) "true" else "false"
-        webView.post {
-            webView.evaluateJavascript(
-                "window.__epickleMuted=$flag;document.querySelectorAll('video').forEach(function(v){v.muted=$flag})"
-            )
-        }
+        try {
+            webView.post {
+                if (disposed) return@post
+                try {
+                    webView.evaluateJavascript(
+                        "window.__epickleMuted=$flag;document.querySelectorAll('video').forEach(function(v){v.muted=$flag;if(!v.paused&&$flag===false)v.play().catch(function(){})})"
+                    ) { _ -> }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
     }
 
-    override fun getView(): android.view.View = webView
+    /** Soft recover: re-play video elements; if not revealed yet, re-run focus. */
+    fun kickPlayback() {
+        if (disposed) return
+        try {
+            webView.post {
+                if (disposed) return@post
+                try {
+                    if (!videoRevealed && isStripchat) {
+                        // Still loading — nudge focus / age-gate instead of no-op.
+                        installVideoFocus()
+                        return@post
+                    }
+                    webView.evaluateJavascript(
+                        """(function(){
+                          var vs=document.querySelectorAll('video');
+                          var ok=false;
+                          vs.forEach(function(v){
+                            try{
+                              if(v.paused||v.readyState<2||v.ended){
+                                v.muted=!!window.__epickleMuted;
+                                var p=v.play();
+                                if(p&&p.catch)p.catch(function(){});
+                              }
+                              if(v.readyState>=2 && !v.paused){
+                                try{ v.currentTime = v.currentTime; }catch(e){}
+                              }
+                              ok=true;
+                            }catch(e){}
+                          });
+                          return ok;
+                        })()"""
+                    ) { _ -> }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun pauseLive() {
+        if (disposed) return
+        try {
+            webView.onPause()
+            webView.evaluateJavascript(
+                "document.querySelectorAll('video').forEach(function(v){try{v.pause()}catch(e){}})"
+            ) { _ -> }
+        } catch (_: Exception) {}
+    }
+
+    fun resumeLive() {
+        if (disposed) return
+        try {
+            webView.onResume()
+            kickPlayback()
+        } catch (_: Exception) {}
+    }
+
+    override fun getView(): android.view.View = root
 
     override fun dispose() {
-        webView.stopLoading()
-        webView.webViewClient = null
-        webView.removeAllViews()
-        webView.destroy()
+        if (disposed) return
+        disposed = true
+        handler.removeCallbacksAndMessages(null)
+        // Clear global ref if we are the active one.
+        if (MainActivityRef.stripchat === this) {
+            MainActivityRef.stripchat = null
+        }
+        try {
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+            webView.onPause()
+            webView.removeAllViews()
+            webView.webChromeClient = null
+            webView.webViewClient = WebViewClient()
+            handler.post {
+                try { webView.destroy() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+}
+
+/** Weak indirection so create() can clear without holding MainActivity. */
+object MainActivityRef {
+    @Volatile var stripchat: StripchatLiveView? = null
+}
+
+/** Bridge so overlay "跳过" can notify Flutter without holding Activity ref tightly. */
+object StripchatSkipBridge {
+    @Volatile var channel: MethodChannel? = null
+    fun emit() {
+        try {
+            Handler(Looper.getMainLooper()).post {
+                channel?.invokeMethod("skip", null)
+            }
+        } catch (_: Exception) {}
     }
 }

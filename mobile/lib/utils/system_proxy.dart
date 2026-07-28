@@ -24,10 +24,15 @@ class SystemProxyInfo {
 }
 
 class SystemProxy {
+  SystemProxy._();
+
   static const _channel = MethodChannel('epickle/system_proxy');
 
-  /// Returns null when the device has no system/env proxy configured.
+  /// Android: read system HTTP proxy (Clash/V2Ray 系统代理模式).
+  /// Other platforms: only env vars. TUN mode usually has no proxy → null → DIRECT.
   static Future<SystemProxyInfo?> detect() async {
+    if (kIsWeb) return null;
+
     if (!kIsWeb && Platform.isAndroid) {
       try {
         final raw = await _channel.invokeMethod<dynamic>('getSystemProxy');
@@ -71,23 +76,6 @@ class SystemProxy {
     } catch (_) {}
 
     return null;
-  }
-
-  /// Best-effort: set JVM http(s) proxy props so some media stacks (ExoPlayer)
-  /// may follow the same HTTP proxy as Dio. SOCKS often ignored by ExoPlayer.
-  static Future<void> applyJvmHttpProxy({
-    required bool enabled,
-    required String host,
-    required int port,
-  }) async {
-    if (kIsWeb || !Platform.isAndroid) return;
-    try {
-      await _channel.invokeMethod<void>('applyJvmHttpProxy', {
-        'enabled': enabled && host.isNotEmpty && port > 0 && port < 65536,
-        'host': host,
-        'port': port,
-      });
-    } catch (_) {}
   }
 
   static SystemProxyInfo? _parseProxyUri(String raw) {

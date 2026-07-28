@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/http_client.dart';
 import '../utils/system_proxy.dart';
 
+
 /// Lightweight user prefs.
 class AppSettings extends ChangeNotifier {
   static const _kSkipIntro = 'skip_intro_10s';
@@ -21,8 +22,8 @@ class AppSettings extends ChangeNotifier {
   bool _muted = false;
   int _qualityCap = 0;
 
-  /// Follow system proxy when present (default). No hardcoded host/port.
-  bool _proxyEnabled = true;
+  /// Default to DIRECT; TUN handles routing at system level.
+  bool _proxyEnabled = false;
   String _proxyHost = '';
   int _proxyPort = 0;
   String _proxyType = 'http';
@@ -95,8 +96,8 @@ class AppSettings extends ChangeNotifier {
   }
 
   void _syncHttpClient() {
-    // Only enable Dio proxy when we actually have a real endpoint.
-    final use = _proxyEnabled && hasProxyEndpoint;
+    // Manual proxy only when user explicitly set host:port.
+    final use = _proxyEnabled && hasProxyEndpoint && _userConfiguredProxy;
     AppHttpClient.applyProxyConfig(
       enabled: use,
       host: _proxyHost,
@@ -111,16 +112,22 @@ class AppSettings extends ChangeNotifier {
       _skipIntro = p.getBool(_kSkipIntro) ?? true;
       _muted = p.getBool(_kMuted) ?? false;
       _qualityCap = p.getInt(_kQualityCap) ?? 0;
-      _userConfiguredProxy = p.getBool(_kProxyUserConfigured) ?? false;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
 
-      // Prefer "use system proxy when available" by default.
-      _proxyEnabled = p.getBool(_kProxyEnabled) ?? true;
+      // Default to DIRECT (TUN handles routing at system level).
+      // Only enable proxy if the user explicitly configured one (clears stale auto-detect).
+      _userConfiguredProxy = p.getBool(_kProxyUserConfigured) ?? false;
+      _proxyEnabled = _userConfiguredProxy && (p.getBool(_kProxyEnabled) ?? false);
       _proxyHost = p.getString(_kProxyHost) ?? '';
       _proxyPort = p.getInt(_kProxyPort) ?? 0;
       _proxyType = p.getString(_kProxyType) ?? 'http';
       if (_proxyType != 'socks5') _proxyType = 'http';
+      // Clear stale auto-detected proxy from old versions.
+      if (!_userConfiguredProxy) {
+        _proxyHost = '';
+        _proxyPort = 0;
+      }
     } catch (_) {
       _skipIntro = true;
       _muted = false;
@@ -128,7 +135,7 @@ class AppSettings extends ChangeNotifier {
       _userConfiguredProxy = false;
       _autoRotate = true;
       _autoLowerOnStall = true;
-      _proxyEnabled = true;
+      _proxyEnabled = false;
       _proxyHost = '';
       _proxyPort = 0;
       _proxyType = 'http';
@@ -137,35 +144,28 @@ class AppSettings extends ChangeNotifier {
     if (_userConfiguredProxy && hasProxyEndpoint) {
       _proxyAutoNote = '手动设置';
     } else {
-      // Always re-detect on launch unless user fully customized endpoint.
-      final detected = await SystemProxy.detect();
-      if (detected != null) {
-        _proxyHost = detected.host;
-        _proxyPort = detected.port;
-        _proxyType = detected.type;
-        _proxyAutoNote = '系统代理 (${detected.source})';
-        // Soft-persist detected values for display; do not mark user-configured.
-        try {
-          final p = await SharedPreferences.getInstance();
-          await p.setString(_kProxyHost, _proxyHost);
-          await p.setInt(_kProxyPort, _proxyPort);
-          await p.setString(_kProxyType, _proxyType);
-          if (!p.containsKey(_kProxyEnabled)) {
-            await p.setBool(_kProxyEnabled, true);
-          }
-        } catch (_) {}
-      } else {
-        // No system proxy: leave empty → Dio DIRECT (correct for clean devices).
-        if (!_userConfiguredProxy) {
-          _proxyHost = '';
-          _proxyPort = 0;
-          _proxyType = 'http';
-        }
-        _proxyAutoNote = '未检测到系统代理';
+      // Clear stale auto-detected values from old builds.
+      if (!_userConfiguredProxy) {
+        _proxyHost = '';
+        _proxyPort = 0;
+        _proxyType = 'http';
+        _proxyEnabled = false;
       }
+      _proxyAutoNote = '系统代理由 Dio 自动跟随（Android）';
     }
 
     _syncHttpClient();
+    // Android: make Dio follow system HTTP proxy like WebView.
+    // ignore: discarded_futures
+    AppHttpClient.refreshSystemProxy().then((_) async {
+      final sys = await SystemProxy.detect();
+      if (sys != null && !_userConfiguredProxy) {
+        _proxyAutoNote = '系统代理 ${sys.host}:${sys.port} (${sys.source})';
+      } else if (!_userConfiguredProxy) {
+        _proxyAutoNote = '直连 / TUN';
+      }
+      if (_ready) notifyListeners();
+    });
     _ready = true;
     notifyListeners();
   }
@@ -276,33 +276,17 @@ class AppSettings extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Re-read system proxy (e.g. after user enables proxy app).
+  /// Re-read Android system proxy for Dio.
   Future<void> refreshSystemProxy() async {
-    if (_userConfiguredProxy && hasProxyEndpoint) {
-      // Keep manual endpoint; still allow re-detect if user wants — caller may clear flag later.
-    }
-    final detected = await SystemProxy.detect();
-    if (detected != null) {
-      _proxyHost = detected.host;
-      _proxyPort = detected.port;
-      _proxyType = detected.type;
-      _proxyAutoNote = '系统代理 (${detected.source})';
-      _userConfiguredProxy = false;
-      try {
-        final p = await SharedPreferences.getInstance();
-        await p.setString(_kProxyHost, _proxyHost);
-        await p.setInt(_kProxyPort, _proxyPort);
-        await p.setString(_kProxyType, _proxyType);
-        await p.setBool(_kProxyUserConfigured, false);
-      } catch (_) {}
-    } else {
-      if (!_userConfiguredProxy) {
-        _proxyHost = '';
-        _proxyPort = 0;
+    await AppHttpClient.refreshSystemProxy();
+    final sys = await SystemProxy.detect();
+    if (!_userConfiguredProxy) {
+      if (sys != null) {
+        _proxyAutoNote = '系统代理 ${sys.host}:${sys.port} (${sys.source})';
+      } else {
+        _proxyAutoNote = '直连 / TUN';
       }
-      _proxyAutoNote = '未检测到系统代理';
     }
-    _syncHttpClient();
     notifyListeners();
   }
 }

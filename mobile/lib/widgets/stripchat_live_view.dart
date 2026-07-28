@@ -1,12 +1,19 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// In-app WebView player (Stripchat rooms + generic site fallback).
-/// Prefer real streams when GenericSiteApi can extract m3u8/mp4;
-/// when parsing fails, the feed opens the detail page here instead of
-/// jumping to system browser.
+///
+/// Critical Android behavior:
+/// - Default [AndroidView] steals ALL pointers → vertical PageView cannot swipe.
+/// - We use transparent hit-test + [IgnorePointer] so Flutter owns gestures.
+/// - Mute / stall recovery go through MethodChannel + injected JS only.
+///
+/// Trade-off: users cannot tap age-gate buttons inside the site. Native JS
+/// already auto-clicks common 18+/Enter buttons when focusing video.
 class StripchatLiveView extends StatelessWidget {
   const StripchatLiveView({
     super.key,
@@ -21,14 +28,45 @@ class StripchatLiveView extends StatelessWidget {
 
   static const _control = MethodChannel('epickle/stripchat_live_control');
 
+  static void _ignorePlatformError(Object _) {}
+
   static Future<void> setMuted(bool muted) async {
     try {
       await _control.invokeMethod<void>('setMuted', muted);
-    } on PlatformException {
-      // The platform view may be between rooms; the next view gets the value
-      // from creationParams.
-    } on MissingPluginException {
-      // Tests / unsupported platforms do not register the native control channel.
+    } on PlatformException catch (error) {
+      _ignorePlatformError(error);
+    } on MissingPluginException catch (error) {
+      _ignorePlatformError(error);
+    }
+  }
+
+  static Future<void> kickPlayback() async {
+    try {
+      await _control.invokeMethod<void>('kickPlayback');
+    } on PlatformException catch (error) {
+      _ignorePlatformError(error);
+    } on MissingPluginException catch (error) {
+      _ignorePlatformError(error);
+    }
+  }
+
+  static Future<void> pauseLive() async {
+    try {
+      await _control.invokeMethod<void>('pauseLive');
+    } on PlatformException catch (error) {
+      _ignorePlatformError(error);
+    } on MissingPluginException catch (error) {
+      _ignorePlatformError(error);
+    }
+  }
+
+  static Future<void> resumeLive() async {
+    try {
+      await _control.invokeMethod<void>('resumeLive');
+    } on PlatformException catch (error) {
+      _ignorePlatformError(error);
+    } on MissingPluginException catch (error) {
+      _ignorePlatformError(error);
     }
   }
 
@@ -40,21 +78,25 @@ class StripchatLiveView extends StatelessWidget {
       'muted': muted,
       'stripchatMode': stripchatMode,
     };
+
     if (Platform.isIOS) {
       return UiKitView(
-        key: ValueKey(roomUrl),
-        viewType: viewType,
-        layoutDirection: TextDirection.ltr,
-        creationParams: params,
-        creationParamsCodec: const StandardMessageCodec(),
+          key: ValueKey(roomUrl),
+          viewType: viewType,
+          layoutDirection: TextDirection.ltr,
+          creationParams: params,
+          creationParamsCodec: const StandardMessageCodec(),
       );
     }
+
     return AndroidView(
       key: ValueKey(roomUrl),
       viewType: viewType,
       layoutDirection: TextDirection.ltr,
       creationParams: params,
       creationParamsCodec: const StandardMessageCodec(),
+      // Taps go to WebView; vertical drags can still be claimed by PageView.
+      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
     );
   }
 }

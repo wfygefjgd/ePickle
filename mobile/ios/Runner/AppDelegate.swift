@@ -35,12 +35,31 @@ import WebKit
     )
     stripchatControlChannel = stripchatChannel
     stripchatChannel.setMethodCallHandler { call, result in
-      guard call.method == "setMuted",
-            let muted = call.arguments as? Bool else {
+      guard let view = StripchatLivePlatformView.activeView.value else {
+        result(nil)
+        return
+      }
+      switch call.method {
+      case "setMuted":
+        guard let muted = call.arguments as? Bool else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "setMuted requires a Boolean argument",
+            details: nil
+          ))
+          return
+        }
+        view.setMuted(muted)
+      case "pauseLive":
+        view.pauseLive()
+      case "resumeLive":
+        view.resumeLive()
+      case "kickPlayback":
+        view.kickPlayback()
+      default:
         result(FlutterMethodNotImplemented)
         return
       }
-      StripchatLivePlatformView.activeView.value?.setMuted(muted)
       result(nil)
     }
 
@@ -536,6 +555,26 @@ private final class StripchatLivePlatformView: NSObject,
     )
   }
 
+  func pauseLive() {
+    webView.evaluateJavaScript(
+      "document.querySelectorAll('video').forEach(v=>{try{v.pause();}catch(_){}});"
+    )
+  }
+
+  func resumeLive() {
+    if isStripchat {
+      installVideoFocus()
+    }
+    kickPlayback()
+  }
+
+  func kickPlayback() {
+    let flag = muted ? "true" : "false"
+    webView.evaluateJavaScript(
+      "window.__epickleMuted=\(flag);document.querySelectorAll('video').forEach(v=>{try{v.muted=window.__epickleMuted;if(v.paused||v.readyState<2||v.ended){const p=v.play();if(p){p.catch(()=>{});}}}catch(_){}});"
+    )
+  }
+
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard isStripchat else { return }
     pageLoadedAt = Date()  // 记录网页加载完成时间
@@ -625,9 +664,7 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   @objc private func resumeFromBackground() {
-    if isStripchat {
-      installVideoFocus()
-    }
+    resumeLive()
   }
 
   private func installVideoFocus() {

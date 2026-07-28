@@ -11,6 +11,18 @@ import '../utils/native_browser_http.dart';
 import 'phub_api.dart';
 import 'source_catalog.dart';
 
+/// Keeps the HTTP status available after native/browser fallback attempts.
+/// A plain error string is too easy to lose or misclassify.
+class _MirrorHttpException implements Exception {
+  const _MirrorHttpException(this.statusCode, this.message);
+
+  final int statusCode;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Generic HTML scraper with mirror failover for tube / JAV-style sites.
 class GenericSiteApi {
   static const _requestTimeout = Duration(seconds: 10);
@@ -57,6 +69,7 @@ class GenericSiteApi {
   /// Minimal per-origin cookie store for age gates and session redirects.
   final Map<String, Map<String, String>> _cookies = {};
 
+
   Duration _requestBudget(DateTime? deadline) {
     if (deadline == null) return _requestTimeout;
     final remaining = deadline.difference(DateTime.now());
@@ -71,6 +84,7 @@ class GenericSiteApi {
     Map<String, String>? headers,
     Duration timeout = _requestTimeout,
     CancelToken? cancelToken,
+    void Function(int statusCode)? onStatus,
   }) async {
     final origin = _originOf(url);
     final cookieHeader = origin == null ? null : _cookieHeader(origin);
@@ -114,6 +128,7 @@ class GenericSiteApi {
     }
     _storeCookies(origin, res.headers);
     final status = res.statusCode ?? 0;
+    onStatus?.call(status);
     if (res.statusCode == 403 || res.statusCode == 404) {
       // Browser often still works: soft-block / bot 404 / age gate.
       final native = await _nativeGetHtml(
@@ -295,6 +310,14 @@ class GenericSiteApi {
 
   MirrorFailureKind _failureKind(Object error) {
     final message = error.toString().toLowerCase();
+    if (error is _MirrorHttpException) {
+      return error.statusCode == 403
+          ? MirrorFailureKind.forbidden
+          : MirrorFailureKind.network;
+    }
+    if (error is DioException && error.response?.statusCode == 403) {
+      return MirrorFailureKind.forbidden;
+    }
     if (error is TimeoutException ||
         message.contains('timeout') ||
         message.contains('timed out')) {
@@ -327,11 +350,19 @@ class GenericSiteApi {
     Stopwatch watch, {
     Object? error,
   }) {
+    final previous = _mirrorHealth[site.id]?[base];
+    final failure = error == null ? null : _failureKind(error);
+    // A later fallback path must not hide a stronger HTTP failure recorded
+    // for the same mirror during this fetch cycle.
+    if (previous?.failure == MirrorFailureKind.forbidden &&
+        failure == MirrorFailureKind.network) {
+      return;
+    }
     final status = MirrorHealth(
       url: base,
       checkedAt: DateTime.now(),
       latency: watch.elapsed,
-      failure: error == null ? null : _failureKind(error),
+      failure: failure,
       detail: error?.toString(),
     );
     _mirrorHealth.putIfAbsent(site.id, () => {})[base] = status;
@@ -392,6 +423,16 @@ class GenericSiteApi {
           headers: headers,
           timeout: _requestBudget(deadline),
           cancelToken: cancelToken,
+          onStatus: (status) {
+            if (status == 403) {
+              _recordMirror(
+                site,
+                base,
+                watch,
+                error: const _MirrorHttpException(403, 'HTTP 403 Forbidden'),
+              );
+            }
+          },
         );
         final staticBlocked = _isBlockedHtml(html);
         final staticRejected = accept != null && !accept(html, base);
@@ -441,11 +482,6 @@ class GenericSiteApi {
         unawaited(probe(index, tokens[index]).then((result) {
           if (result.page != null && !completer.isCompleted) {
             completer.complete(result);
-            for (final entry in tokens.entries) {
-              if (entry.key != index && !entry.value.isCancelled) {
-                entry.value.cancel('another mirror succeeded');
-              }
-            }
             return;
           }
           if (result.error != null) failures.add(result.error!);

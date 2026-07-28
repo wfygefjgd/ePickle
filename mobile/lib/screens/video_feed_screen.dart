@@ -103,6 +103,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Timer? _retryTimer;
   Timer? _skipTimer;
   Timer? _loadMoreTimer;
+  Timer? _liveWatchdog;
   final ValueNotifier<double> _sliderValue = ValueNotifier(0);
   final ValueNotifier<String> _currentTime = ValueNotifier('0:00');
   String _totalTime = '0:00';
@@ -326,6 +327,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _retryTimer?.cancel();
     _skipTimer?.cancel();
     _loadMoreTimer?.cancel();
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
     _sliderValue.dispose();
     _currentTime.dispose();
     _pageCtrl.dispose();
@@ -427,6 +430,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _skipTimer = null;
     _loadMoreTimer?.cancel();
     _loadMoreTimer = null;
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
     context.read<PhubApi>().cancelRequests('app backgrounded');
     context.read<XvideosApi>().cancelRequests('app backgrounded');
     context.read<MitaoApi>().cancelRequests('app backgrounded');
@@ -501,6 +506,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (controller != null) {
         unawaited(controller.pause().catchError((_) {}));
       }
+      if (_browserLiveUrl != null) {
+        unawaited(StripchatLiveView.pauseLive());
+      }
       WakelockPlus.disable();
       // iOS freezes progress in background — never treat as stall on return.
       _stallTicks = 0;
@@ -512,7 +520,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (!_active) return;
       _syncAutoRotateListening();
       final controller = _controller;
-      if (controller != null && controller.value.isInitialized) {
+      if (_browserLiveUrl != null) {
+        unawaited(StripchatLiveView.resumeLive());
+        _startLiveWatchdog();
+        WakelockPlus.enable();
+      } else if (controller != null && controller.value.isInitialized) {
         unawaited(controller.play().then((_) {
           if (!_canRun || !identical(controller, _controller)) return;
           _startProgressTimer();
@@ -1642,7 +1654,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentIndex = index;
     _currentDetail = detail;
     _browserLiveUrl = url;
-    _browserIsStripchat = stripchat;
+    // All live browser pages use the focused video presentation. The flag is
+    // retained for the native platform-view API name for compatibility.
+    _browserIsStripchat = stripchat || live;
     _titleText = title;
     _totalTime = live ? 'LIVE' : '-';
     _speedLabel = live ? '' : '网页';
@@ -1651,6 +1665,26 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     setState(() => _pageLoading = false);
     _recordWatch(item);
     WakelockPlus.enable();
+    if (live || stripchat) {
+      _startLiveWatchdog();
+    } else {
+      _liveWatchdog?.cancel();
+      _liveWatchdog = null;
+    }
+  }
+
+  /// Soft-recover stalled Stripchat/WebView live without full page reload.
+  void _startLiveWatchdog() {
+    _liveWatchdog?.cancel();
+    _liveWatchdog = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (!_canRun || _browserLiveUrl == null) {
+        _liveWatchdog?.cancel();
+        _liveWatchdog = null;
+        return;
+      }
+      if (!_appInForeground) return;
+      unawaited(StripchatLiveView.kickPlayback());
+    });
   }
 
   /// Drop items far from the play head so memory stays bounded.
@@ -1793,6 +1827,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
     if (page == _currentIndex) return;
+    if (_browserLiveUrl != null) {
+      _liveWatchdog?.cancel();
+      _liveWatchdog = null;
+    }
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
@@ -1930,7 +1968,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _toggleMute() {
     _muted = !_muted;
     _controller?.setVolume(_muted ? 0 : 1);
-    if (_browserLiveUrl != null && _browserIsStripchat) {
+    if (_browserLiveUrl != null) {
       unawaited(StripchatLiveView.setMuted(_muted));
     }
     context.read<AppSettings>().setMuted(_muted);
