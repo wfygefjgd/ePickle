@@ -135,7 +135,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     required int page,
     required Set<String> exclude,
   }) {
-    switch (widget.site.id) {
+    switch (widget.site.parserId ?? widget.site.id) {
       case 'pornhub':
         if (tag.id == 'hot' || tag.id == 'popular' || tag.id == 'best') {
           return context.read<PhubApi>().fetchRecommend(
@@ -197,7 +197,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         _ => id,
       };
 
-  SearchSource get _playbackSource => switch (widget.site.id) {
+  SearchSource get _playbackSource => switch (widget.site.parserId ?? widget.site.id) {
         'pornhub' => SearchSource.ph,
         'xvideos' => SearchSource.x,
         'mitao' => SearchSource.zhong,
@@ -229,7 +229,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           8,
           10,
           8,
-          110 + MediaQuery.viewPaddingOf(context).bottom,
+          150 + MediaQuery.viewPaddingOf(context).bottom,
         ),
         itemCount: _tags.length,
         separatorBuilder: (_, __) => const SizedBox(height: 7),
@@ -268,7 +268,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
       controller: _scroll,
       padding: EdgeInsets.only(
         top: 6,
-        bottom: 110 + MediaQuery.viewPaddingOf(context).bottom,
+        bottom: 150 + MediaQuery.viewPaddingOf(context).bottom,
       ),
       itemCount: _items.length + 1,
       itemBuilder: (_, i) {
@@ -301,7 +301,6 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           ),
         ),
       );
-      _clearAfterPlayback();
       return;
     }
     await Navigator.of(context).push(
@@ -315,20 +314,5 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         ),
       ),
     );
-    _clearAfterPlayback();
-  }
-
-  void _clearAfterPlayback() {
-    if (!mounted) return;
-    _generation++;
-    setState(() {
-      _selected = null;
-      _items = const [];
-      _page = 0;
-      _loading = false;
-      _loadingMore = false;
-      _hasMore = false;
-      _error = null;
-    });
   }
 }

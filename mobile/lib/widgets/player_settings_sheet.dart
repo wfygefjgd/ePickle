@@ -124,7 +124,7 @@ Future<void> showPlayerSettingsSheet(
                           dense: true,
                           leading: Icon(custom.kind.name == 'live' ? Icons.live_tv : Icons.movie_outlined, color: Colors.white54),
                           title: Text(custom.site.name, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                          subtitle: Text(custom.parser == 'generic_vod' ? '点播 · 通用解析' : '直播 · ${custom.parser}', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          subtitle: Text(_customParserLabel(custom.parser), style: const TextStyle(color: Colors.white38, fontSize: 11)),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.white54),
                             tooltip: '删除',
@@ -321,6 +321,9 @@ Future<void> _showAddSiteDialog(BuildContext context, LayoutSettings layout) asy
               decoration: const InputDecoration(labelText: '解析方式', labelStyle: TextStyle(color: Colors.white70)),
               items: const [
                 DropdownMenuItem(value: 'generic_vod', child: Text('点播 · 通用解析')),
+                DropdownMenuItem(value: 'pornhub', child: Text('点播 · Pornhub 解析')),
+                DropdownMenuItem(value: 'xvideos', child: Text('点播 · XVideos 解析')),
+                DropdownMenuItem(value: 'mitao', child: Text('点播 · Mitao 解析')),
                 DropdownMenuItem(value: 'stripchat', child: Text('直播 · Stripchat')),
                 DropdownMenuItem(value: 'chaturbate', child: Text('直播 · Chaturbate')),
               ],
@@ -352,6 +355,16 @@ Future<void> _showAddSiteDialog(BuildContext context, LayoutSettings layout) asy
   if (split.length != 2) return;
   await layout.addCustomSite(split[1], parser: split[0]);
 }
+
+String _customParserLabel(String parser) => switch (parser) {
+      'generic_vod' => '点播 · 通用解析',
+      'pornhub' => '点播 · Pornhub 解析',
+      'xvideos' => '点播 · XVideos 解析',
+      'mitao' => '点播 · Mitao 解析',
+      'stripchat' => '直播 · Stripchat',
+      'chaturbate' => '直播 · Chaturbate',
+      _ => parser,
+    };
 
 class _AppVersionLabelState extends State<_AppVersionLabel> {
   String _label = '';

@@ -74,11 +74,14 @@ class SiteDef {
       color: 0xFF607D8B,
       letter: letter,
       mirrors: [u.startsWith('http') ? u : 'https://$u'],
-      tags: parserId == 'stripchat'
-          ? SourceCatalog.stripchatTags
-          : parserId == 'chaturbate'
-              ? SourceCatalog.chaturbateTags
-              : SourceCatalog.vodTags,
+      tags: switch (parserId) {
+        'stripchat' => SourceCatalog.stripchatTags,
+        'chaturbate' => SourceCatalog.chaturbateTags,
+        'pornhub' => SourceCatalog.pornhub.tags,
+        'xvideos' => SourceCatalog.xvideos.tags,
+        'mitao' => SourceCatalog.mitao.tags,
+        _ => SourceCatalog.vodTags,
+      },
       directoryTags: parserId == 'stripchat' || parserId == 'chaturbate'
           ? SourceCatalog.liveDirectoryTags
           : SourceCatalog.vodDirectoryTags,

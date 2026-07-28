@@ -784,6 +784,8 @@ class GenericSiteApi {
       'couples' => '&genders=c',
       'new' => '&genders=f&sort_order=new',
       'asian' => '&genders=f&tags=asian',
+      'outdoor' => '&genders=f&tags=outdoors',
+      'hd' => '&genders=f&tags=hd',
       'male' => '&genders=m',
       'trans' => '&genders=t',
       'female' || 'popular' => '&genders=f',
@@ -793,6 +795,8 @@ class GenericSiteApi {
       'couples' => '&gender=c',
       'new' => '&gender=f&sort=new',
       'asian' => '&gender=f&tag=asian',
+      'outdoor' => '&gender=f&tag=outdoors',
+      'hd' => '&gender=f&tag=hd',
       'male' => '&gender=m',
       'trans' => '&gender=t',
       'female' || 'popular' => '&gender=f',
@@ -2188,7 +2192,9 @@ class GenericSiteApi {
         final categoryQuery = switch (tagId) {
           'couples' => '&genders=c',
           'new' => '&genders=f&sort_order=new',
-          'asian' => '&genders=f&tags=asian',
+      'asian' => '&genders=f&tags=asian',
+      'outdoor' => '&genders=f&tags=outdoors',
+      'hd' => '&genders=f&tags=hd',
           _ => '&genders=f',
         };
         return [
@@ -2297,6 +2303,19 @@ class GenericSiteApi {
 
     String categoryText(Map<String, dynamic> map) {
       final values = <String>[];
+      void collect(dynamic value) {
+        if (value is String || value is num || value is bool) {
+          values.add('$value');
+        } else if (value is List) {
+          for (final entry in value) {
+            collect(entry);
+          }
+        } else if (value is Map) {
+          for (final entry in value.values) {
+            collect(entry);
+          }
+        }
+      }
       for (final key in const [
         'tags',
         'tag_list',
@@ -2305,9 +2324,7 @@ class GenericSiteApi {
         'country',
         'ethnicity',
       ]) {
-        final value = map[key];
-        if (value is String) values.add(value);
-        if (value is List) values.addAll(value.map((entry) => '$entry'));
+        collect(map[key]);
       }
       return values.join(' ').toLowerCase();
     }
@@ -2354,6 +2371,21 @@ class GenericSiteApi {
             text.contains('japanese') ||
             text.contains('korean') ||
             text.contains('chinese');
+      }
+      if (requested == 'outdoor') {
+        final text = categoryText(map);
+        return text.contains('outdoor') ||
+            text.contains('outdoors') ||
+            text.contains('outside') ||
+            text.contains('nature');
+      }
+      if (requested == 'hd') {
+        final text = categoryText(map);
+        return text.contains('hd') ||
+            text.contains('high definition') ||
+            text.contains('high-definition') ||
+            text.contains('1080') ||
+            text.contains('720');
       }
       if (requested != 'female' && requested != 'popular') {
         return categoryText(map).contains(requested);
@@ -2444,11 +2476,18 @@ class GenericSiteApi {
           }
           if (seen.add(key)) {
             final thumb = stringValue(map, const [
+              'image_url_720x540',
               'image_url_360x270',
+              'imageUrl720x540',
+              'imageUrl360x270',
               'image_url',
+              'imageUrl',
               'previewUrlThumbSmall',
+              'preview_url',
               'snapshotUrl',
               'thumbnail_url',
+              'thumbnail',
+              'thumb',
               'avatarUrl',
               'image',
             ]);
@@ -2462,7 +2501,7 @@ class GenericSiteApi {
                 url: '$base/$username',
                 title: title,
                 duration: 'LIVE',
-                thumb: thumb?.replaceAll(r'\/', '/'),
+                thumb: _normalizeLiveThumb(thumb, base),
               ),
             );
           }
@@ -2479,6 +2518,14 @@ class GenericSiteApi {
 
     visit(decoded);
     return out;
+  }
+
+  String? _normalizeLiveThumb(String? raw, String base) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    var value = raw.replaceAll(r'\/', '/').trim();
+    if (value.startsWith('//')) value = 'https:$value';
+    if (!value.startsWith('http')) value = _abs(base, value);
+    return value;
   }
 
   List<VideoItem> _parseList(
