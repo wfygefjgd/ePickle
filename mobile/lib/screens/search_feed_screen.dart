@@ -1648,6 +1648,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 backgroundColor: Colors.black54,
                 foregroundColor: Colors.white,
                 elevation: 0,
+                automaticallyImplyLeading: false,
                 title: Text(widget.title, style: const TextStyle(fontSize: 16)),
               ),
         body: chrome.wrapBody(
