@@ -71,6 +71,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _muted = false;
   bool _seeking = false;
   String _titleText = '';
+  String _speedLabel = '';
+  double _smoothedSpeedKbps = 0;
   String _totalTime = '0:00';
   Timer? _progressTimer;
   Timer? _retryTimer;
@@ -1371,6 +1373,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _progressTimer?.cancel();
     var lastTickMs = 0;
     var lastPosMs = 0.0;
+    var lastBufferedMs = 0.0;
+    _smoothedSpeedKbps = 0;
+    _speedLabel = '';
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!_canRun ||
           !identical(ctrl, _controller) ||
@@ -1393,9 +1398,26 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       if (dur.inMilliseconds <= 0) return;
       final now = DateTime.now().millisecondsSinceEpoch;
       final posMs = pos.inMilliseconds.toDouble();
+      final ranges = ctrl.value.buffered;
+      final bufferedMs = ranges.isEmpty
+          ? 0.0
+          : ranges.last.end.inMilliseconds.toDouble();
       if (lastTickMs > 0) {
         final dMs = now - lastTickMs;
         final dPlayed = posMs - lastPosMs;
+        final downloaded = (bufferedMs - lastBufferedMs + dPlayed)
+            .clamp(0.0, double.infinity);
+        if (dMs > 0 && downloaded > 0) {
+          final sample = (1500 * (downloaded / dMs).clamp(0.0, 3.0))
+              .toDouble();
+          _smoothedSpeedKbps = _smoothedSpeedKbps <= 0
+              ? sample
+              : (_smoothedSpeedKbps * 0.72) + (sample * 0.28);
+          final label = '${_smoothedSpeedKbps.round().clamp(0, 20000)} Kbps';
+          if (label != _speedLabel && mounted) {
+            setState(() => _speedLabel = label);
+          }
+        }
         final isPlaying = ctrl.value.isPlaying;
         final nearEnd = posMs >= dur.inMilliseconds - 800;
         final armed = now >= _stallArmedAfterMs;
@@ -1417,6 +1439,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       }
       lastTickMs = now;
       lastPosMs = posMs;
+      lastBufferedMs = bufferedMs;
       _slider.value = (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
       _curTime.value = PlaybackHelpers.fmtDuration(pos);
       final t = PlaybackHelpers.fmtDuration(dur);
@@ -1853,31 +1876,47 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                 ] else ...[
                   Positioned(
                     left: 12,
-                    right: 56,
+                    right: 12,
                     top: 8,
                     child: SafeArea(
-                      child: Text(
-                        _titleText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          shadows: [
-                            Shadow(color: Colors.black87, blurRadius: 4),
-                          ],
-                        ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _titleText,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
+                              ),
+                            ),
+                          ),
+                          if (_speedLabel.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                _speedLabel,
+                                style: const TextStyle(
+                                  color: Color(0xFF00E676),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                   // 竖屏：全屏按钮（半透明，无背景）
                   Positioned(
                     left: 10,
-                    top: 8,
+                    top: 52,
                     child: SafeArea(
                       child: _MinimalButton(
                         storageKey: 'search_back_button_normal',
-                        defaultOffset: const Offset(10, 8),
+                        defaultOffset: const Offset(10, 52),
                         icon: Icons.arrow_back_ios_new,
                         onTap: _exitAfterStopping,
                       ),
@@ -1886,11 +1925,11 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   // 竖屏：设置按钮（半透明，无背景）
                   Positioned(
                     right: 10,
-                    top: 8,
+                    top: 52,
                     child: SafeArea(
                       child: _MinimalButton(
                         storageKey: 'search_settings_button_normal',
-                        defaultOffset: const Offset(10, 8),
+                        defaultOffset: const Offset(10, 52),
                         icon: Icons.settings,
                         onTap: _openPlayerSettings,
                       ),
@@ -1898,13 +1937,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                   ),
                   Positioned(
                     right: 10,
-                    top: 52,
+                    top: 96,
                     child: SafeArea(
                       child: Opacity(
                         opacity: 0.42,
                         child: _MinimalButton(
                           storageKey: 'search_fullscreen_button_normal',
-                          defaultOffset: const Offset(10, 52),
+                          defaultOffset: const Offset(10, 96),
                           icon: Icons.fullscreen,
                           onTap: _toggleFullscreen,
                         ),
