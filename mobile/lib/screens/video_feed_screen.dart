@@ -1675,10 +1675,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentIndex = index;
     _currentDetail = detail;
     _browserLiveUrl = url;
-    // Chaturbate can restore its full site shell after iOS backgrounding.
-    // Keep the focused presentation scoped to that affected provider; all
-    // other live sites, including Stripchat, show their page immediately.
-    final focusLive = live && widget.site?.id == 'chaturbate';
+    // Both providers can restore a promotional/full-site shell after an iOS
+    // background round-trip. Keep their WebViews in controlled player mode.
+    final focusLive = live &&
+        (widget.site?.id == 'chaturbate' || widget.site?.id == 'stripchat');
     _browserIsStripchat = focusLive;
     _titleText = title;
     _totalTime = live ? 'LIVE' : '-';

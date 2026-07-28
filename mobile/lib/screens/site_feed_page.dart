@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
-import 'site_search_page.dart';
 import 'site_tag_directory_page.dart';
 import 'video_feed_screen.dart';
 
@@ -23,19 +22,16 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   int _index = 0;
   final List<GlobalKey<VideoFeedScreenState>> _keys = [];
 
-  /// Content tabs only (no search).
+  /// The four direct feeds; the fifth destination is the tag directory.
   List<SiteTag> get _contentTabs {
     final t = widget.site.tags;
     if (t.isEmpty) return const [];
-    return t.length > 3 ? t.sublist(0, 3) : List<SiteTag>.from(t);
+    return t.length > 4 ? t.sublist(0, 4) : List<SiteTag>.from(t);
   }
 
-  /// Bottom destinations = content tabs + search.
   int get _tagIndex => _contentTabs.length;
-  int get _searchIndex => _tagIndex + 1;
 
-  int get _destinationCount =>
-      _contentTabs.length + 1 + (widget.site.kind == SiteKind.video ? 1 : 0);
+  int get _destinationCount => _contentTabs.length + 1;
 
   @override
   void initState() {
@@ -96,7 +92,6 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
     final site = widget.site;
     final tabs = _contentTabs;
     final immersive = context.select<PlayerChrome, bool>((c) => c.immersive);
-    final onSearch = _index >= _searchIndex;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -110,8 +105,6 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
             )
           else if (_index == _tagIndex)
             SiteTagDirectoryPage(key: ValueKey('tags_${site.id}'), site: site)
-          else if (onSearch)
-            SiteSearchPage(key: ValueKey('search_${site.id}'), site: site)
           else
             IndexedStack(
               index: _index.clamp(0, tabs.length - 1),
@@ -179,7 +172,7 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                         ),
                         label: '\u6807\u7b7e',
                       ),
-                      if (site.kind == SiteKind.video)
+                      if (site.searchable && site.id == '__legacy_search__')
                         const NavigationDestination(
                         icon: Icon(Icons.search),
                         selectedIcon: Icon(

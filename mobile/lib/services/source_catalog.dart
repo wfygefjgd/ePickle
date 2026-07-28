@@ -33,6 +33,7 @@ class SiteDef {
     this.searchable = true,
     this.ready = true,
     this.custom = false,
+    this.directoryTags = const [],
   });
 
   final String id;
@@ -45,6 +46,7 @@ class SiteDef {
   final bool searchable;
   final bool ready;
   final bool custom;
+  final List<SiteTag> directoryTags;
 
   String get primaryHost =>
       mirrors.isNotEmpty ? mirrors.first : 'https://example.com';
@@ -152,6 +154,28 @@ class SourceCatalog {
         iconSelected: Icons.public),
   ];
 
+  static const liveDirectoryTags = <SiteTag>[
+    SiteTag(id: 'female', label: '\u5973\u751f', icon: Icons.woman_outlined, iconSelected: Icons.woman),
+    SiteTag(id: 'couples', label: '\u60c5\u4fa3', icon: Icons.people_outline, iconSelected: Icons.people),
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
+    SiteTag(id: 'popular', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'male', label: '\u7537\u751f', icon: Icons.man_outlined, iconSelected: Icons.man),
+    SiteTag(id: 'trans', label: '\u7279\u8272', icon: Icons.diversity_3_outlined, iconSelected: Icons.diversity_3),
+  ];
+
+  static const vodDirectoryTags = <SiteTag>[
+    SiteTag(id: 'hot', label: '\u70ed\u95e8', icon: Icons.local_fire_department_outlined, iconSelected: Icons.local_fire_department),
+    SiteTag(id: 'new', label: '\u6700\u65b0', icon: Icons.fiber_new_outlined, iconSelected: Icons.fiber_new),
+    SiteTag(id: 'asian', label: '\u4e9a\u6d32', icon: Icons.public_outlined, iconSelected: Icons.public),
+    SiteTag(id: 'best', label: '\u7cbe\u9009', icon: Icons.emoji_events_outlined, iconSelected: Icons.emoji_events),
+    SiteTag(id: 'amateur', label: '\u7d20\u4eba', icon: Icons.camera_alt_outlined, iconSelected: Icons.camera_alt),
+    SiteTag(id: 'couples', label: '\u60c5\u4fa3', icon: Icons.people_outline, iconSelected: Icons.people),
+    SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.person_outline, iconSelected: Icons.person),
+    SiteTag(id: 'popular', label: '\u4eba\u6c14', icon: Icons.trending_up_outlined, iconSelected: Icons.trending_up),
+  ];
+
   static const stripchatTags = <SiteTag>[
     SiteTag(
         id: 'girls',
@@ -219,6 +243,7 @@ class SourceCatalog {
         iconSelected: Icons.recommend,
       ),
     ],
+    directoryTags: vodDirectoryTags,
   );
 
   static const xvideos = SiteDef(
@@ -262,6 +287,7 @@ class SourceCatalog {
         iconSelected: Icons.emoji_events,
       ),
     ],
+    directoryTags: vodDirectoryTags,
   );
 
   static const mitao = SiteDef(
@@ -304,6 +330,7 @@ class SourceCatalog {
         iconSelected: Icons.recommend,
       ),
     ],
+    directoryTags: vodDirectoryTags,
   );
 
   static const xnxx = SiteDef(
@@ -388,6 +415,7 @@ class SourceCatalog {
       'https://xhamsterlive.com',
     ],
     tags: stripchatTags,
+    directoryTags: liveDirectoryTags,
   );
 
   static const chaturbate = SiteDef(
@@ -406,6 +434,7 @@ class SourceCatalog {
       'https://chaturbate.global',
     ],
     tags: chaturbateTags,
+    directoryTags: liveDirectoryTags,
   );
 
   static const all = <SiteDef>[
