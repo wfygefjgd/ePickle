@@ -484,7 +484,7 @@ private final class StripchatLivePlatformView: NSObject,
     fastPollTimer = nil
     safetyTimer?.invalidate()
     safetyTimer = nil
-    StripchatLivePlatformView.skipChannel?.invoke("skip", arguments: nil)
+    StripchatLivePlatformView.skipChannel?.invokeMethod("skip", arguments: nil)
   }
 
   private func updateSafetyStatus() {
