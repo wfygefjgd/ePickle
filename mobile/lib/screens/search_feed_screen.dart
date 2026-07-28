@@ -93,7 +93,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   Duration? _dragTargetPosition;
   String _seekPreviewText = '';
 
-  /// Preload: Android 3 slots, iOS 4 slots.
+  /// Shared iOS/Android lookahead pool.
   VideoPlayerController? _preloadController;
   int? _preloadIndex;
   StreamQuality? _preloadStream;
@@ -134,7 +134,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// Keep decoder pressure low on iOS; other platforms use at most two slots.
+  /// Keep the decoder budget identical on iOS and Android.
   int get _preloadSlotCount =>
       PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
 

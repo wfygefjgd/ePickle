@@ -1,13 +1,17 @@
 package com.epickle.player
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.ProxyInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.annotation.NonNull
@@ -25,7 +29,10 @@ import java.net.ProxySelector
 import java.net.URI
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONTokener
 
 class MainActivity : FlutterActivity() {
     private val channelProxy = "epickle/system_proxy"
@@ -35,7 +42,8 @@ class MainActivity : FlutterActivity() {
 
     private val executor = Executors.newCachedThreadPool()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val activeTasks = mutableMapOf<String, HttpURLConnection>()
+    private val activeTasks = ConcurrentHashMap<String, HttpURLConnection>()
+    private val activeRenderRequests = mutableMapOf<String, BrowserRenderRequest>()
     private var stripchatView: StripchatLiveView? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -73,15 +81,27 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
-                "renderGet" -> executor.execute {
-                    try {
-                        val resp = httpRender(rawUrl, headers, timeoutMs)
-                        mainHandler.post { result.success(resp) }
-                    } catch (e: Exception) {
-                        mainHandler.post {
-                            result.error("render_failed", e.message, null)
+                "renderGet" -> {
+                    val requestId = UUID.randomUUID().toString()
+                    val request = BrowserRenderRequest(
+                        activity = this,
+                        rawUrl = rawUrl,
+                        headers = headers,
+                        timeoutMs = timeoutMs,
+                    ) { response, errorCode, errorMessage ->
+                        activeRenderRequests.remove(requestId)
+                        if (response != null) {
+                            result.success(response)
+                        } else {
+                            result.error(
+                                errorCode ?: "browser_render_failed",
+                                errorMessage ?: "Browser rendering failed",
+                                null,
+                            )
                         }
                     }
+                    activeRenderRequests[requestId] = request
+                    request.start()
                 }
                 else -> result.notImplemented()
             }
@@ -239,6 +259,11 @@ class MainActivity : FlutterActivity() {
                 readTimeout = timeoutMs
                 instanceFollowRedirects = true
                 for ((k, v) in headers) setRequestProperty(k, v)
+                if (headers.keys.none { it.equals("Cookie", ignoreCase = true) }) {
+                    CookieManager.getInstance().getCookie(rawUrl)?.let {
+                        setRequestProperty("Cookie", it)
+                    }
+                }
             }
             activeTasks[id] = conn
             conn.connect()
@@ -248,17 +273,16 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {
                 conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
             }
-            val cookies = mutableMapOf<String, String>()
-            val cookieHeader = conn.getHeaderField("Set-Cookie")
-            if (!cookieHeader.isNullOrBlank()) {
-                cookieHeader.split(";").forEach { part ->
-                    val idx = part.indexOf('=')
-                    if (idx > 0) {
-                        val k = part.substring(0, idx).trim()
-                        val v = part.substring(idx + 1).trim()
-                        if (k.isNotEmpty()) cookies[k] = v
-                    }
-                }
+            val cookieManager = CookieManager.getInstance()
+            conn.headerFields.entries
+                .filter { it.key?.equals("Set-Cookie", ignoreCase = true) == true }
+                .flatMap { it.value.orEmpty() }
+                .forEach { cookieManager.setCookie(conn.url.toString(), it) }
+            val cookies = parseCookieHeader(cookieManager.getCookie(conn.url.toString()))
+            mainHandler.post {
+                try {
+                    cookieManager.flush()
+                } catch (_: Exception) {}
             }
             return mapOf(
                 "statusCode" to code,
@@ -269,21 +293,6 @@ class MainActivity : FlutterActivity() {
         } finally {
             activeTasks.remove(id)
             conn?.disconnect()
-        }
-    }
-
-    // ---------- Browser Render (WebView in background) ----------
-
-    private fun httpRender(
-        rawUrl: String, headers: Map<String, String>, timeoutMs: Int
-    ): Map<String, Any?> {
-        // Detached WebView is flaky on some OEMs; fall back to plain HTTP GET.
-        // JS-heavy sites still benefit from NativeBrowserHttp only when needed
-        // and when the live platform view path is used instead.
-        return try {
-            httpGet(rawUrl, headers, timeoutMs)
-        } catch (e: Exception) {
-            throw Exception("browser_render_failed:${e.message}")
         }
     }
 
@@ -304,10 +313,202 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        activeRenderRequests.values.toList().forEach { it.cancel() }
+        activeRenderRequests.clear()
         activeTasks.values.forEach { try { it.disconnect() } catch (_: Exception) {} }
         activeTasks.clear()
         executor.shutdownNow()
         super.onDestroy()
+    }
+}
+
+private fun parseCookieHeader(header: String?): Map<String, String> {
+    if (header.isNullOrBlank()) return emptyMap()
+    return header.split(';').mapNotNull { part ->
+        val index = part.indexOf('=')
+        if (index <= 0) return@mapNotNull null
+        val name = part.substring(0, index).trim()
+        if (name.isEmpty()) return@mapNotNull null
+        name to part.substring(index + 1).trim()
+    }.toMap()
+}
+
+private class BrowserRenderRequest(
+    private val activity: MainActivity,
+    private val rawUrl: String,
+    private val headers: Map<String, String>,
+    timeoutMs: Int,
+    private val completion: (Map<String, Any?>?, String?, String?) -> Unit,
+) {
+    private val handler = Handler(Looper.getMainLooper())
+    private val deadlineMs = System.currentTimeMillis() + timeoutMs.coerceAtLeast(1000)
+    private var webView: WebView? = null
+    private var completed = false
+    private var statusCode = 200
+    private val timeout = Runnable {
+        finishError("browser_render_timeout", "Browser rendering timed out")
+    }
+
+    fun start() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post { start() }
+            return
+        }
+        if (completed || activity.isFinishing || activity.isDestroyed) {
+            finishError("browser_render_cancelled", "Activity is unavailable")
+            return
+        }
+
+        val view = WebView(activity)
+        webView = view
+        view.alpha = 0.01f
+        view.isClickable = false
+        view.settings.javaScriptEnabled = true
+        view.settings.domStorageEnabled = true
+        headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }
+            ?.value?.let { view.settings.userAgentString = it }
+        view.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                statusCode = 200
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?,
+            ) {
+                if (request?.isForMainFrame == true) {
+                    statusCode = errorResponse?.statusCode ?: statusCode
+                }
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?,
+            ) {
+                if (request?.isForMainFrame == true) {
+                    finishError(
+                        "browser_render_failed",
+                        error?.description?.toString() ?: "Page load failed",
+                    )
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onReceivedError(
+                view: WebView?, errorCode: Int, description: String?, failingUrl: String?,
+            ) {
+                finishError(
+                    "browser_render_failed",
+                    description ?: "Page load failed ($errorCode)",
+                )
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                handler.postDelayed({ collectHtml() }, 800)
+            }
+        }
+
+        val container = activity.window.decorView as? ViewGroup
+        container?.addView(view, ViewGroup.LayoutParams(2, 2))
+        val requestHeaders = headers.filterKeys {
+            !it.equals("User-Agent", ignoreCase = true)
+        }
+        view.loadUrl(rawUrl, requestHeaders)
+        handler.postDelayed(timeout, (deadlineMs - System.currentTimeMillis()).coerceAtLeast(1000))
+    }
+
+    fun cancel() {
+        finishError("browser_render_cancelled", "Browser rendering cancelled")
+    }
+
+    private fun collectHtml() {
+        val view = webView ?: return
+        if (completed) return
+        val script = """
+            (() => JSON.stringify({
+              html: document.documentElement ? document.documentElement.outerHTML : '',
+              resources: Array.from(new Set([
+                ...performance.getEntriesByType('resource').map(entry => entry.name),
+                ...Array.from(document.querySelectorAll('video, source, iframe'))
+                  .flatMap(node => [node.src, node.currentSrc]).filter(Boolean)
+              ])).slice(0, 400),
+              href: location.href
+            }))()
+        """.trimIndent()
+        view.evaluateJavascript(script) { encoded ->
+            if (completed) return@evaluateJavascript
+            try {
+                val jsonText = JSONTokener(encoded).nextValue() as? String
+                    ?: throw IllegalStateException("Missing rendered document")
+                val rendered = org.json.JSONObject(jsonText)
+                var html = rendered.optString("html")
+                val resources = rendered.optJSONArray("resources") ?: JSONArray()
+                if (resources.length() > 0) {
+                    val tags = buildString {
+                        append("\n<!-- Android WebView resource URLs -->\n")
+                        for (index in 0 until resources.length()) {
+                            val safe = resources.optString(index)
+                                .replace("\"", "%22")
+                                .replace("<", "%3C")
+                            append("<source src=\"").append(safe).append("\">\n")
+                        }
+                    }
+                    html += tags
+                }
+                val lower = html.lowercase()
+                val challengePending = lower.contains("just a moment") ||
+                    lower.contains("cf-chl-") ||
+                    lower.contains("checking your browser") ||
+                    lower.contains("challenge-platform")
+                if (challengePending && deadlineMs - System.currentTimeMillis() > 1200) {
+                    handler.postDelayed({ collectHtml() }, 1000)
+                    return@evaluateJavascript
+                }
+                val finalUrl = rendered.optString("href").ifBlank { view.url ?: rawUrl }
+                finish(
+                    mapOf(
+                        "statusCode" to statusCode,
+                        "body" to html,
+                        "finalUrl" to finalUrl,
+                        "cookies" to parseCookieHeader(
+                            CookieManager.getInstance().getCookie(finalUrl),
+                        ),
+                    ),
+                )
+            } catch (error: Exception) {
+                finishError(
+                    "browser_render_javascript",
+                    error.message ?: "Unable to collect rendered document",
+                )
+            }
+        }
+    }
+
+    private fun finish(response: Map<String, Any?>) {
+        if (completed) return
+        completed = true
+        cleanup()
+        completion(response, null, null)
+    }
+
+    private fun finishError(code: String, message: String) {
+        if (completed) return
+        completed = true
+        cleanup()
+        completion(null, code, message)
+    }
+
+    private fun cleanup() {
+        handler.removeCallbacks(timeout)
+        webView?.let { view ->
+            view.stopLoading()
+            view.webViewClient = WebViewClient()
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.destroy()
+        }
+        webView = null
     }
 }
 

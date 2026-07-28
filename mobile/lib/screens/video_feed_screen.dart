@@ -160,7 +160,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     return _settings?.qualityCap ?? 0;
   }
 
-  /// iOS keeps one decoder warm; other platforms keep at most two.
+  /// Keep the decoder budget identical on iOS and Android.
   int get _preloadSlotCount =>
       PlaybackHelpers.preloadSlotCount(defaultTargetPlatform);
 

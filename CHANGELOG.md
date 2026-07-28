@@ -5,6 +5,19 @@
 
 ---
 
+## [2.5.1] - Android 功能对齐与稳定性修复
+
+### Android 对齐
+- Android `renderGet` 现使用隐藏 WebView 执行 JavaScript、等待浏览器挑战并采集最终 DOM，与 iOS WKWebView 行为一致
+- Android 浏览器渲染同步返回最终 URL、页面资源与站点 Cookie，修复动态站点仅 iOS 可解析的问题
+- 原生 HTTP 与 WebView 共享 Cookie 会话，重定向和后续详情请求行为与 iOS 对齐
+
+### 稳定性
+- Activity 销毁时取消未完成的渲染和网络请求，防止 WebView/回调泄漏
+- 原生并发请求使用线程安全任务表，避免多页面并行加载时的数据竞争
+
+---
+
 ## [5.2.1] — 桌面端关键 Bug 修复与稳定性优化
 
 ### 关键 Bug 修复
