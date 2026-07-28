@@ -29,6 +29,7 @@ class VideoPlayerPage extends StatefulWidget {
     required this.onMute,
     required this.onFastForward,
     required this.onFullscreen,
+    required this.onBack,
     required this.onOpenSettings,
     required this.onSeekPreview,
     required this.onSeekStart,
@@ -54,6 +55,7 @@ class VideoPlayerPage extends StatefulWidget {
   final VoidCallback onMute;
   final VoidCallback onFastForward;
   final VoidCallback onFullscreen;
+  final VoidCallback onBack;
   final VoidCallback onOpenSettings;
   final ValueChanged<double> onSeekPreview;
   final VoidCallback onSeekStart;
@@ -385,10 +387,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             top: 8,
             child: SafeArea(
               child: _MinimalButton(
-                storageKey: 'fullscreen_button_normal',
+                storageKey: 'back_button_normal',
                 defaultOffset: const Offset(10, 8),
-                icon: Icons.fullscreen,
-                onTap: widget.onFullscreen,
+                icon: Icons.arrow_back_ios_new,
+                onTap: widget.onBack,
               ),
             ),
           ),
@@ -402,6 +404,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 defaultOffset: const Offset(10, 8),
                 icon: Icons.settings,
                 onTap: widget.onOpenSettings,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 10,
+            top: 52,
+            child: SafeArea(
+              child: Opacity(
+                opacity: 0.42,
+                child: _MinimalButton(
+                  storageKey: 'fullscreen_button_normal',
+                  defaultOffset: const Offset(10, 52),
+                  icon: Icons.fullscreen,
+                  onTap: widget.onFullscreen,
+                ),
               ),
             ),
           ),

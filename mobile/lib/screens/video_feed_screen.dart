@@ -2290,6 +2290,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onMute: _toggleMute,
               onFastForward: _fastForward,
               onFullscreen: _toggleFullscreen,
+              onBack: _exitAfterStopping,
               onOpenSettings: _openPlayerSettings,
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,

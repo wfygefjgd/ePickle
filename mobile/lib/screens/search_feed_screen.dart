@@ -1883,10 +1883,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     top: 8,
                     child: SafeArea(
                       child: _MinimalButton(
-                        storageKey: 'search_fullscreen_button_normal',
+                        storageKey: 'search_back_button_normal',
                         defaultOffset: const Offset(10, 8),
-                        icon: Icons.fullscreen,
-                        onTap: _toggleFullscreen,
+                        icon: Icons.arrow_back_ios_new,
+                        onTap: _exitAfterStopping,
                       ),
                     ),
                   ),
@@ -1900,6 +1900,21 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                         defaultOffset: const Offset(10, 8),
                         icon: Icons.settings,
                         onTap: _openPlayerSettings,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 10,
+                    top: 52,
+                    child: SafeArea(
+                      child: Opacity(
+                        opacity: 0.42,
+                        child: _MinimalButton(
+                          storageKey: 'search_fullscreen_button_normal',
+                          defaultOffset: const Offset(10, 52),
+                          icon: Icons.fullscreen,
+                          onTap: _toggleFullscreen,
+                        ),
                       ),
                     ),
                   ),
