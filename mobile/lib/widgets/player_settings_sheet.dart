@@ -7,6 +7,7 @@ import '../services/cache_manager.dart';
 import '../services/layout_settings.dart';
 import '../services/watch_history.dart';
 import '../utils/privacy_wipe.dart';
+import '../screens/hidden_sites_page.dart';
 
 /// Settings: quality + restore channels (no proxy / global-search toggles).
 Future<void> showPlayerSettingsSheet(
@@ -47,16 +48,19 @@ Future<void> showPlayerSettingsSheet(
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    ListTile(
-                      title: const Text(
-                        '设置',
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
-                      ),
-                      dense: true,
-                      trailing: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                        tooltip: '返回',
-                        onPressed: () => Navigator.pop(ctx),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 6),
+                      child: ListTile(
+                        title: const Text(
+                          '设置',
+                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+                        dense: true,
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          tooltip: '返回',
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
                       ),
                     ),
                     SwitchListTile(
@@ -112,21 +116,51 @@ Future<void> showPlayerSettingsSheet(
                       onChanged: settings.setAutoSkipUnavailable,
                     ),
                     ListTile(
-                      leading: const Icon(Icons.add_link, color: Color(0xFFFF6B35)),
-                      title: const Text('添加网站', style: TextStyle(color: Colors.white)),
-                      subtitle: const Text('选择点播通用解析，或 Stripchat / Chaturbate 直播解析', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                      trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                      leading:
+                          const Icon(Icons.add_link, color: Color(0xFFFF6B35)),
+                      title: const Text('添加网站',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: const Text(
+                          '选择点播通用解析，或 Stripchat / Chaturbate 直播解析',
+                          style:
+                              TextStyle(color: Colors.white38, fontSize: 12)),
+                      trailing: const Icon(Icons.chevron_right,
+                          color: Colors.white38),
                       onTap: () => _showAddSiteDialog(ctx, layout),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.visibility_off_outlined,
+                          color: Color(0xFFFF6B35)),
+                      title: const Text('隐藏网站',
+                          style: TextStyle(color: Colors.white)),
+                      subtitle: const Text('管理主页和搜索中显示的网站',
+                          style:
+                              TextStyle(color: Colors.white38, fontSize: 12)),
+                      trailing: const Icon(Icons.chevron_right,
+                          color: Colors.white38),
+                      onTap: () => Navigator.of(ctx).push(
+                        MaterialPageRoute(
+                            builder: (_) => const HiddenSitesPage()),
+                      ),
                     ),
                     if (layout.customSites.isNotEmpty)
                       for (final custom in layout.customSites)
                         ListTile(
                           dense: true,
-                          leading: Icon(custom.kind.name == 'live' ? Icons.live_tv : Icons.movie_outlined, color: Colors.white54),
-                          title: Text(custom.site.name, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                          subtitle: Text(_customParserLabel(custom.parser), style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          leading: Icon(
+                              custom.kind.name == 'live'
+                                  ? Icons.live_tv
+                                  : Icons.movie_outlined,
+                              color: Colors.white54),
+                          title: Text(custom.site.name,
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 13)),
+                          subtitle: Text(_customParserLabel(custom.parser),
+                              style: const TextStyle(
+                                  color: Colors.white38, fontSize: 11)),
                           trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.white54),
                             tooltip: '删除',
                             onPressed: () => layout.removeCustomUrl(custom.url),
                           ),
@@ -167,7 +201,8 @@ Future<void> showPlayerSettingsSheet(
                                     onPressed: () => Navigator.pop(d, true),
                                     child: const Text(
                                       '恢复',
-                                      style: TextStyle(color: Color(0xFFFF6B35)),
+                                      style:
+                                          TextStyle(color: Color(0xFFFF6B35)),
                                     ),
                                   ),
                                 ],
@@ -223,7 +258,8 @@ Future<void> showPlayerSettingsSheet(
                                     onPressed: () => Navigator.pop(d, true),
                                     child: const Text(
                                       '清理并退出',
-                                      style: TextStyle(color: Color(0xFFFF6B35)),
+                                      style:
+                                          TextStyle(color: Color(0xFFFF6B35)),
                                     ),
                                   ),
                                 ],
@@ -290,7 +326,8 @@ class _AppVersionLabel extends StatefulWidget {
   State<_AppVersionLabel> createState() => _AppVersionLabelState();
 }
 
-Future<void> _showAddSiteDialog(BuildContext context, LayoutSettings layout) async {
+Future<void> _showAddSiteDialog(
+    BuildContext context, LayoutSettings layout) async {
   final urlController = TextEditingController();
   var parser = 'generic_vod';
   final result = await showDialog<String>(
@@ -299,46 +336,74 @@ Future<void> _showAddSiteDialog(BuildContext context, LayoutSettings layout) asy
       builder: (context, setState) => AlertDialog(
         backgroundColor: const Color(0xFF2A2A2A),
         title: const Text('添加网站', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: urlController,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: '网站地址',
-                hintText: 'example.com',
-                labelStyle: TextStyle(color: Colors.white70),
-                hintStyle: TextStyle(color: Colors.white38),
-              ),
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<String>(
-              initialValue: parser,
-              dropdownColor: const Color(0xFF3A3A3A),
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: '解析方式', labelStyle: TextStyle(color: Colors.white70)),
-              items: const [
-                DropdownMenuItem(value: 'generic_vod', child: Text('点播 · 通用解析')),
-                DropdownMenuItem(value: 'pornhub', child: Text('点播 · Pornhub 解析')),
-                DropdownMenuItem(value: 'xvideos', child: Text('点播 · XVideos 解析')),
-                DropdownMenuItem(value: 'mitao', child: Text('点播 · Mitao 解析')),
-                DropdownMenuItem(value: 'stripchat', child: Text('直播 · Stripchat')),
-                DropdownMenuItem(value: 'chaturbate', child: Text('直播 · Chaturbate')),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.62,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: urlController,
+                  keyboardType: TextInputType.url,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: '网站地址',
+                    hintText: 'example.com',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    hintStyle: TextStyle(color: Colors.white38),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: parser,
+                  dropdownColor: const Color(0xFF3A3A3A),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                      labelText: '解析方式',
+                      labelStyle: TextStyle(color: Colors.white70)),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'generic_vod', child: Text('点播 · 通用解析')),
+                    DropdownMenuItem(
+                        value: 'pornhub', child: Text('点播 · Pornhub 解析')),
+                    DropdownMenuItem(
+                        value: 'xvideos', child: Text('点播 · XVideos 解析')),
+                    DropdownMenuItem(
+                        value: 'mitao', child: Text('点播 · Mitao 解析')),
+                    DropdownMenuItem(
+                        value: 'xnxx', child: Text('点播 · XNXX 解析')),
+                    DropdownMenuItem(
+                        value: 'xhamster', child: Text('点播 · xHamster 解析')),
+                    DropdownMenuItem(
+                        value: 'tnaflix', child: Text('点播 · TNAFlix 解析')),
+                    DropdownMenuItem(
+                        value: 'jable', child: Text('点播 · Jable 解析')),
+                    DropdownMenuItem(
+                        value: 'stripchat', child: Text('直播 · Stripchat')),
+                    DropdownMenuItem(
+                        value: 'chaturbate', child: Text('直播 · Chaturbate')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => parser = value ?? parser),
+                ),
               ],
-              onChanged: (value) => setState(() => parser = value ?? parser),
             ),
-          ],
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消')),
           FilledButton(
             onPressed: () {
               final raw = urlController.text.trim();
-              final uri = Uri.tryParse(raw.startsWith('http') ? raw : 'https://$raw');
+              final uri =
+                  Uri.tryParse(raw.startsWith('http') ? raw : 'https://$raw');
               if (uri == null || uri.host.isEmpty || uri.scheme != 'https') {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入有效的 HTTPS 网站地址')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('请输入有效的 HTTPS 网站地址')));
                 return;
               }
               Navigator.pop(dialogContext, '$parser\n${uri.toString()}');
@@ -361,6 +426,10 @@ String _customParserLabel(String parser) => switch (parser) {
       'pornhub' => '点播 · Pornhub 解析',
       'xvideos' => '点播 · XVideos 解析',
       'mitao' => '点播 · Mitao 解析',
+      'xnxx' => '点播 · XNXX 解析',
+      'xhamster' => '点播 · xHamster 解析',
+      'tnaflix' => '点播 · TNAFlix 解析',
+      'jable' => '点播 · Jable 解析',
       'stripchat' => '直播 · Stripchat',
       'chaturbate' => '直播 · Chaturbate',
       _ => parser,

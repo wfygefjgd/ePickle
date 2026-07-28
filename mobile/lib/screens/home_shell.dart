@@ -18,7 +18,7 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
 
   /// One key per kind so tab switch disposes the old feed (players freed)
@@ -37,6 +37,30 @@ class _HomeShellState extends State<HomeShell> {
 
   List<GlobalKey<VideoFeedScreenState>> get _feedKeys =>
       [_hotKey, _asianKey, _xKey, _zhongKey];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || _index >= _feedKinds.length) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _index < _feedKinds.length) {
+        _feedKeys[_index].currentState?.startPlaying();
+      }
+    });
+  }
 
   void _onTabSelected(int i) {
     if (i == _index) return;

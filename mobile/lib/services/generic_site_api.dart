@@ -69,7 +69,6 @@ class GenericSiteApi {
   /// Minimal per-origin cookie store for age gates and session redirects.
   final Map<String, Map<String, String>> _cookies = {};
 
-
   Duration _requestBudget(DateTime? deadline) {
     if (deadline == null) return _requestTimeout;
     final remaining = deadline.difference(DateTime.now());
@@ -171,7 +170,9 @@ class GenericSiteApi {
         headers: requestHeaders,
         timeout: timeout,
       );
-      if (native != null && native.trim().isNotEmpty && !_isBlockedHtml(native)) {
+      if (native != null &&
+          native.trim().isNotEmpty &&
+          !_isBlockedHtml(native)) {
         return native;
       }
     }
@@ -780,33 +781,52 @@ class GenericSiteApi {
   }) async {
     final out = <VideoItem>[];
     final offset = (page - 1) * limit;
-    final categoryQuery = switch (tagId) {
-      'couples' => '&genders=c',
-      'new' => '&genders=f&sort_order=new',
-      'asian' => '&genders=f&tags=asian',
-      'outdoor' => '&genders=f&tags=outdoors',
-      'hd' => '&genders=f&tags=hd',
-      'male' => '&genders=m',
-      'trans' => '&genders=t',
-      'female' || 'popular' => '&genders=f',
-      _ => '&genders=f&tags=${Uri.encodeQueryComponent(tagId)}',
+    final categoryQueries = switch (tagId) {
+      'couples' => const ['&genders=c'],
+      'new' => const ['&genders=f&sort_order=new'],
+      'asian' => const ['&genders=f&tags=asian'],
+      // Chaturbate has used each of these aliases in different room-list APIs.
+      'outdoor' => const [
+          '&genders=f&tags=outdoors',
+          '&genders=f&tags=outdoor',
+          '&genders=f&tags=outside',
+        ],
+      'hd' => const [
+          '&genders=f&tags=hd',
+          '&genders=f&tags=high-definition',
+          '&genders=f&tags=high_definition',
+        ],
+      'male' => const ['&genders=m'],
+      'trans' => const ['&genders=t'],
+      'female' || 'popular' => const ['&genders=f'],
+      _ => ['&genders=f&tags=${Uri.encodeQueryComponent(tagId)}'],
     };
-    final legacyQuery = switch (tagId) {
-      'couples' => '&gender=c',
-      'new' => '&gender=f&sort=new',
-      'asian' => '&gender=f&tag=asian',
-      'outdoor' => '&gender=f&tag=outdoors',
-      'hd' => '&gender=f&tag=hd',
-      'male' => '&gender=m',
-      'trans' => '&gender=t',
-      'female' || 'popular' => '&gender=f',
-      _ => '&gender=f&tag=${Uri.encodeQueryComponent(tagId)}',
+    final legacyQueries = switch (tagId) {
+      'couples' => const ['&gender=c'],
+      'new' => const ['&gender=f&sort=new'],
+      'asian' => const ['&gender=f&tag=asian'],
+      'outdoor' => const [
+          '&gender=f&tag=outdoors',
+          '&gender=f&tag=outdoor',
+          '&gender=f&tag=outside',
+        ],
+      'hd' => const [
+          '&gender=f&tag=hd',
+          '&gender=f&tag=high-definition',
+          '&gender=f&tag=high_definition',
+        ],
+      'male' => const ['&gender=m'],
+      'trans' => const ['&gender=t'],
+      'female' || 'popular' => const ['&gender=f'],
+      _ => ['&gender=f&tag=${Uri.encodeQueryComponent(tagId)}'],
     };
     final endpoints = <String Function(String)>[
-      (b) =>
-          '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset$categoryQuery',
-      (b) =>
-          '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset$legacyQuery',
+      for (final query in categoryQueries)
+        (b) =>
+            '$b/api/ts/roomlist/room-list/?limit=${limit.clamp(20, 90)}&offset=$offset$query',
+      for (final query in legacyQueries)
+        (b) =>
+            '$b/affiliates/api/onlinerooms/?format=json&limit=$limit&offset=$offset$query',
     ];
     for (final pathFn in endpoints) {
       try {
@@ -2057,8 +2077,7 @@ class GenericSiteApi {
             (b) => '$b/latest-updates/${p > 1 ? '$p/' : ''}',
           if (tagId == 'asian')
             (b) => '$b/categories/asian/${p > 1 ? '$p/' : ''}',
-          if (tagId == 'best')
-            (b) => '$b/most-popular/${p > 1 ? '$p/' : ''}',
+          if (tagId == 'best') (b) => '$b/most-popular/${p > 1 ? '$p/' : ''}',
           (b) => '$b/latest-updates/${p > 1 ? '$p/' : ''}',
           if (p == 1) (b) => '$b/',
           (b) => '$b/page/$p/',
@@ -2192,9 +2211,9 @@ class GenericSiteApi {
         final categoryQuery = switch (tagId) {
           'couples' => '&genders=c',
           'new' => '&genders=f&sort_order=new',
-      'asian' => '&genders=f&tags=asian',
-      'outdoor' => '&genders=f&tags=outdoors',
-      'hd' => '&genders=f&tags=hd',
+          'asian' => '&genders=f&tags=asian',
+          'outdoor' => '&genders=f&tags=outdoors',
+          'hd' => '&genders=f&tags=hd',
           _ => '&genders=f',
         };
         return [
@@ -2316,9 +2335,14 @@ class GenericSiteApi {
           }
         }
       }
+
       for (final key in const [
         'tags',
         'tag_list',
+        'room_tags',
+        'roomTags',
+        'categories',
+        'category',
         'room_subject',
         'location',
         'country',
@@ -2330,7 +2354,7 @@ class GenericSiteApi {
     }
 
     bool matchesChaturbateCategory(Map<String, dynamic> map) {
-      if (site.id != 'chaturbate') return true;
+      if (!site.isChaturbate) return true;
       final requested = tagId ?? 'female';
       final gender = (map['gender'] ?? map['broadcast_gender'] ?? '')
           .toString()
@@ -2377,7 +2401,8 @@ class GenericSiteApi {
         return text.contains('outdoor') ||
             text.contains('outdoors') ||
             text.contains('outside') ||
-            text.contains('nature');
+            text.contains('nature') ||
+            text.contains('public');
       }
       if (requested == 'hd') {
         final text = categoryText(map);
@@ -2385,7 +2410,8 @@ class GenericSiteApi {
             text.contains('high definition') ||
             text.contains('high-definition') ||
             text.contains('1080') ||
-            text.contains('720');
+            text.contains('720') ||
+            trueValue(map['is_hd'] ?? map['isHd'] ?? map['hd']);
       }
       if (requested != 'female' && requested != 'popular') {
         return categoryText(map).contains(requested);
@@ -2654,7 +2680,9 @@ class GenericSiteApi {
             RegExp(r'chinese_content/\d+/').hasMatch(h) ||
             RegExp(r'_\d+\.html').hasMatch(h);
       case 'av01':
-        return h.contains('/v/') || h.contains('/video/') || h.contains('/watch/');
+        return h.contains('/v/') ||
+            h.contains('/video/') ||
+            h.contains('/watch/');
       case 'spankbang':
         return RegExp(r'/[a-z0-9-]+/video/').hasMatch(h) ||
             RegExp(r'/\d+/video/').hasMatch(h) ||

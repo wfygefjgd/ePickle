@@ -481,39 +481,41 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       right: 10,
       top: 8,
       child: SafeArea(
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
-                ),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
               ),
             ),
-            if (widget.speedLabel.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black45,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  widget.speedLabel,
-                  style: const TextStyle(
-                    color: Color(0xFF00E676),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
+            if (!widget.immersive && widget.speedLabel.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    child: Text(
+                      widget.speedLabel,
+                      style: const TextStyle(
+                        color: Color(0xFF66D9A0),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ],
           ],
         ),
       ),

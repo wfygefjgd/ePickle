@@ -73,6 +73,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   String _titleText = '';
   String _speedLabel = '';
   double _smoothedSpeedKbps = 0;
+  int _speedSamples = 0;
   String _totalTime = '0:00';
   Timer? _progressTimer;
   Timer? _retryTimer;
@@ -263,7 +264,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _frozenController = null;
     _frozenIndex = null;
     if (frozen != null) {
-      unawaited(frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()));
+      unawaited(frozen
+          .pause()
+          .catchError((_) {})
+          .whenComplete(() => frozen.dispose()));
     }
     _disposeInitializingPlayersSync();
     _disposePreloadSync();
@@ -1375,6 +1379,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     var lastPosMs = 0.0;
     var lastBufferedMs = 0.0;
     _smoothedSpeedKbps = 0;
+    _speedSamples = 0;
     _speedLabel = '';
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!_canRun ||
@@ -1399,23 +1404,31 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       final now = DateTime.now().millisecondsSinceEpoch;
       final posMs = pos.inMilliseconds.toDouble();
       final ranges = ctrl.value.buffered;
-      final bufferedMs = ranges.isEmpty
-          ? 0.0
-          : ranges.last.end.inMilliseconds.toDouble();
+      final bufferedMs =
+          ranges.isEmpty ? 0.0 : ranges.last.end.inMilliseconds.toDouble();
       if (lastTickMs > 0) {
         final dMs = now - lastTickMs;
         final dPlayed = posMs - lastPosMs;
-        final downloaded = (bufferedMs - lastBufferedMs + dPlayed)
-            .clamp(0.0, double.infinity);
+        final downloaded =
+            (bufferedMs - lastBufferedMs + dPlayed).clamp(0.0, double.infinity);
         if (dMs > 0 && downloaded > 0) {
           final sample = (1500 * (downloaded / dMs).clamp(0.0, 3.0))
+              .clamp(0, 12000)
               .toDouble();
-          _smoothedSpeedKbps = _smoothedSpeedKbps <= 0
-              ? sample
-              : (_smoothedSpeedKbps * 0.72) + (sample * 0.28);
-          final label = '${_smoothedSpeedKbps.round().clamp(0, 20000)} Kbps';
-          if (label != _speedLabel && mounted) {
-            setState(() => _speedLabel = label);
+          _speedSamples++;
+          if (_speedSamples >= 3) {
+            if (_smoothedSpeedKbps <= 0) {
+              _smoothedSpeedKbps = sample.clamp(0, 1200);
+            } else {
+              final weight = sample > _smoothedSpeedKbps ? 0.08 : 0.24;
+              _smoothedSpeedKbps += (sample - _smoothedSpeedKbps) * weight;
+            }
+          }
+          if (_speedSamples >= 3) {
+            final label = '${_smoothedSpeedKbps.round().clamp(0, 20000)} Kbps';
+            if (label != _speedLabel && mounted) {
+              setState(() => _speedLabel = label);
+            }
           }
         }
         final isPlaying = ctrl.value.isPlaying;
@@ -1879,27 +1892,28 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                     right: 12,
                     top: 8,
                     child: SafeArea(
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              _titleText,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
-                              ),
+                          Text(
+                            _titleText,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              shadows: [
+                                Shadow(color: Colors.black87, blurRadius: 4)
+                              ],
                             ),
                           ),
-                          if (_speedLabel.isNotEmpty)
+                          if (!immersive && _speedLabel.isNotEmpty)
                             Padding(
-                              padding: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.only(top: 4),
                               child: Text(
                                 _speedLabel,
                                 style: const TextStyle(
-                                  color: Color(0xFF00E676),
+                                  color: Color(0xFF66D9A0),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                 ),

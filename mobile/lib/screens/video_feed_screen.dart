@@ -122,6 +122,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   double _lastPosMs = 0;
   String _lastSpeedLabel = '';
   double _smoothedSpeedKbps = 0;
+  int _speedSamples = 0;
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
   int _preloadCycle = 0;
@@ -651,7 +652,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _frozenController = null;
     _frozenIndex = null;
     if (frozen != null) {
-      unawaited(frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()));
+      unawaited(frozen
+          .pause()
+          .catchError((_) {})
+          .whenComplete(() => frozen.dispose()));
     }
     WakelockPlus.disable();
     if (hadBrowserLive) {
@@ -1880,6 +1884,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _lastTickMs = 0;
     _lastPosMs = 0;
     _smoothedSpeedKbps = 0;
+    _speedSamples = 0;
     // 200ms feels smoother than 400ms; skip UI while user is dragging.
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!_canRun ||
@@ -1910,16 +1915,24 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         final downloaded = (dBuf + dPlayed).clamp(0.0, double.infinity);
         if (dMs > 0 && downloaded > 0) {
           final ratio = (downloaded / dMs).clamp(0.0, 3.0);
-          final sample = (_baseSpeed * ratio).clamp(0, 20000).toDouble();
-          // Smooth short buffer bursts so the indicator remains readable.
-          _smoothedSpeedKbps = _smoothedSpeedKbps <= 0
-              ? sample
-              : (_smoothedSpeedKbps * 0.72) + (sample * 0.28);
-          final speed = _smoothedSpeedKbps.round().clamp(0, 20000);
-          final label = '$speed Kbps';
-          if (label != _lastSpeedLabel) {
-            _lastSpeedLabel = label;
-            if (mounted) setState(() => _speedLabel = label);
+          final sample = (_baseSpeed * ratio).clamp(0, 12000).toDouble();
+          // Warm up and use a slower rise so one buffer burst cannot jump the label.
+          _speedSamples++;
+          if (_speedSamples >= 3) {
+            if (_smoothedSpeedKbps <= 0) {
+              _smoothedSpeedKbps = sample.clamp(0, 1200);
+            } else {
+              final weight = sample > _smoothedSpeedKbps ? 0.08 : 0.24;
+              _smoothedSpeedKbps += (sample - _smoothedSpeedKbps) * weight;
+            }
+          }
+          if (_speedSamples >= 3) {
+            final speed = _smoothedSpeedKbps.round().clamp(0, 20000);
+            final label = '$speed Kbps';
+            if (label != _lastSpeedLabel) {
+              _lastSpeedLabel = label;
+              if (mounted) setState(() => _speedLabel = label);
+            }
           }
         }
         // Stall: playing but position barely advances.
@@ -2290,7 +2303,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               currentTime: _currentTime,
               totalTime: _totalTime,
               titleText: _titleText,
-              speedLabel: _speedLabel,
+              speedLabel: immersive ? '' : _speedLabel,
               browserLiveUrl: _browserLiveUrl,
               browserIsStripchat: _browserIsStripchat,
               onPageChanged: _onPageChanged,

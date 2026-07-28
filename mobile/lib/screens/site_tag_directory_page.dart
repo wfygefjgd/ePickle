@@ -82,7 +82,9 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         _page = 1;
         _hasMore = raw.isNotEmpty;
         _loading = false;
-        if (items.isEmpty) _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
+        if (items.isEmpty) {
+          _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
+        }
       });
     } catch (e) {
       if (!mounted || generation != _generation) return;
@@ -125,8 +127,11 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     List<VideoItem> items,
     Translator translator,
   ) async {
-    final titles = await translator.batchEnToZh(items.map((e) => e.title).toList());
-    return [for (var i = 0; i < items.length; i++) items[i].copyWith(title: titles[i])];
+    final titles =
+        await translator.batchEnToZh(items.map((e) => e.title).toList());
+    return [
+      for (var i = 0; i < items.length; i++) items[i].copyWith(title: titles[i])
+    ];
   }
 
   Future<List<VideoItem>> _fetchItems(
@@ -157,7 +162,9 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
                 exclude: exclude,
               );
         }
-        return context.read<XvideosApi>().search(_queryForTag(tag.id), page: page);
+        return context
+            .read<XvideosApi>()
+            .search(_queryForTag(tag.id), page: page);
       case 'mitao':
         if (tag.id == 'hot' || tag.id == 'popular' || tag.id == 'best') {
           return context.read<MitaoApi>().fetchZhong(
@@ -165,7 +172,9 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
                 exclude: exclude,
               );
         }
-        return context.read<MitaoApi>().search(_queryForTag(tag.id), page: page);
+        return context
+            .read<MitaoApi>()
+            .search(_queryForTag(tag.id), page: page);
       default:
         return api.fetchFeed(
           widget.site,
@@ -197,7 +206,8 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         _ => id,
       };
 
-  SearchSource get _playbackSource => switch (widget.site.parserId ?? widget.site.id) {
+  SearchSource get _playbackSource =>
+      switch (widget.site.parserId ?? widget.site.id) {
         'pornhub' => SearchSource.ph,
         'xvideos' => SearchSource.x,
         'mitao' => SearchSource.zhong,
@@ -229,7 +239,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           8,
           10,
           8,
-          150 + MediaQuery.viewPaddingOf(context).bottom,
+          180 + MediaQuery.viewPaddingOf(context).bottom,
         ),
         itemCount: _tags.length,
         separatorBuilder: (_, __) => const SizedBox(height: 7),
@@ -243,40 +253,75 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
               duration: const Duration(milliseconds: 160),
               height: 62,
               decoration: BoxDecoration(
-                color: selected ? const Color(0x33FF6B35) : const Color(0xFF242424),
+                color: selected
+                    ? const Color(0x33FF6B35)
+                    : const Color(0xFF242424),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: selected ? const Color(0xFFFF6B35) : Colors.white10),
+                border: Border.all(
+                    color: selected ? const Color(0xFFFF6B35) : Colors.white10),
               ),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(selected ? tag.iconSelected : tag.icon,
-                    size: 21,
-                    color: selected ? const Color(0xFFFF6B35) : Colors.white70),
-                const SizedBox(height: 3),
-                Text(tag.label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 11)),
-              ]),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(selected ? tag.iconSelected : tag.icon,
+                        size: 21,
+                        color: selected
+                            ? const Color(0xFFFF6B35)
+                            : Colors.white70),
+                    const SizedBox(height: 3),
+                    Text(tag.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 11)),
+                  ]),
             ),
           );
         },
       );
 
   Widget _buildResults() {
-    if (_loading) return const Center(child: CircularProgressIndicator(color: Color(0xFFFF6B35)));
-    if (_error != null) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60))));
-    if (_selected == null) return const Center(child: Text('\u4ece\u5de6\u4fa7\u9009\u62e9\u6807\u7b7e', style: TextStyle(color: Colors.white54)));
+    if (_loading) {
+      return const Center(
+          child: CircularProgressIndicator(color: Color(0xFFFF6B35)));
+    }
+    if (_error != null) {
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white60))));
+    }
+    if (_selected == null) {
+      return const Center(
+          child: Text('\u4ece\u5de6\u4fa7\u9009\u62e9\u6807\u7b7e',
+              style: TextStyle(color: Colors.white54)));
+    }
     return ListView.builder(
       controller: _scroll,
       padding: EdgeInsets.only(
         top: 6,
-        bottom: 150 + MediaQuery.viewPaddingOf(context).bottom,
+        bottom: 180 + MediaQuery.viewPaddingOf(context).bottom,
       ),
       itemCount: _items.length + 1,
       itemBuilder: (_, i) {
         if (i == _items.length) {
-          if (_loadingMore) return const Padding(padding: EdgeInsets.all(18), child: Center(child: CircularProgressIndicator(color: Color(0xFFFF6B35))));
+          if (_loadingMore) {
+            return const Padding(
+                padding: EdgeInsets.all(18),
+                child: Center(
+                    child:
+                        CircularProgressIndicator(color: Color(0xFFFF6B35))));
+          }
           return Padding(
             padding: const EdgeInsets.all(18),
-            child: Center(child: Text(_hasMore ? '\u7ee7\u7eed\u4e0b\u6ed1\u52a0\u8f7d' : '\u5df2\u6ca1\u6709\u66f4\u591a\u5185\u5bb9', style: const TextStyle(color: Colors.white38))),
+            child: Center(
+                child: Text(
+                    _hasMore
+                        ? '\u7ee7\u7eed\u4e0b\u6ed1\u52a0\u8f7d'
+                        : '\u5df2\u6ca1\u6709\u66f4\u591a\u5185\u5bb9',
+                    style: const TextStyle(color: Colors.white38))),
           );
         }
         return VideoCard(

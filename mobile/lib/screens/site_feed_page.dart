@@ -18,7 +18,8 @@ class SiteFeedPage extends StatefulWidget {
   State<SiteFeedPage> createState() => _SiteFeedPageState();
 }
 
-class _SiteFeedPageState extends State<SiteFeedPage> {
+class _SiteFeedPageState extends State<SiteFeedPage>
+    with WidgetsBindingObserver {
   int _index = 0;
   final List<GlobalKey<VideoFeedScreenState>> _keys = [];
 
@@ -36,10 +37,27 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ensureKeys();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _keys.isNotEmpty) {
         _keys[0].currentState?.startPlaying();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || _index >= _keys.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _index < _keys.length) {
+        _keys[_index].currentState?.startPlaying();
       }
     });
   }
@@ -174,12 +192,12 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                       ),
                       if (site.searchable && site.id == '__legacy_search__')
                         const NavigationDestination(
-                        icon: Icon(Icons.search),
-                        selectedIcon: Icon(
-                          Icons.search,
-                          color: Color(0xFFFF6B35),
-                        ),
-                        label: '搜',
+                          icon: Icon(Icons.search),
+                          selectedIcon: Icon(
+                            Icons.search,
+                            color: Color(0xFFFF6B35),
+                          ),
+                          label: '搜',
                         ),
                     ],
                   ),
