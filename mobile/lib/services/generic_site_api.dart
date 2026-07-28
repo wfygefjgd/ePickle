@@ -784,13 +784,19 @@ class GenericSiteApi {
       'couples' => '&genders=c',
       'new' => '&genders=f&sort_order=new',
       'asian' => '&genders=f&tags=asian',
-      _ => '&genders=f',
+      'male' => '&genders=m',
+      'trans' => '&genders=t',
+      'female' || 'popular' => '&genders=f',
+      _ => '&genders=f&tags=${Uri.encodeQueryComponent(tagId)}',
     };
     final legacyQuery = switch (tagId) {
       'couples' => '&gender=c',
       'new' => '&gender=f&sort=new',
       'asian' => '&gender=f&tag=asian',
-      _ => '&gender=f',
+      'male' => '&gender=m',
+      'trans' => '&gender=t',
+      'female' || 'popular' => '&gender=f',
+      _ => '&gender=f&tag=${Uri.encodeQueryComponent(tagId)}',
     };
     final endpoints = <String Function(String)>[
       (b) =>
@@ -830,7 +836,8 @@ class GenericSiteApi {
     final offset = (page - 1) * limit + (tagId == 'more' ? 60 : 0);
     final primaryTag = switch (tagId) {
       'couples' => 'couples',
-      _ => 'girls',
+      'girls' || 'female' || 'new' || 'popular' || 'more' => 'girls',
+      _ => tagId,
     };
     final sortBy = tagId == 'new' ? 'newModels' : 'stripRanking';
     final endpoints = <String Function(String)>[
@@ -2319,6 +2326,12 @@ class GenericSiteApi {
             gender.contains('couple') ||
             gender.contains('pair');
       }
+      if (requested == 'male') {
+        return gender == 'm' || gender == 'male';
+      }
+      if (requested == 'trans') {
+        return gender == 't' || gender.contains('trans');
+      }
       if (gender == 'm' ||
           gender == 't' ||
           gender == 'male' ||
@@ -2341,6 +2354,9 @@ class GenericSiteApi {
             text.contains('japanese') ||
             text.contains('korean') ||
             text.contains('chinese');
+      }
+      if (requested != 'female' && requested != 'popular') {
+        return categoryText(map).contains(requested);
       }
       return true;
     }

@@ -38,6 +38,8 @@ class VideoFeedScreen extends StatefulWidget {
     this.autoStart = false,
     this.site,
     this.tagId,
+    this.initialItems = const [],
+    this.initialIndex = 0,
   });
 
   final VideoFeedKind kind;
@@ -46,6 +48,8 @@ class VideoFeedScreen extends StatefulWidget {
   /// When set, non-native sites use [GenericSiteApi].
   final SiteDef? site;
   final String? tagId;
+  final List<VideoItem> initialItems;
+  final int initialIndex;
 
   @override
   State<VideoFeedScreen> createState() => VideoFeedScreenState();
@@ -212,8 +216,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _genericPage = 1 + Random().nextInt(10);
       FeedListCache.clear(_cacheKey);
     }
-    final snap = genericVideoSite ? null : FeedListCache.take(_cacheKey);
-    if (snap != null && snap.items.isNotEmpty) {
+    final hasInitialItems = widget.initialItems.isNotEmpty;
+    if (hasInitialItems) {
+      _items.addAll(widget.initialItems);
+      _seen.addAll(widget.initialItems.map((item) => item.viewkey));
+      _currentIndex = widget.initialIndex.clamp(0, _items.length - 1);
+      _loading = false;
+      _genericPage = 2;
+    }
+    final snap = hasInitialItems || genericVideoSite
+        ? null
+        : FeedListCache.take(_cacheKey);
+    if (!hasInitialItems && snap != null && snap.items.isNotEmpty) {
       _items.addAll(snap.items);
       _seen.addAll(snap.seen);
       _currentIndex = snap.index.clamp(0, _items.length - 1);
@@ -304,6 +318,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   @override
   void dispose() {
+    _active = false;
+    _appInForeground = false;
+    _loadSeq++;
+    _lifecycleEpoch++;
+    _cancelBackgroundWork();
+    if (_browserLiveUrl != null) {
+      unawaited(StripchatLiveView.pauseLive());
+    }
     if (_items.isNotEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
@@ -335,6 +357,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final c = _controller;
     _controller = null;
     try {
+      c?.pause();
       c?.dispose();
     } catch (_) {}
     _disposeInitializingPlayersSync();

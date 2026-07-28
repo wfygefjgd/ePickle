@@ -163,6 +163,14 @@ class SourceCatalog {
     SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.person_outline, iconSelected: Icons.person),
     SiteTag(id: 'male', label: '\u7537\u751f', icon: Icons.man_outlined, iconSelected: Icons.man),
     SiteTag(id: 'trans', label: '\u7279\u8272', icon: Icons.diversity_3_outlined, iconSelected: Icons.diversity_3),
+    SiteTag(id: 'latina', label: '\u62c9\u4e01', icon: Icons.language_outlined, iconSelected: Icons.language),
+    SiteTag(id: 'ebony', label: '\u9ed1\u73cd\u73e0', icon: Icons.nightlife_outlined, iconSelected: Icons.nightlife),
+    SiteTag(id: 'blonde', label: '\u91d1\u53d1', icon: Icons.face_retouching_natural_outlined, iconSelected: Icons.face_retouching_natural),
+    SiteTag(id: 'brunette', label: '\u68d5\u53d1', icon: Icons.face_outlined, iconSelected: Icons.face),
+    SiteTag(id: 'cosplay', label: '\u89d2\u8272', icon: Icons.theater_comedy_outlined, iconSelected: Icons.theater_comedy),
+    SiteTag(id: 'tattoo', label: '\u7eb9\u8eab', icon: Icons.brush_outlined, iconSelected: Icons.brush),
+    SiteTag(id: 'outdoor', label: '\u6237\u5916', icon: Icons.landscape_outlined, iconSelected: Icons.landscape),
+    SiteTag(id: 'hd', label: '\u9ad8\u6e05', icon: Icons.hd_outlined, iconSelected: Icons.hd),
   ];
 
   static const vodDirectoryTags = <SiteTag>[
@@ -174,6 +182,18 @@ class SourceCatalog {
     SiteTag(id: 'couples', label: '\u60c5\u4fa3', icon: Icons.people_outline, iconSelected: Icons.people),
     SiteTag(id: 'mature', label: '\u6210\u719f', icon: Icons.person_outline, iconSelected: Icons.person),
     SiteTag(id: 'popular', label: '\u4eba\u6c14', icon: Icons.trending_up_outlined, iconSelected: Icons.trending_up),
+    SiteTag(id: 'japanese', label: '\u65e5\u672c', icon: Icons.flag_outlined, iconSelected: Icons.flag),
+    SiteTag(id: 'chinese', label: '\u4e2d\u6587', icon: Icons.translate_outlined, iconSelected: Icons.translate),
+    SiteTag(id: 'korean', label: '\u97e9\u56fd', icon: Icons.language_outlined, iconSelected: Icons.language),
+    SiteTag(id: 'cosplay', label: '\u89d2\u8272', icon: Icons.theater_comedy_outlined, iconSelected: Icons.theater_comedy),
+    SiteTag(id: 'massage', label: '\u6309\u6469', icon: Icons.spa_outlined, iconSelected: Icons.spa),
+    SiteTag(id: 'office', label: '\u804c\u573a', icon: Icons.business_center_outlined, iconSelected: Icons.business_center),
+    SiteTag(id: 'uniform', label: '\u5236\u670d', icon: Icons.checkroom_outlined, iconSelected: Icons.checkroom),
+    SiteTag(id: 'story', label: '\u5267\u60c5', icon: Icons.movie_outlined, iconSelected: Icons.movie),
+    SiteTag(id: 'short', label: '\u77ed\u7247', icon: Icons.timelapse_outlined, iconSelected: Icons.timelapse),
+    SiteTag(id: 'long', label: '\u957f\u7247', icon: Icons.schedule_outlined, iconSelected: Icons.schedule),
+    SiteTag(id: 'hd', label: '\u9ad8\u6e05', icon: Icons.hd_outlined, iconSelected: Icons.hd),
+    SiteTag(id: 'trending', label: '\u8d8b\u52bf', icon: Icons.whatshot_outlined, iconSelected: Icons.whatshot),
   ];
 
   static const stripchatTags = <SiteTag>[

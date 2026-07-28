@@ -248,6 +248,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final c = _controller;
     _controller = null;
     try {
+      c?.pause();
       c?.dispose();
     } catch (_) {}
     _disposeInitializingPlayersSync();

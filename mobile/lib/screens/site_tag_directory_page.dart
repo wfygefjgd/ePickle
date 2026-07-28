@@ -12,6 +12,7 @@ import '../utils/playback_helpers.dart';
 import '../widgets/site_logo.dart';
 import '../widgets/video_card.dart';
 import 'search_feed_screen.dart';
+import 'video_feed_screen.dart';
 
 /// Compact category directory with a persistent tag rail and paged results.
 class SiteTagDirectoryPage extends StatefulWidget {
@@ -79,7 +80,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
       setState(() {
         _items = items;
         _page = 1;
-        _hasMore = raw.length >= 30;
+        _hasMore = raw.isNotEmpty;
         _loading = false;
         if (items.isEmpty) _error = '\u6682\u65e0\u53ef\u64ad\u653e\u7684\u5185\u5bb9';
       });
@@ -108,7 +109,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
       setState(() {
         _items = [..._items, ...translated];
         _page++;
-        _hasMore = raw.length >= 30 && additions.isNotEmpty;
+        _hasMore = raw.isNotEmpty && additions.isNotEmpty;
         _loadingMore = false;
       });
     } catch (_) {
@@ -136,13 +137,35 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
   }) {
     switch (widget.site.id) {
       case 'pornhub':
-        return tag.id == 'asian'
-            ? context.read<PhubApi>().fetchAsian(limit: 40, exclude: exclude)
-            : context.read<PhubApi>().fetchRecommend(limit: 40, exclude: exclude);
+        if (tag.id == 'hot' || tag.id == 'popular' || tag.id == 'best') {
+          return context.read<PhubApi>().fetchRecommend(
+                limit: 40,
+                exclude: exclude,
+              );
+        }
+        if (tag.id == 'asian') {
+          return context.read<PhubApi>().fetchAsian(
+                limit: 40,
+                exclude: exclude,
+              );
+        }
+        return context.read<PhubApi>().search(_queryForTag(tag.id), page: page);
       case 'xvideos':
-        return context.read<XvideosApi>().fetchFeed(limit: 40, exclude: exclude);
+        if (tag.id == 'hot' || tag.id == 'popular' || tag.id == 'best') {
+          return context.read<XvideosApi>().fetchFeed(
+                limit: 40,
+                exclude: exclude,
+              );
+        }
+        return context.read<XvideosApi>().search(_queryForTag(tag.id), page: page);
       case 'mitao':
-        return context.read<MitaoApi>().fetchZhong(limit: 40, exclude: exclude);
+        if (tag.id == 'hot' || tag.id == 'popular' || tag.id == 'best') {
+          return context.read<MitaoApi>().fetchZhong(
+                limit: 40,
+                exclude: exclude,
+              );
+        }
+        return context.read<MitaoApi>().search(_queryForTag(tag.id), page: page);
       default:
         return api.fetchFeed(
           widget.site,
@@ -153,6 +176,33 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         );
     }
   }
+
+  String _queryForTag(String id) => switch (id) {
+        'new' => 'new',
+        'asian' => 'asian',
+        'amateur' => 'amateur',
+        'couples' => 'couple',
+        'mature' => 'mature',
+        'japanese' => 'japanese',
+        'chinese' => 'chinese',
+        'korean' => 'korean',
+        'cosplay' => 'cosplay',
+        'massage' => 'massage',
+        'office' => 'office',
+        'uniform' => 'uniform',
+        'story' => 'story',
+        'short' => 'short',
+        'long' => 'long',
+        'hd' => 'HD',
+        _ => id,
+      };
+
+  SearchSource get _playbackSource => switch (widget.site.id) {
+        'pornhub' => SearchSource.ph,
+        'xvideos' => SearchSource.x,
+        'mitao' => SearchSource.zhong,
+        _ => SearchSource.generic,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -223,11 +273,38 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         }
         return VideoCard(
           item: _items[i],
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => SearchFeedScreen(items: List<VideoItem>.from(_items), source: SearchSource.generic, initialIndex: i, title: widget.site.name, site: widget.site),
-          )),
+          onTap: () => _openPlayer(i),
         );
       },
+    );
+  }
+
+  Future<void> _openPlayer(int index) async {
+    final items = List<VideoItem>.from(_items);
+    if (widget.site.kind == SiteKind.live) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => VideoFeedScreen(
+            site: widget.site,
+            tagId: _selected?.id,
+            initialItems: items,
+            initialIndex: index,
+            autoStart: true,
+          ),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SearchFeedScreen(
+          items: items,
+          source: _playbackSource,
+          initialIndex: index,
+          title: widget.site.name,
+          site: widget.site,
+        ),
+      ),
     );
   }
 }
