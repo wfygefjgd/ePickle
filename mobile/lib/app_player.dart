@@ -65,6 +65,33 @@ class PlayerApp extends StatelessWidget {
               statusBarBrightness: Brightness.dark,
             ),
           ),
+          iconButtonTheme: IconButtonThemeData(
+            style: ButtonStyle(
+              foregroundColor: WidgetStatePropertyAll(Colors.white54),
+              overlayColor: WidgetStatePropertyAll(Colors.white12),
+              backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white70,
+              overlayColor: Colors.white12,
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white70,
+              side: const BorderSide(color: Colors.white24),
+              overlayColor: Colors.white12,
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white12,
+              foregroundColor: Colors.white70,
+              overlayColor: Colors.white24,
+            ),
+          ),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {
               TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),

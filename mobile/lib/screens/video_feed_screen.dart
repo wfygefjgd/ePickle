@@ -121,6 +121,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _lastTickMs = 0;
   double _lastPosMs = 0;
   String _lastSpeedLabel = '';
+  double _smoothedSpeedKbps = 0;
   final Map<int, VideoDetail> _detailCache = {};
   int? _prefetchingIndex;
   int _preloadCycle = 0;
@@ -1878,6 +1879,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _lastBufferedMs = 0;
     _lastTickMs = 0;
     _lastPosMs = 0;
+    _smoothedSpeedKbps = 0;
     // 200ms feels smoother than 400ms; skip UI while user is dragging.
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!_canRun ||
@@ -1908,7 +1910,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         final downloaded = (dBuf + dPlayed).clamp(0.0, double.infinity);
         if (dMs > 0 && downloaded > 0) {
           final ratio = (downloaded / dMs).clamp(0.0, 3.0);
-          final speed = (_baseSpeed * ratio).round().clamp(0, 20000);
+          final sample = (_baseSpeed * ratio).clamp(0, 20000).toDouble();
+          // Smooth short buffer bursts so the indicator remains readable.
+          _smoothedSpeedKbps = _smoothedSpeedKbps <= 0
+              ? sample
+              : (_smoothedSpeedKbps * 0.72) + (sample * 0.28);
+          final speed = _smoothedSpeedKbps.round().clamp(0, 20000);
           final label = '$speed Kbps';
           if (label != _lastSpeedLabel) {
             _lastSpeedLabel = label;

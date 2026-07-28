@@ -1642,15 +1642,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       child: Scaffold(
         backgroundColor: Colors.black,
         extendBodyBehindAppBar: true,
-        appBar: immersive
-            ? null
-            : AppBar(
-                backgroundColor: Colors.black54,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                automaticallyImplyLeading: false,
-                title: Text(widget.title, style: const TextStyle(fontSize: 16)),
-              ),
+        appBar: null,
         body: chrome.wrapBody(
           context,
           GestureDetector(
