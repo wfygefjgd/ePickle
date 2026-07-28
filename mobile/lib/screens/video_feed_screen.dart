@@ -326,6 +326,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _retryTimer?.cancel();
     _skipTimer?.cancel();
     _loadMoreTimer?.cancel();
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
     _sliderValue.dispose();
     _currentTime.dispose();
     _pageCtrl.dispose();
@@ -427,6 +429,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _skipTimer = null;
     _loadMoreTimer?.cancel();
     _loadMoreTimer = null;
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
     context.read<PhubApi>().cancelRequests('app backgrounded');
     context.read<XvideosApi>().cancelRequests('app backgrounded');
     context.read<MitaoApi>().cancelRequests('app backgrounded');
@@ -501,14 +505,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (controller != null) {
         unawaited(controller.pause().catchError((_) {}));
       }
-      if (_browserLiveUrl != null) {
-        // Pause WebView media when backgrounded (saves decoder / avoids freeze).
-        unawaited(
-          const MethodChannel('epickle/stripchat_live_control')
-              .invokeMethod<void>('pauseLive')
-              .catchError((_) {}),
-        );
-      }
       WakelockPlus.disable();
       // iOS freezes progress in background — never treat as stall on return.
       _stallTicks = 0;
@@ -520,15 +516,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (!_active) return;
       _syncAutoRotateListening();
       final controller = _controller;
-      if (_browserLiveUrl != null) {
-        unawaited(
-          const MethodChannel('epickle/stripchat_live_control')
-              .invokeMethod<void>('resumeLive')
-              .catchError((_) {}),
-        );
-        _startLiveWatchdog();
-        WakelockPlus.enable();
-      } else if (controller != null && controller.value.isInitialized) {
+      if (controller != null && controller.value.isInitialized) {
         unawaited(controller.play().then((_) {
           if (!_canRun || !identical(controller, _controller)) return;
           _startProgressTimer();
@@ -1809,11 +1797,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
     if (page == _currentIndex) return;
-    // Leaving a live WebView room — stop soft-kick timer.
-    if (_browserLiveUrl != null) {
-      _liveWatchdog?.cancel();
-      _liveWatchdog = null;
-    }
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
