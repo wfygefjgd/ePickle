@@ -501,6 +501,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (controller != null) {
         unawaited(controller.pause().catchError((_) {}));
       }
+      if (_browserLiveUrl != null) {
+        // Pause WebView media when backgrounded (saves decoder / avoids freeze).
+        unawaited(
+          const MethodChannel('epickle/stripchat_live_control')
+              .invokeMethod<void>('pauseLive')
+              .catchError((_) {}),
+        );
+      }
       WakelockPlus.disable();
       // iOS freezes progress in background — never treat as stall on return.
       _stallTicks = 0;
@@ -512,7 +520,15 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       if (!_active) return;
       _syncAutoRotateListening();
       final controller = _controller;
-      if (controller != null && controller.value.isInitialized) {
+      if (_browserLiveUrl != null) {
+        unawaited(
+          const MethodChannel('epickle/stripchat_live_control')
+              .invokeMethod<void>('resumeLive')
+              .catchError((_) {}),
+        );
+        _startLiveWatchdog();
+        WakelockPlus.enable();
+      } else if (controller != null && controller.value.isInitialized) {
         unawaited(controller.play().then((_) {
           if (!_canRun || !identical(controller, _controller)) return;
           _startProgressTimer();
@@ -1793,6 +1809,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   void _onPageChanged(int page) {
     if (_resyncingPage) return;
     if (page == _currentIndex) return;
+    // Leaving a live WebView room — stop soft-kick timer.
+    if (_browserLiveUrl != null) {
+      _liveWatchdog?.cancel();
+      _liveWatchdog = null;
+    }
     // Stall auto-lower is per-item only.
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
@@ -1803,17 +1824,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (page >= _items.length - 3) {
       _loadMore();
     }
-  }
-
-  void _onStripchatSkip() {
-    if (!_canRun || !mounted) return;
-    if (_items.isEmpty) return;
-    final next = _currentIndex + 1;
-    if (next >= _items.length) {
-      PlaybackHelpers.toast(context, '已经是最后一个了');
-      return;
-    }
-    _playIndex(next);
   }
 
   Future<void> _translateTitleOnly(String title) async {
@@ -2135,7 +2145,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               onSeekPreview: _onSeekPreview,
               onSeekStart: () => _seeking = true,
               onSeekEnd: _onSeekCommit,
-              onSkip: _onStripchatSkip,
             ),
           ),
         ),

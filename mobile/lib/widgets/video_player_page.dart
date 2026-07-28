@@ -33,7 +33,6 @@ class VideoPlayerPage extends StatefulWidget {
     required this.onSeekPreview,
     required this.onSeekStart,
     required this.onSeekEnd,
-    this.onSkip,
   });
 
   final List<VideoItem> items;
@@ -59,7 +58,6 @@ class VideoPlayerPage extends StatefulWidget {
   final ValueChanged<double> onSeekPreview;
   final VoidCallback onSeekStart;
   final ValueChanged<double> onSeekEnd;
-  final VoidCallback? onSkip;
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
@@ -198,7 +196,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           roomUrl: browserLiveUrl,
           muted: widget.muted,
           stripchatMode: widget.browserIsStripchat,
-          onSkip: widget.onSkip,
         ),
       );
     }

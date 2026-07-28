@@ -34,19 +34,14 @@ import WebKit
       binaryMessenger: messenger
     )
     stripchatControlChannel = stripchatChannel
-    StripchatLivePlatformView.skipChannel = stripchatChannel
     stripchatChannel.setMethodCallHandler { call, result in
-      switch call.method {
-      case "setMuted":
-        guard let muted = call.arguments as? Bool else {
-          result(FlutterMethodNotImplemented)
-          return
-        }
-        StripchatLivePlatformView.activeView.value?.setMuted(muted)
-        result(nil)
-      default:
+      guard call.method == "setMuted",
+            let muted = call.arguments as? Bool else {
         result(FlutterMethodNotImplemented)
+        return
       }
+      StripchatLivePlatformView.activeView.value?.setMuted(muted)
+      result(nil)
     }
 
     let channel = FlutterMethodChannel(
@@ -224,7 +219,6 @@ private final class StripchatLivePlatformView: NSObject,
   WKNavigationDelegate,
   WKUIDelegate {
   static let activeView = WeakBox<StripchatLivePlatformView>()
-  static var skipChannel: FlutterMethodChannel?
 
   private let containerView: UIView
   private let webView: WKWebView
@@ -232,19 +226,20 @@ private final class StripchatLivePlatformView: NSObject,
   private let loadingIndicator: UIActivityIndicatorView
   private let loadingProgress: UIProgressView
   private let statusLabel: UILabel
+  private let speedLabel: UILabel
   private let retryButton: UIButton
-  private let skipButton: UIButton
   private let isStripchat: Bool
   private var muted: Bool
-  private var safetyTimer: Timer?
-  private var fastPollTimer: Timer?
-  private var eventHandler: StripchatLiveEventHandler?
+  private var focusTimer: Timer?
+  private var statusTimer: Timer?
   private var progressObservation: NSKeyValueObservation?
   private var roomRequest: URLRequest?
   private var loadingStartedAt: Date?
   private var pageLoadedAt: Date?
   private var videoRevealed = false
-  private var skipButtonShown = false
+  private var lastTransferBytes: Int64 = 0
+  private var lastTransferAt: Date?
+  private var currentSpeedText = "—"
 
   init(frame: CGRect, arguments: Any?) {
     let values = arguments as? [String: Any]
@@ -257,34 +252,16 @@ private final class StripchatLivePlatformView: NSObject,
     configuration.preferences.javaScriptEnabled = true
     configuration.allowsInlineMediaPlayback = true
     configuration.mediaTypesRequiringUserActionForPlayback = []
-    let userContent = WKUserContentController()
-    userContent.addUserScript(WKUserScript(
-      source: StripchatLiveEventHandler.cssScript,
-      injectionTime: .atDocumentStart,
-      forMainFrameOnly: false
-    ))
-    userContent.addUserScript(WKUserScript(
-      source: StripchatLiveEventHandler.userScript,
-      injectionTime: .atDocumentEnd,
-      forMainFrameOnly: false
-    ))
-    let handler = StripchatLiveEventHandler()
-    userContent.add(handler, name: "epickleLiveEvent")
-    configuration.userContentController = userContent
-    eventHandler = handler
     containerView = UIView(frame: frame)
     webView = WKWebView(frame: frame, configuration: configuration)
     loadingOverlay = UIView(frame: frame)
     loadingIndicator = UIActivityIndicatorView(style: .large)
     loadingProgress = UIProgressView(progressViewStyle: .default)
     statusLabel = UILabel()
+    speedLabel = UILabel()
     retryButton = UIButton(type: .system)
-    skipButton = UIButton(type: .system)
     super.init()
 
-    handler.onEvent = { [weak self] event in
-      self?.handleLiveEvent(event)
-    }
     StripchatLivePlatformView.activeView.value = self
     containerView.backgroundColor = .black
     webView.frame = containerView.bounds
@@ -352,10 +329,9 @@ private final class StripchatLivePlatformView: NSObject,
   }
 
   deinit {
-    safetyTimer?.invalidate()
-    fastPollTimer?.invalidate()
+    focusTimer?.invalidate()
+    statusTimer?.invalidate()
     progressObservation?.invalidate()
-    webView.configuration.userContentController.removeScriptMessageHandler(forName: "epickleLiveEvent")
     NotificationCenter.default.removeObserver(self)
     webView.stopLoading()
     if StripchatLivePlatformView.activeView.value === self {
@@ -377,11 +353,16 @@ private final class StripchatLivePlatformView: NSObject,
     loadingProgress.trackTintColor = UIColor.white.withAlphaComponent(0.18)
     loadingProgress.setProgress(0.04, animated: false)
 
-    statusLabel.text = "正在连接 Stripchat…"
+    statusLabel.text = "正在连接…"
     statusLabel.textColor = .white
     statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
     statusLabel.textAlignment = .center
     statusLabel.numberOfLines = 2
+
+    speedLabel.text = "网速 —"
+    speedLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+    speedLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+    speedLabel.textAlignment = .center
 
     retryButton.setTitle("重新连接", for: .normal)
     retryButton.setTitleColor(.white, for: .normal)
@@ -392,21 +373,12 @@ private final class StripchatLivePlatformView: NSObject,
     retryButton.isHidden = true
     retryButton.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
 
-    skipButton.setTitle("跳过", for: .normal)
-    skipButton.setTitleColor(.white, for: .normal)
-    skipButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-    skipButton.backgroundColor = UIColor(white: 0.25, alpha: 1)
-    skipButton.layer.cornerRadius = 18
-    skipButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 22, bottom: 8, right: 22)
-    skipButton.isHidden = true
-    skipButton.addTarget(self, action: #selector(handleSkip), for: .touchUpInside)
-
     let stack = UIStackView(arrangedSubviews: [
       loadingIndicator,
       statusLabel,
+      speedLabel,
       loadingProgress,
       retryButton,
-      skipButton,
     ])
     stack.axis = .vertical
     stack.alignment = .center
@@ -429,12 +401,7 @@ private final class StripchatLivePlatformView: NSObject,
       showFailure("房间地址无效")
       return
     }
-    safetyTimer?.invalidate()
-    safetyTimer = nil
-    fastPollTimer?.invalidate()
-    fastPollTimer = nil
-    videoRevealed = false
-    skipButtonShown = false
+    focusTimer?.invalidate()
     if isStripchat {
       showLoading(resetClock: true)
     } else {
@@ -457,86 +424,101 @@ private final class StripchatLivePlatformView: NSObject,
     loadingProgress.setProgress(0.04, animated: false)
     if resetClock || loadingStartedAt == nil {
       loadingStartedAt = Date()
-      pageLoadedAt = nil
+      pageLoadedAt = nil  // 重置网页加载时间
+      lastTransferBytes = 0
+      lastTransferAt = nil
+      currentSpeedText = "—"
     }
-    statusLabel.text = "正在连接 Stripchat… 0 秒"
-    startSafetyTimer()
-  }
-
-  private func startSafetyTimer() {
-    safetyTimer?.invalidate()
-    safetyTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) {
+    statusLabel.text = "正在连接… 0 秒"
+    speedLabel.text = "网速 —"
+    statusTimer?.invalidate()
+    statusTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) {
       [weak self] _ in
-      self?.updateSafetyStatus()
+      self?.updateLoadingStatus()
     }
   }
 
-  private func startFastPollTimer() {
-    fastPollTimer?.invalidate()
-    fastPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
-      [weak self] _ in
-      self?.installVideoFocus()
-    }
-  }
-
-  @objc private func handleSkip() {
-    guard isStripchat, !videoRevealed else { return }
-    fastPollTimer?.invalidate()
-    fastPollTimer = nil
-    safetyTimer?.invalidate()
-    safetyTimer = nil
-    StripchatLivePlatformView.skipChannel?.invokeMethod("skip", arguments: nil)
-  }
-
-  private func updateSafetyStatus() {
+  private func updateLoadingStatus() {
     guard isStripchat else { return }
-    guard !videoRevealed, let loadingStartedAt else {
-      safetyTimer?.invalidate()
-      safetyTimer = nil
-      return
-    }
+    guard !videoRevealed, let loadingStartedAt else { return }
     let elapsed = max(0, Int(Date().timeIntervalSince(loadingStartedAt)))
 
-    if elapsed >= 20 {
+    // 总超时 30 秒
+    if elapsed >= 30 {
       showFailure("连接超时，请检查网络或更换主播")
       return
     }
 
-    if let pageLoadedAt, Date().timeIntervalSince(pageLoadedAt) >= 10 {
+    // 网页加载完成后,15 秒内找不到视频就超时
+    if let pageLoadedAt, Date().timeIntervalSince(pageLoadedAt) >= 15 {
       showFailure("未能捕获直播画面，主播可能离线或切换房间")
       return
-    }
-
-    // 8 秒后显示跳过按钮，让用户可以提前离开
-    if elapsed >= 8 && !skipButtonShown {
-      skipButtonShown = true
-      skipButton.isHidden = false
     }
 
     if webView.estimatedProgress >= 0.95 {
       let pageElapsed = pageLoadedAt.map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
       statusLabel.text = "网页已加载，正在寻找直播画面… \(pageElapsed) 秒"
-    } else if elapsed >= 10 {
+    } else if elapsed >= 15 {
       statusLabel.text = "连接较慢，请检查网络… \(elapsed) 秒"
     } else {
-      statusLabel.text = "正在连接 Stripchat… \(elapsed) 秒"
+      statusLabel.text = "正在连接… \(elapsed) 秒"
     }
+    speedLabel.text = "网速 \(currentSpeedText)"
+    sampleNetworkSpeed()
+  }
+
+  private func sampleNetworkSpeed() {
+    let script = """
+      (() => {
+        try {
+          let total = 0;
+          const nav = performance.getEntriesByType('navigation')[0];
+          if (nav) total += (nav.transferSize || nav.encodedBodySize || 0);
+          performance.getEntriesByType('resource').forEach(e => {
+            total += (e.transferSize || e.encodedBodySize || 0);
+          });
+          return total;
+        } catch (_) { return 0; }
+      })()
+      """
+    webView.evaluateJavaScript(script) { [weak self] value, _ in
+      guard let self, !self.videoRevealed else { return }
+      let bytes = Int64((value as? NSNumber)?.int64Value ?? (value as? Int).map { Int64($0) } ?? 0)
+      let now = Date()
+      if let lastAt = self.lastTransferAt {
+        let dt = now.timeIntervalSince(lastAt)
+        let db = max(0, bytes - self.lastTransferBytes)
+        if dt > 0.2 {
+          let bps = Double(db) / dt
+          self.currentSpeedText = self.formatSpeed(bps)
+          self.speedLabel.text = "网速 \(self.currentSpeedText)"
+        }
+      }
+      self.lastTransferBytes = max(self.lastTransferBytes, bytes)
+      self.lastTransferAt = now
+    }
+  }
+
+  private func formatSpeed(_ bytesPerSecond: Double) -> String {
+    if bytesPerSecond < 1024 {
+      return String(format: "%.0f B/s", bytesPerSecond)
+    }
+    if bytesPerSecond < 1024 * 1024 {
+      return String(format: "%.1f KB/s", bytesPerSecond / 1024)
+    }
+    return String(format: "%.2f MB/s", bytesPerSecond / (1024 * 1024))
   }
 
   private func showFailure(_ message: String) {
     guard isStripchat else { return }
     guard !videoRevealed else { return }
-    safetyTimer?.invalidate()
-    safetyTimer = nil
-    fastPollTimer?.invalidate()
-    fastPollTimer = nil
+    statusTimer?.invalidate()
+    statusTimer = nil
     loadingIndicator.stopAnimating()
     loadingProgress.progressTintColor = .systemRed
     loadingProgress.setProgress(1, animated: true)
     statusLabel.text = message
     retryButton.isHidden = false
-    skipButton.isHidden = false
-    skipButton.setTitle("切换下一个", for: .normal)
     loadingOverlay.alpha = 1
     loadingOverlay.isHidden = false
   }
@@ -556,22 +538,23 @@ private final class StripchatLivePlatformView: NSObject,
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard isStripchat else { return }
-    pageLoadedAt = Date()
+    pageLoadedAt = Date()  // 记录网页加载完成时间
     loadingProgress.setProgress(0.96, animated: true)
     statusLabel.text = "网页已加载，正在寻找直播画面… 0 秒"
-    fastPollTimer?.invalidate()
-    fastPollTimer = nil
     installVideoFocus()
-    startSafetyTimer()
+    focusTimer?.invalidate()
+    focusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+      [weak self] _ in
+      self?.installVideoFocus()
+    }
   }
 
   func webView(
     _ webView: WKWebView,
     didStartProvisionalNavigation navigation: WKNavigation!
   ) {
-    if isStripchat, !videoRevealed {
+    if isStripchat {
       showLoading(resetClock: loadingStartedAt == nil)
-      startFastPollTimer()
     }
   }
 
@@ -736,117 +719,25 @@ private final class StripchatLivePlatformView: NSObject,
     webView.evaluateJavaScript(script) { [weak self] value, _ in
       guard let self, !self.videoRevealed else { return }
       let focused = (value as? Bool) ?? (value as? NSNumber)?.boolValue ?? false
-      if focused {
-        self.handleVideoFound()
+      guard focused else { return }
+      self.videoRevealed = true
+      self.statusTimer?.invalidate()
+      self.statusTimer = nil
+      self.loadingStartedAt = nil
+      self.loadingIndicator.stopAnimating()
+      UIView.animate(
+        withDuration: 0.18,
+        delay: 0,
+        options: [.beginFromCurrentState, .curveEaseOut]
+      ) {
+        self.webView.alpha = 1
+        self.loadingOverlay.alpha = 0
+      } completion: { _ in
+        self.loadingOverlay.isHidden = true
+        self.loadingOverlay.alpha = 1
       }
     }
   }
-
-  private func handleVideoFound() {
-    guard isStripchat, !videoRevealed else { return }
-    videoRevealed = true
-    safetyTimer?.invalidate()
-    safetyTimer = nil
-    fastPollTimer?.invalidate()
-    fastPollTimer = nil
-    loadingStartedAt = nil
-    loadingIndicator.stopAnimating()
-    UIView.animate(
-      withDuration: 0.18,
-      delay: 0,
-      options: [.beginFromCurrentState, .curveEaseOut]
-    ) {
-      self.webView.alpha = 1
-      self.loadingOverlay.alpha = 0
-    } completion: { _ in
-      self.loadingOverlay.isHidden = true
-      self.loadingOverlay.alpha = 1
-    }
-  }
-
-  private func handleLiveEvent(_ event: String) {
-    guard isStripchat, !videoRevealed else { return }
-    switch event {
-    case "playing", "loadeddata", "canplay", "timeupdate":
-      handleVideoFound()
-    default:
-      break
-    }
-  }
-}
-
-private final class StripchatLiveEventHandler: NSObject, WKScriptMessageHandler {
-  var onEvent: ((String) -> Void)?
-
-  func userContentController(
-    _ userContentController: WKUserContentController,
-    didReceive message: WKScriptMessage
-  ) {
-    if message.name == "epickleLiveEvent",
-       let body = message.body as? [String: Any],
-       let event = body["event"] as? String {
-      DispatchQueue.main.async { [weak self] in
-        self?.onEvent?(event)
-      }
-    }
-  }
-
-  static let cssScript = """
-    (() => {
-      const style = document.createElement('style');
-      style.id = '__epickle_live_css';
-      style.textContent = `
-        html, body { margin: 0 !important; padding: 0 !important;
-          width: 100% !important; height: 100% !important;
-          min-width: 100% !important; min-height: 100% !important;
-          overflow: hidden !important; background: #000 !important; }
-        video { position: fixed !important; inset: 0 !important;
-          width: 100vw !important; height: 100vh !important;
-          max-width: none !important; max-height: none !important;
-          margin: 0 !important; padding: 0 !important;
-          transform: none !important;
-          object-fit: contain !important; background: #000 !important;
-          z-index: 2147483647 !important; visibility: visible !important; }
-      `;
-      document.documentElement.appendChild(style);
-    })();
-  """
-
-  static let userScript = """
-    (() => {
-      if (window.__epickleBridge) return;
-      window.__epickleBridge = {
-        revealed: false,
-        post(event) {
-          if (this.revealed) return;
-          window.webkit.messageHandlers.epickleLiveEvent.postMessage({ event });
-          if (event === 'playing' || event === 'loadeddata') this.revealed = true;
-        }
-      };
-      function setupVideo(video) {
-        if (video.__epickleSetup) return;
-        video.__epickleSetup = true;
-        video.addEventListener('loadeddata', () => window.__epickleBridge.post('loadeddata'));
-        video.addEventListener('playing', () => window.__epickleBridge.post('playing'));
-        video.addEventListener('canplay', () => window.__epickleBridge.post('canplay'));
-        video.addEventListener('timeupdate', () => {
-          if (video.readyState >= 3) window.__epickleBridge.post('timeupdate');
-        });
-      }
-      const observer = new MutationObserver(mutations => {
-        for (const m of mutations) {
-          for (const node of m.addedNodes) {
-            if (node.tagName === 'VIDEO') setupVideo(node);
-            if (node.querySelectorAll) {
-              node.querySelectorAll('video').forEach(setupVideo);
-            }
-          }
-        }
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-      document.querySelectorAll('video').forEach(setupVideo);
-    })();
-  """
 }
 
 private final class BrowserRenderRequest: NSObject, WKNavigationDelegate {
