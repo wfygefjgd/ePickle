@@ -10,7 +10,31 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: pub get
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Test
+        working-directory: mobile
+        run: flutter test
+
   android:
+    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,6 +79,7 @@ jobs:
           retention-days: 30
 
   ios:
+    needs: quality
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -210,7 +235,7 @@ jobs:
           retention-days: 30
 
   publish:
-    needs: [android, ios]
+    needs: [quality, android, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

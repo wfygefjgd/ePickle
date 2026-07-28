@@ -57,7 +57,11 @@ class LayoutSettings extends ChangeNotifier {
 
   SiteDef? get liveSite {
     final site = SourceCatalog.byId(_liveId);
-    return site?.ready == true ? site : SourceCatalog.chaturbate;
+    if (site?.ready == true && !isSiteHidden(site!)) return site;
+    for (final candidate in enabledLiveSites) {
+      return candidate;
+    }
+    return null;
   }
 
   Future<void> load() async {
@@ -210,7 +214,11 @@ class LayoutSettings extends ChangeNotifier {
 
   Future<void> setLiveId(String id) async {
     final site = SourceCatalog.byId(id);
-    if (site?.kind != SiteKind.live || site?.ready != true) return;
+    if (site?.kind != SiteKind.live ||
+        site?.ready != true ||
+        isSiteHidden(site!)) {
+      return;
+    }
     _liveId = id;
     notifyListeners();
     try {

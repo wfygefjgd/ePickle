@@ -56,7 +56,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _index < _feedKinds.length) {
+      if (mounted &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          _index < _feedKinds.length) {
         _feedKeys[_index].currentState?.startPlaying();
       }
     });

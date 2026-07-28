@@ -56,7 +56,9 @@ class _SiteFeedPageState extends State<SiteFeedPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed || _index >= _keys.length) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _index < _keys.length) {
+      if (mounted &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          _index < _keys.length) {
         _keys[_index].currentState?.startPlaying();
       }
     });

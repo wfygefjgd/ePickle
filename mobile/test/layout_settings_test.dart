@@ -39,4 +39,33 @@ void main() {
     expect(settings.customUrls, ['https://videos.com']);
     expect(SourceCatalog.all, isNotEmpty);
   });
+
+  test('hidden sites are removed from home/search sources and persist',
+      () async {
+    final settings = LayoutSettings();
+
+    await settings.setSiteHidden(SourceCatalog.pornhub, true);
+
+    expect(settings.isSiteHidden(SourceCatalog.pornhub), isTrue);
+    expect(
+      settings.enabledVideoSites.map((site) => site.id),
+      isNot(contains('pornhub')),
+    );
+
+    final restored = LayoutSettings();
+    await restored.load();
+    expect(restored.isSiteHidden(SourceCatalog.pornhub), isTrue);
+    expect(
+      restored.enabledVideoSites.map((site) => site.id),
+      isNot(contains('pornhub')),
+    );
+  });
+
+  test('hidden live site cannot remain the default live entry', () async {
+    final settings = LayoutSettings();
+
+    await settings.setSiteHidden(SourceCatalog.chaturbate, true);
+
+    expect(settings.liveSite?.id, isNot('chaturbate'));
+  });
 }
