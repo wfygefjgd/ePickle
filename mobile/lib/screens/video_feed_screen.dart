@@ -821,7 +821,27 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   /// Temporarily disabled auto-skip so failed items stay on screen for debugging.
   void _scheduleSkipToNext(int fromIndex) {
     if (!_canRun) return;
+    final settings = _settings ?? context.read<AppSettings>();
+    if (!settings.autoSkipUnavailable) {
+      PlaybackHelpers.toast(
+        context,
+        '当前频道无法播放；可在设置中开启“自动跳过无信号频道”。',
+      );
+      return;
+    }
+    if (_items.length < 2) return;
+    final next = (fromIndex + 1) % _items.length;
+    PlaybackHelpers.toast(
+      context,
+      '当前频道无信号，正在切换下一个；可在设置中关闭自动跳过。',
+    );
+    _retryTimer?.cancel();
+    _retryTimer = Timer(const Duration(milliseconds: 700), () {
+      if (_canRun && mounted) _playIndex(next);
+    });
+    return;
     // One silent retry only — never auto-jump to next video.
+    /*
     if (!_retried.contains(fromIndex)) {
       _retried.add(fromIndex);
       _retryTimer?.cancel();
@@ -838,6 +858,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         duration: const Duration(seconds: 3),
       );
     }
+    */
   }
 
   Future<void> _prefetchDetail(int index) async {
@@ -1654,9 +1675,11 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _currentIndex = index;
     _currentDetail = detail;
     _browserLiveUrl = url;
-    // All live browser pages use the focused video presentation. The flag is
-    // retained for the native platform-view API name for compatibility.
-    _browserIsStripchat = stripchat || live;
+    // Chaturbate can restore its full site shell after iOS backgrounding.
+    // Keep the focused presentation scoped to that affected provider; all
+    // other live sites, including Stripchat, show their page immediately.
+    final focusLive = live && widget.site?.id == 'chaturbate';
+    _browserIsStripchat = focusLive;
     _titleText = title;
     _totalTime = live ? 'LIVE' : '-';
     _speedLabel = live ? '' : '网页';

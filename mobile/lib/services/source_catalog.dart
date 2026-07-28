@@ -170,9 +170,9 @@ class SourceCatalog {
         iconSelected: Icons.people),
     SiteTag(
         id: 'more',
-        label: '\u66f4',
-        icon: Icons.video_collection_outlined,
-        iconSelected: Icons.video_collection),
+        label: '\u4e9a',
+        icon: Icons.public_outlined,
+        iconSelected: Icons.public),
   ];
 
   static const pornhub = SiteDef(

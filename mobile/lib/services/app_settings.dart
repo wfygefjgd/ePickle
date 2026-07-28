@@ -17,6 +17,7 @@ class AppSettings extends ChangeNotifier {
   static const _kProxyUserConfigured = 'proxy_user_configured';
   static const _kAutoRotate = 'auto_rotate_landscape';
   static const _kPromptOnStall = 'auto_lower_on_stall';
+  static const _kAutoSkipUnavailable = 'auto_skip_unavailable';
 
   bool _skipIntro = true;
   bool _muted = false;
@@ -32,6 +33,7 @@ class AppSettings extends ChangeNotifier {
   String _proxyAutoNote = '';
   bool _autoRotate = true;
   bool _autoLowerOnStall = true;
+  bool _autoSkipUnavailable = true;
 
   bool get skipIntro => _skipIntro;
   bool get muted => _muted;
@@ -44,6 +46,7 @@ class AppSettings extends ChangeNotifier {
   String get proxyAutoNote => _proxyAutoNote;
   bool get autoRotate => _autoRotate;
   bool get autoLowerOnStall => _autoLowerOnStall;
+  bool get autoSkipUnavailable => _autoSkipUnavailable;
 
   bool get hasProxyEndpoint =>
       _proxyHost.isNotEmpty && _proxyPort > 0 && _proxyPort < 65536;
@@ -114,6 +117,7 @@ class AppSettings extends ChangeNotifier {
       _qualityCap = p.getInt(_kQualityCap) ?? 0;
       _autoRotate = p.getBool(_kAutoRotate) ?? true;
       _autoLowerOnStall = p.getBool(_kPromptOnStall) ?? true;
+      _autoSkipUnavailable = p.getBool(_kAutoSkipUnavailable) ?? true;
 
       // Default to DIRECT (TUN handles routing at system level).
       // Only enable proxy if the user explicitly configured one (clears stale auto-detect).
@@ -135,6 +139,7 @@ class AppSettings extends ChangeNotifier {
       _userConfiguredProxy = false;
       _autoRotate = true;
       _autoLowerOnStall = true;
+      _autoSkipUnavailable = true;
       _proxyEnabled = false;
       _proxyHost = '';
       _proxyPort = 0;
@@ -207,6 +212,16 @@ class AppSettings extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_kPromptOnStall, v);
+    } catch (_) {}
+  }
+
+  Future<void> setAutoSkipUnavailable(bool v) async {
+    if (_autoSkipUnavailable == v) return;
+    _autoSkipUnavailable = v;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_kAutoSkipUnavailable, v);
     } catch (_) {}
   }
 

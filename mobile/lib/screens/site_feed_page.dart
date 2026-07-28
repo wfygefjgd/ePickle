@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/player_chrome.dart';
 import '../services/source_catalog.dart';
 import 'site_search_page.dart';
+import 'site_tag_directory_page.dart';
 import 'video_feed_screen.dart';
 
 /// Secondary page: bottom tabs (site sections) + search tab + back.
@@ -26,13 +27,15 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
   List<SiteTag> get _contentTabs {
     final t = widget.site.tags;
     if (t.isEmpty) return const [];
-    return t.length > 4 ? t.sublist(0, 4) : List<SiteTag>.from(t);
+    return t.length > 3 ? t.sublist(0, 3) : List<SiteTag>.from(t);
   }
 
   /// Bottom destinations = content tabs + search.
-  int get _searchIndex => _contentTabs.length;
+  int get _tagIndex => _contentTabs.length;
+  int get _searchIndex => _tagIndex + 1;
 
-  int get _destinationCount => _contentTabs.length + 1;
+  int get _destinationCount =>
+      _contentTabs.length + 1 + (widget.site.kind == SiteKind.video ? 1 : 0);
 
   @override
   void initState() {
@@ -105,6 +108,8 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
             const Center(
               child: Text('无标签', style: TextStyle(color: Colors.white54)),
             )
+          else if (_index == _tagIndex)
+            SiteTagDirectoryPage(key: ValueKey('tags_${site.id}'), site: site)
           else if (onSearch)
             SiteSearchPage(key: ValueKey('search_${site.id}'), site: site)
           else
@@ -167,13 +172,22 @@ class _SiteFeedPageState extends State<SiteFeedPage> {
                           label: t.label,
                         ),
                       const NavigationDestination(
+                        icon: Icon(Icons.sell_outlined),
+                        selectedIcon: Icon(
+                          Icons.sell,
+                          color: Color(0xFFFF6B35),
+                        ),
+                        label: '\u6807\u7b7e',
+                      ),
+                      if (site.kind == SiteKind.video)
+                        const NavigationDestination(
                         icon: Icon(Icons.search),
                         selectedIcon: Icon(
                           Icons.search,
                           color: Color(0xFFFF6B35),
                         ),
                         label: '搜',
-                      ),
+                        ),
                     ],
                   ),
                 ),
