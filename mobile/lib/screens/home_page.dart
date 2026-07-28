@@ -78,8 +78,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final layout = context.watch<LayoutSettings>();
     final sites = layout.enabledVideoSites;
-    final lives =
-        SourceCatalog.liveSites.where((s) => s.ready).toList(growable: false);
+    final lives = layout.enabledLiveSites;
     final live = layout.liveSite ?? SourceCatalog.chaturbate;
 
     return Scaffold(
@@ -135,7 +134,9 @@ class _HomePageState extends State<HomePage> {
                       swipeEnabled: false,
                       onTap: () => _openSite(s),
                       onDelete: () {},
-                      subtitle: s.id == live.id ? '默认直播' : null,
+                      subtitle: s.mirrors.length > 1
+                          ? '${s.mirrors.length} 个域名${s.id == live.id ? ' · 默认直播' : ''}'
+                          : (s.id == live.id ? '默认直播' : null),
                     ),
                 ],
               ],

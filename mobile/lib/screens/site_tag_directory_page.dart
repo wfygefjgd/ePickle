@@ -225,7 +225,12 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
   }
 
   Widget _buildTagRail() => ListView.separated(
-        padding: const EdgeInsets.fromLTRB(8, 10, 8, 18),
+        padding: EdgeInsets.fromLTRB(
+          8,
+          10,
+          8,
+          110 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         itemCount: _tags.length,
         separatorBuilder: (_, __) => const SizedBox(height: 7),
         itemBuilder: (_, i) {
@@ -261,7 +266,10 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
     if (_selected == null) return const Center(child: Text('\u4ece\u5de6\u4fa7\u9009\u62e9\u6807\u7b7e', style: TextStyle(color: Colors.white54)));
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.only(top: 6, bottom: 18),
+      padding: EdgeInsets.only(
+        top: 6,
+        bottom: 110 + MediaQuery.viewPaddingOf(context).bottom,
+      ),
       itemCount: _items.length + 1,
       itemBuilder: (_, i) {
         if (i == _items.length) {
@@ -293,6 +301,7 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
           ),
         ),
       );
+      _clearAfterPlayback();
       return;
     }
     await Navigator.of(context).push(
@@ -306,5 +315,20 @@ class _SiteTagDirectoryPageState extends State<SiteTagDirectoryPage> {
         ),
       ),
     );
+    _clearAfterPlayback();
+  }
+
+  void _clearAfterPlayback() {
+    if (!mounted) return;
+    _generation++;
+    setState(() {
+      _selected = null;
+      _items = const [];
+      _page = 0;
+      _loading = false;
+      _loadingMore = false;
+      _hasMore = false;
+      _error = null;
+    });
   }
 }

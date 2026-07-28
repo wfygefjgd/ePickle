@@ -34,6 +34,7 @@ class SiteDef {
     this.ready = true,
     this.custom = false,
     this.directoryTags = const [],
+    this.parserId,
   });
 
   final String id;
@@ -47,11 +48,16 @@ class SiteDef {
   final bool ready;
   final bool custom;
   final List<SiteTag> directoryTags;
+  /// Adapter used by the generic parser for user-added sites.
+  final String? parserId;
+
+  bool get isStripchat => id == 'stripchat' || parserId == 'stripchat';
+  bool get isChaturbate => id == 'chaturbate' || parserId == 'chaturbate';
 
   String get primaryHost =>
       mirrors.isNotEmpty ? mirrors.first : 'https://example.com';
 
-  factory SiteDef.customFromUrl(String url) {
+  factory SiteDef.customFromUrl(String url, {String parserId = 'generic_vod'}) {
     final u = url.trim().replaceAll(RegExp(r'/$'), '');
     final uri = Uri.tryParse(u);
     final host = uri?.host ?? u;
@@ -60,15 +66,25 @@ class SiteDef {
         : '${uri.authority}${uri.path == '/' ? '' : uri.path}';
     final letter = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
     return SiteDef(
-      id: 'custom_${Uri.encodeComponent(u)}',
+      id: 'custom_${parserId}_${Uri.encodeComponent(u)}',
       name: displayName,
-      kind: SiteKind.video,
+      kind: parserId == 'stripchat' || parserId == 'chaturbate'
+          ? SiteKind.live
+          : SiteKind.video,
       color: 0xFF607D8B,
       letter: letter,
       mirrors: [u.startsWith('http') ? u : 'https://$u'],
-      tags: SourceCatalog.vodTags,
+      tags: parserId == 'stripchat'
+          ? SourceCatalog.stripchatTags
+          : parserId == 'chaturbate'
+              ? SourceCatalog.chaturbateTags
+              : SourceCatalog.vodTags,
+      directoryTags: parserId == 'stripchat' || parserId == 'chaturbate'
+          ? SourceCatalog.liveDirectoryTags
+          : SourceCatalog.vodDirectoryTags,
       ready: true,
       custom: true,
+      parserId: parserId,
     );
   }
 }

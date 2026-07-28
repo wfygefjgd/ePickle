@@ -63,6 +63,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   int _seq = 0;
 
   VideoPlayerController? _controller;
+  VideoPlayerController? _frozenController;
+  int? _frozenIndex;
+  int _frozenStreamHeight = 0;
   bool _pageLoading = false;
   bool _loadingMore = false;
   bool _muted = false;
@@ -117,6 +120,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
   bool _resyncingPage = false;
   bool _appInForeground = true;
   bool _resumePlaybackOnForeground = false;
+  bool _allowPop = false;
+  bool _exiting = false;
   final Set<VideoPlayerController> _initializingControllers = {};
 
   late final Map<String, String> _headers = _buildHeaders();
@@ -248,9 +253,16 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     final c = _controller;
     _controller = null;
     try {
+      c?.setVolume(0);
       c?.pause();
       c?.dispose();
     } catch (_) {}
+    final frozen = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (frozen != null) {
+      unawaited(frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()));
+    }
     _disposeInitializingPlayersSync();
     _disposePreloadSync();
     WakelockPlus.disable();
@@ -289,6 +301,48 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _preloadIndex4 = null;
     _preloadStream4 = null;
     _preloadRetries4 = 0;
+  }
+
+  Future<void> _exitAfterStopping() async {
+    if (_exiting) return;
+    _exiting = true;
+    _appInForeground = false;
+    _seq++;
+    _progressTimer?.cancel();
+    _retryTimer?.cancel();
+    _skipTimer?.cancel();
+
+    final players = <VideoPlayerController>{
+      if (_controller != null) _controller!,
+      if (_frozenController != null) _frozenController!,
+      if (_preloadController != null) _preloadController!,
+      if (_preloadController2 != null) _preloadController2!,
+      if (_preloadController3 != null) _preloadController3!,
+      if (_preloadController4 != null) _preloadController4!,
+    };
+    _controller = null;
+    _frozenController = null;
+    _frozenIndex = null;
+    _preloadController = null;
+    _preloadController2 = null;
+    _preloadController3 = null;
+    _preloadController4 = null;
+    _disposeInitializingPlayersSync();
+
+    await Future.wait(players.map((player) async {
+      try {
+        await player.pause();
+      } catch (_) {}
+      try {
+        await player.dispose();
+      } catch (_) {}
+    })).timeout(const Duration(seconds: 2), onTimeout: () => const []);
+    WakelockPlus.disable();
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   VideoPlayerController _createNetworkPlayer(
@@ -522,9 +576,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     VideoPlayerController? preloaded;
     VideoDetail? preloadDetail;
     StreamQuality? preloadStream;
+    int? frozenTargetHeight;
     var preloadSlot = 0;
 
-    if (_preloadIndex == index &&
+    if (_frozenIndex == index &&
+        _frozenController != null &&
+        _frozenController!.value.isInitialized) {
+      preloaded = _frozenController!;
+      preloadDetail = _detailCache[index];
+      frozenTargetHeight = _frozenStreamHeight;
+      preloadSlot = -1;
+    } else if (_preloadIndex == index &&
         _preloadController != null &&
         _preloadController!.value.isInitialized) {
       preloaded = _preloadController!;
@@ -559,8 +621,14 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     if (preloaded != null) {
       final previous = _controller;
+      final previousIndex = _index;
+      final previousHeight = _currentStreamHeight;
       _controller = null;
-      if (preloadSlot == 1) {
+      if (preloadSlot == -1) {
+        _frozenController = null;
+        _frozenIndex = null;
+        preloadStream = null;
+      } else if (preloadSlot == 1) {
         _preloadController = null;
         _preloadIndex = null;
         _preloadStream = null;
@@ -578,13 +646,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         _preloadStream4 = null;
       }
 
-      await _disposePlayer(seqGuard: seq, exclude: preloaded);
       if (previous != null && !identical(previous, preloaded)) {
-        try {
-          await previous.pause();
-        } catch (_) {}
-        // ignore: unawaited_futures
-        previous.dispose().catchError((_) {});
+        await _freezePrevious(previous, previousIndex, previousHeight);
       }
       if (seq != _seq || !_canRun || !mounted) {
         try {
@@ -593,7 +656,9 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
         return;
       }
       _index = index;
-      _currentStreamHeight = preloadStream?.height ?? 0;
+      _currentStreamHeight = preloadSlot == -1
+          ? (frozenTargetHeight ?? 0)
+          : (preloadStream?.height ?? 0);
       _stallTicks = 0;
       _stallLoweredForItem = false;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
@@ -690,7 +755,13 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     _disposePreload();
 
-    await _disposePlayer();
+    final previous = _controller;
+    final previousIndex = _index;
+    final previousHeight = _currentStreamHeight;
+    _controller = null;
+    if (previous != null) {
+      await _freezePrevious(previous, previousIndex, previousHeight);
+    }
     if (seq != _seq || !_canRun || !mounted) return;
 
     setState(() {
@@ -901,7 +972,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
       final d = await _fetchDetail(url);
       if (seq != _seq || !_canRun) return;
       _detailCache[index] = d;
-      _detailCache.removeWhere((k, _) => (k - _index).abs() > 3);
+      _prunePageState(_index);
     } catch (_) {
       // Ignore errors in prefetch
     } finally {
@@ -1263,23 +1334,35 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     } catch (_) {}
   }
 
-  Future<void> _disposePlayer({
-    int? seqGuard,
-    VideoPlayerController? exclude,
-  }) async {
-    _progressTimer?.cancel();
-    _progressTimer = null;
-    final c = _controller;
-    if (c == null || identical(c, exclude)) return;
-    if (identical(_controller, c)) {
-      _controller = null;
+  Future<void> _freezePrevious(
+    VideoPlayerController controller,
+    int index,
+    int streamHeight,
+  ) async {
+    final stale = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (stale != null && !identical(stale, controller)) {
+      try {
+        await stale.pause();
+      } catch (_) {}
+      try {
+        await stale.dispose();
+      } catch (_) {}
     }
     try {
-      await c.pause();
+      await controller.setVolume(0);
+      await controller.pause();
     } catch (_) {}
-    try {
-      await c.dispose();
-    } catch (_) {}
+    if (!_canRun) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      return;
+    }
+    _frozenController = controller;
+    _frozenIndex = index;
+    _frozenStreamHeight = streamHeight;
   }
 
   void _startTimer() {
@@ -1348,7 +1431,7 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
     _stallTicks = 0;
-    _retried.removeWhere((i) => (i - page).abs() > 3);
+    _prunePageState(page);
     _playIndex(page);
     // ignore: unawaited_futures
     _ensureMoreIfNearEnd(page);
@@ -1539,9 +1622,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: !immersive,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && immersive) {
+        if (didPop) return;
+        if (immersive) {
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {
             _autoRotate?.syncLandscapeMode(false, fromUser: true);
@@ -1550,7 +1634,10 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
               _schedulePageResync();
             }
           });
+          return;
         }
+        // ignore: unawaited_futures
+        _exitAfterStopping();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -1926,16 +2013,17 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
 
   /// Clean up detail cache that's far from current position to prevent memory growth
   void _cleanupDetailCache(int currentIndex) {
-    const maxCacheDistance = 10;
-    final toRemove = <int>[];
-    for (final key in _detailCache.keys) {
-      if ((key - currentIndex).abs() > maxCacheDistance) {
-        toRemove.add(key);
-      }
-    }
-    for (final key in toRemove) {
-      _detailCache.remove(key);
-    }
+    _prunePageState(currentIndex);
+  }
+
+  void _prunePageState(int currentIndex) {
+    final lastFuturePage = currentIndex + _preloadSlotCount + 1;
+    _detailCache.removeWhere(
+      (index, _) => index < currentIndex - 1 || index > lastFuturePage,
+    );
+    _retried.removeWhere(
+      (index) => index < currentIndex - 1 || index > lastFuturePage,
+    );
   }
 }
 

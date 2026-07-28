@@ -111,6 +111,26 @@ Future<void> showPlayerSettingsSheet(
                       value: settings.autoSkipUnavailable,
                       onChanged: settings.setAutoSkipUnavailable,
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.add_link, color: Color(0xFFFF6B35)),
+                      title: const Text('添加网站', style: TextStyle(color: Colors.white)),
+                      subtitle: const Text('选择点播通用解析，或 Stripchat / Chaturbate 直播解析', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                      onTap: () => _showAddSiteDialog(ctx, layout),
+                    ),
+                    if (layout.customSites.isNotEmpty)
+                      for (final custom in layout.customSites)
+                        ListTile(
+                          dense: true,
+                          leading: Icon(custom.kind.name == 'live' ? Icons.live_tv : Icons.movie_outlined, color: Colors.white54),
+                          title: Text(custom.site.name, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                          subtitle: Text(custom.parser == 'generic_vod' ? '点播 · 通用解析' : '直播 · ${custom.parser}', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                            tooltip: '删除',
+                            onPressed: () => layout.removeCustomUrl(custom.url),
+                          ),
+                        ),
                     const Divider(color: Colors.white12),
                     ListTile(
                       title: const Text(
@@ -268,6 +288,69 @@ class _AppVersionLabel extends StatefulWidget {
 
   @override
   State<_AppVersionLabel> createState() => _AppVersionLabelState();
+}
+
+Future<void> _showAddSiteDialog(BuildContext context, LayoutSettings layout) async {
+  final urlController = TextEditingController();
+  var parser = 'generic_vod';
+  final result = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('添加网站', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: urlController,
+              keyboardType: TextInputType.url,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '网站地址',
+                hintText: 'example.com',
+                labelStyle: TextStyle(color: Colors.white70),
+                hintStyle: TextStyle(color: Colors.white38),
+              ),
+            ),
+            const SizedBox(height: 14),
+            DropdownButtonFormField<String>(
+              initialValue: parser,
+              dropdownColor: const Color(0xFF3A3A3A),
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: '解析方式', labelStyle: TextStyle(color: Colors.white70)),
+              items: const [
+                DropdownMenuItem(value: 'generic_vod', child: Text('点播 · 通用解析')),
+                DropdownMenuItem(value: 'stripchat', child: Text('直播 · Stripchat')),
+                DropdownMenuItem(value: 'chaturbate', child: Text('直播 · Chaturbate')),
+              ],
+              onChanged: (value) => setState(() => parser = value ?? parser),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          FilledButton(
+            onPressed: () {
+              final raw = urlController.text.trim();
+              final uri = Uri.tryParse(raw.startsWith('http') ? raw : 'https://$raw');
+              if (uri == null || uri.host.isEmpty || uri.scheme != 'https') {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入有效的 HTTPS 网站地址')));
+                return;
+              }
+              Navigator.pop(dialogContext, '$parser\n${uri.toString()}');
+            },
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    ),
+  );
+  urlController.dispose();
+  if (result == null) return;
+  final split = result.split('\n');
+  if (split.length != 2) return;
+  await layout.addCustomSite(split[1], parser: split[0]);
 }
 
 class _AppVersionLabelState extends State<_AppVersionLabel> {

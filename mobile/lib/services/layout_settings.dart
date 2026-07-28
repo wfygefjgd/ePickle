@@ -1,20 +1,22 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'source_catalog.dart';
 
-/// Home site list + search/live prefs (not playback/proxy).
 class LayoutSettings extends ChangeNotifier {
   static const _kEnabled = 'layout_enabled_video_ids_v1';
   static const _kLiveId = 'layout_live_id_v1';
   static const _kGlobalSearch = 'layout_global_search_v1';
   static const _kCatalogVer = 'layout_catalog_ver_v1';
   static const _kCustomUrls = 'layout_custom_urls_v1';
+  static const _kCustomSites = 'layout_custom_sites_v2';
   static const _catalogVer = 12;
 
-  List<String> _enabledVideoIds =
-      List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+  List<String> _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
   List<String> _customUrls = [];
+  List<CustomSiteConfig> _customSites = [];
   String _liveId = SourceCatalog.defaultLiveId;
   bool _globalSearch = false;
   bool _ready = false;
@@ -22,20 +24,22 @@ class LayoutSettings extends ChangeNotifier {
   bool get ready => _ready;
   List<String> get enabledVideoIds => List.unmodifiable(_enabledVideoIds);
   List<String> get customUrls => List.unmodifiable(_customUrls);
+  List<CustomSiteConfig> get customSites => List.unmodifiable(_customSites);
   String get liveId => _liveId;
   bool get globalSearch => _globalSearch;
 
-  List<SiteDef> get enabledVideoSites {
-    final out = <SiteDef>[];
-    for (final id in _enabledVideoIds) {
-      final s = SourceCatalog.byId(id);
-      if (s != null && s.kind == SiteKind.video && s.ready) out.add(s);
-    }
-    for (final u in _customUrls) {
-      out.add(SiteDef.customFromUrl(u));
-    }
-    return out;
-  }
+  List<SiteDef> get enabledVideoSites => [
+        ..._enabledVideoIds
+            .map(SourceCatalog.byId)
+            .whereType<SiteDef>()
+            .where((s) => s.kind == SiteKind.video && s.ready),
+        ..._customSites.where((c) => c.kind == SiteKind.video).map((c) => c.site),
+      ];
+
+  List<SiteDef> get enabledLiveSites => [
+        ...SourceCatalog.liveSites.where((s) => s.ready),
+        ..._customSites.where((c) => c.kind == SiteKind.live).map((c) => c.site),
+      ];
 
   SiteDef? get liveSite {
     final site = SourceCatalog.byId(_liveId);
@@ -47,94 +51,82 @@ class LayoutSettings extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       final catVer = p.getInt(_kCatalogVer) ?? 0;
       if (catVer < _catalogVer) {
-        _enabledVideoIds =
-            List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+        _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
         await p.setStringList(_kEnabled, _enabledVideoIds);
         await p.setInt(_kCatalogVer, _catalogVer);
       } else {
         final raw = p.getStringList(_kEnabled);
         if (raw != null && raw.isNotEmpty) {
-          _enabledVideoIds = raw
-              .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
-              .toList();
+          _enabledVideoIds = raw.where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video).toList();
         }
-        if (_enabledVideoIds.isEmpty) {
-          _enabledVideoIds =
-              List<String>.from(SourceCatalog.defaultEnabledVideoIds);
-        }
+        if (_enabledVideoIds.isEmpty) _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
       }
       final live = p.getString(_kLiveId);
-      if (live != null &&
-          SourceCatalog.byId(live)?.kind == SiteKind.live &&
-          SourceCatalog.byId(live)?.ready == true) {
+      if (live != null && SourceCatalog.byId(live)?.kind == SiteKind.live && SourceCatalog.byId(live)?.ready == true) {
         _liveId = live;
       }
       _globalSearch = p.getBool(_kGlobalSearch) ?? false;
       _customUrls = p.getStringList(_kCustomUrls) ?? [];
+      _customSites = (p.getStringList(_kCustomSites) ?? [])
+          .map(CustomSiteConfig.tryDecode)
+          .whereType<CustomSiteConfig>()
+          .toList();
+      if (_customSites.isEmpty && _customUrls.isNotEmpty) {
+        _customSites = _customUrls.map((u) => CustomSiteConfig(url: u, parser: 'generic_vod')).toList();
+        await _persistCustomSites(p);
+      }
     } catch (_) {
-      _enabledVideoIds =
-          List<String>.from(SourceCatalog.defaultEnabledVideoIds);
+      _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
       _liveId = SourceCatalog.defaultLiveId;
       _globalSearch = false;
       _customUrls = [];
+      _customSites = [];
     }
     _ready = true;
     notifyListeners();
   }
 
-  Future<void> addCustomUrl(String raw) async {
+  Future<void> addCustomUrl(String raw) => addCustomSite(raw, parser: 'generic_vod');
+
+  Future<void> addCustomSite(String raw, {required String parser}) async {
     var u = raw.trim();
     if (u.isEmpty) return;
-    if (!u.startsWith('http://') && !u.startsWith('https://')) {
-      u = 'https://$u';
-    }
+    if (!u.startsWith('http://') && !u.startsWith('https://')) u = 'https://$u';
     final uri = Uri.tryParse(u);
-    // Custom adapters carry cookies and media referrers, so only accept TLS.
     if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return;
-    final path =
-        uri.path == '/' ? '' : uri.path.replaceFirst(RegExp(r'/+$'), '');
-    final normalized = Uri(
-      scheme: 'https',
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-      path: path,
-    ).toString();
-    if (_customUrls.contains(normalized)) return;
-    // Also skip if already a built-in mirror
+    final path = uri.path == '/' ? '' : uri.path.replaceFirst(RegExp(r'/+$'), '');
+    final normalized = Uri(scheme: 'https', host: uri.host, port: uri.hasPort ? uri.port : null, path: path).toString();
+    if (_customSites.any((e) => e.url == normalized)) return;
     for (final s in SourceCatalog.all) {
       for (final m in s.mirrors) {
         final builtIn = Uri.tryParse(m);
-        if (builtIn != null &&
-            builtIn.host == uri.host &&
-            builtIn.port == uri.port) {
-          return;
-        }
+        if (builtIn != null && builtIn.host == uri.host && builtIn.port == uri.port) return;
       }
     }
-    _customUrls = [..._customUrls, normalized];
+    _customSites = [..._customSites, CustomSiteConfig(url: normalized, parser: parser)];
+    _customUrls = _customSites.where((e) => e.parser == 'generic_vod').map((e) => e.url).toList();
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(_kCustomUrls, _customUrls);
+      await _persistCustomSites(p);
     } catch (_) {}
   }
 
   Future<void> removeCustomUrl(String url) async {
-    _customUrls = _customUrls.where((e) => e != url).toList();
+    _customSites = _customSites.where((e) => e.url != url).toList();
+    _customUrls = _customSites.where((e) => e.parser == 'generic_vod').map((e) => e.url).toList();
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(_kCustomUrls, _customUrls);
+      await _persistCustomSites(p);
     } catch (_) {}
   }
 
   Future<void> setEnabledVideoIds(List<String> ids) async {
-    final clean = ids
-        .where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video)
-        .toList();
-    if (clean.isEmpty) {
-      clean.addAll(List<String>.from(SourceCatalog.defaultEnabledVideoIds));
-    }
+    final clean = ids.where((id) => SourceCatalog.byId(id)?.kind == SiteKind.video).toList();
+    if (clean.isEmpty) clean.addAll(SourceCatalog.defaultEnabledVideoIds);
     _enabledVideoIds = clean;
     notifyListeners();
     try {
@@ -149,7 +141,7 @@ class LayoutSettings extends ChangeNotifier {
       if (!next.contains(id)) next.add(id);
     } else {
       next.remove(id);
-      if (next.isEmpty) return; // keep at least one
+      if (next.isEmpty) return;
     }
     await setEnabledVideoIds(next);
   }
@@ -188,12 +180,12 @@ class LayoutSettings extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Restore source + home layout only (not proxy / quality).
   Future<void> restoreDefaultLayout() async {
     _enabledVideoIds = List<String>.from(SourceCatalog.defaultEnabledVideoIds);
     _liveId = SourceCatalog.defaultLiveId;
     _globalSearch = false;
     _customUrls = [];
+    _customSites = [];
     notifyListeners();
     try {
       final p = await SharedPreferences.getInstance();
@@ -201,7 +193,30 @@ class LayoutSettings extends ChangeNotifier {
       await p.setString(_kLiveId, _liveId);
       await p.setBool(_kGlobalSearch, false);
       await p.setStringList(_kCustomUrls, _customUrls);
+      await _persistCustomSites(p);
       await p.setInt(_kCatalogVer, _catalogVer);
     } catch (_) {}
+  }
+
+  Future<void> _persistCustomSites(SharedPreferences p) async {
+    await p.setStringList(_kCustomSites, _customSites.map((e) => e.encode()).toList());
+  }
+}
+
+class CustomSiteConfig {
+  const CustomSiteConfig({required this.url, required this.parser});
+  final String url;
+  final String parser;
+  SiteKind get kind => parser == 'stripchat' || parser == 'chaturbate' ? SiteKind.live : SiteKind.video;
+  SiteDef get site => SiteDef.customFromUrl(url, parserId: parser);
+  String encode() => jsonEncode({'url': url, 'parser': parser});
+  static CustomSiteConfig? tryDecode(String raw) {
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['url'] is! String || value['parser'] is! String) return null;
+      return CustomSiteConfig(url: value['url'] as String, parser: value['parser'] as String);
+    } catch (_) {
+      return null;
+    }
   }
 }

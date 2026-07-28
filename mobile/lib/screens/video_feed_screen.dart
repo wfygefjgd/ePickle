@@ -63,6 +63,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Only the currently playing controller (never multiple).
   VideoPlayerController? _controller;
+  VideoPlayerController? _frozenController;
+  int? _frozenIndex;
+  int _frozenStreamHeight = 0;
   String? _browserLiveUrl;
   bool _browserIsStripchat = false;
   int _currentIndex = 0;
@@ -98,6 +101,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   bool _muted = false;
   bool _active = false;
   bool _appInForeground = true;
+  bool _allowPop = false;
+  bool _exiting = false;
   int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
@@ -326,7 +331,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     if (_browserLiveUrl != null) {
       unawaited(StripchatLiveView.pauseLive());
     }
-    if (_items.isNotEmpty) {
+    if (_items.isNotEmpty && widget.initialItems.isEmpty) {
       final idx = _currentIndex.clamp(0, _items.length - 1);
       FeedListCache.put(
         _cacheKey,
@@ -336,6 +341,12 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
           index: idx,
         ),
       );
+    }
+    if (widget.initialItems.isNotEmpty) {
+      FeedListCache.clear(_cacheKey);
+      _items.clear();
+      _seen.clear();
+      _detailCache.clear();
     }
     _settings?.removeListener(_onSettingsChanged);
     _settings = null;
@@ -360,6 +371,14 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       c?.pause();
       c?.dispose();
     } catch (_) {}
+    final frozen = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (frozen != null) {
+      unawaited(
+        frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()),
+      );
+    }
     _disposeInitializingPlayersSync();
     _disposePreloadSync();
     WakelockPlus.disable();
@@ -624,10 +643,18 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _browserLiveUrl = null;
     _browserIsStripchat = false;
     try {
+      c?.setVolume(0);
       c?.pause();
     } catch (_) {}
+    final frozen = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (frozen != null) {
+      unawaited(frozen.pause().catchError((_) {}).whenComplete(() => frozen.dispose()));
+    }
     WakelockPlus.disable();
     if (hadBrowserLive) {
+      unawaited(StripchatLiveView.pauseLive());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() {});
       });
@@ -884,6 +911,46 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     */
   }
 
+  Future<void> _exitAfterStopping() async {
+    if (_exiting) return;
+    _exiting = true;
+    _active = false;
+    _appInForeground = false;
+    _loadSeq++;
+    _lifecycleEpoch++;
+    _cancelBackgroundWork();
+    _liveWatchdog?.cancel();
+    _liveWatchdog = null;
+    if (_browserLiveUrl != null) {
+      try {
+        await StripchatLiveView.pauseLive();
+      } catch (_) {}
+    }
+    _browserLiveUrl = null;
+    _browserIsStripchat = false;
+    final frozen = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (frozen != null) {
+      try {
+        await frozen.pause();
+      } catch (_) {}
+      try {
+        await frozen.dispose();
+      } catch (_) {}
+    }
+    await _disposeController().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    );
+    WakelockPlus.disable();
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
   Future<void> _prefetchDetail(int index) async {
     if (!_canRun || index < 0 || index >= _items.length) return;
     if (_detailCache.containsKey(index)) return;
@@ -894,7 +961,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       final d = await _fetchDetail(url);
       if (!_canRun) return;
       _detailCache[index] = d;
-      _detailCache.removeWhere((k, _) => (k - _currentIndex).abs() > 3);
+      _prunePageState(_currentIndex);
     } catch (_) {
       // Ignore errors in prefetch
     } finally {
@@ -1289,7 +1356,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     final seq = ++_loadSeq;
     final item = _items[index];
 
-    if (widget.site?.id == 'stripchat') {
+    if (widget.site?.isStripchat == true) {
       _disposePreload();
       await _disposeController();
       if (seq != _loadSeq || !_canRun || !mounted) return;
@@ -1327,9 +1394,17 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     VideoPlayerController? preloaded;
     VideoDetail? preloadDetail;
     StreamQuality? preloadStream;
+    int? frozenTargetHeight;
     int preloadSlot = 0; // 1, 2, or 3
 
-    if (_preloadIndex == index &&
+    if (_frozenIndex == index &&
+        _frozenController != null &&
+        _frozenController!.value.isInitialized) {
+      preloaded = _frozenController!;
+      preloadDetail = _detailCache[index];
+      frozenTargetHeight = _frozenStreamHeight;
+      preloadSlot = -1;
+    } else if (_preloadIndex == index &&
         _preloadController != null &&
         _preloadController!.value.isInitialized) {
       preloaded = _preloadController!;
@@ -1364,10 +1439,16 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     if (preloaded != null) {
       final previous = _controller;
+      final previousIndex = _currentIndex;
+      final previousHeight = _currentStreamHeight;
       _controller = null;
 
       // Clear the slot that was used
-      if (preloadSlot == 1) {
+      if (preloadSlot == -1) {
+        _frozenController = null;
+        _frozenIndex = null;
+        preloadStream = null;
+      } else if (preloadSlot == 1) {
         _preloadController = null;
         _preloadIndex = null;
         _preloadStream = null;
@@ -1385,13 +1466,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         _preloadStream4 = null;
       }
 
-      await _disposeController(seqGuard: seq, exclude: preloaded);
       if (previous != null && !identical(previous, preloaded)) {
-        try {
-          await previous.pause();
-        } catch (_) {}
-        // ignore: unawaited_futures
-        previous.dispose().catchError((_) {});
+        await _freezePrevious(previous, previousIndex, previousHeight);
       }
       if (seq != _loadSeq || !_canRun || !mounted) {
         try {
@@ -1401,7 +1477,9 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       }
       _currentDetail = preloadDetail;
       _currentIndex = index;
-      _currentStreamHeight = preloadStream?.height ?? 0;
+      _currentStreamHeight = preloadSlot == -1
+          ? (frozenTargetHeight ?? 0)
+          : (preloadStream?.height ?? 0);
       _stallTicks = 0;
       _stallLoweredForItem = false;
       _stallArmedAfterMs = DateTime.now().millisecondsSinceEpoch + 4000;
@@ -1472,8 +1550,13 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     _disposePreload();
 
-    // Tear down previous player completely before creating a new one
-    await _disposeController();
+    final previous = _controller;
+    final previousIndex = _currentIndex;
+    final previousHeight = _currentStreamHeight;
+    _controller = null;
+    if (previous != null) {
+      await _freezePrevious(previous, previousIndex, previousHeight);
+    }
 
     if (seq != _loadSeq || !_canRun || !mounted) return;
     setState(() {
@@ -1701,7 +1784,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     // Both providers can restore a promotional/full-site shell after an iOS
     // background round-trip. Keep their WebViews in controlled player mode.
     final focusLive = live &&
-        (widget.site?.id == 'chaturbate' || widget.site?.id == 'stripchat');
+        (widget.site?.isChaturbate == true || widget.site?.isStripchat == true);
     _browserIsStripchat = focusLive;
     _titleText = title;
     _totalTime = live ? 'LIVE' : '-';
@@ -1769,7 +1852,6 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   }
 
   Future<void> _disposeController({
-    int? seqGuard,
     VideoPlayerController? exclude,
   }) async {
     _progressTimer?.cancel();
@@ -1881,7 +1963,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _sessionQualityCap = null;
     _stallLoweredForItem = false;
     _stallTicks = 0;
-    _retried.removeWhere((i) => (i - page).abs() > 3);
+    _prunePageState(page);
     // Hard switch: dispose old, play new only
     _playIndex(page);
     if (page >= _items.length - 3) {
@@ -2156,9 +2238,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
     final chrome = context.read<PlayerChrome>();
     return PopScope(
-      canPop: !immersive,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && immersive) {
+        if (didPop) return;
+        if (immersive) {
           // ignore: unawaited_futures
           chrome.exitFullscreen().then((_) {
             _autoRotate?.syncLandscapeMode(false, fromUser: true);
@@ -2167,7 +2250,10 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               _schedulePageResync();
             }
           });
+          return;
         }
+        // ignore: unawaited_futures
+        _exitAfterStopping();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -2217,15 +2303,47 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
 
   /// Clean up detail cache that's far from current position to prevent memory growth
   void _cleanupDetailCache(int currentIndex) {
-    const maxCacheDistance = 10;
-    final toRemove = <int>[];
-    for (final key in _detailCache.keys) {
-      if ((key - currentIndex).abs() > maxCacheDistance) {
-        toRemove.add(key);
-      }
+    _prunePageState(currentIndex);
+  }
+
+  Future<void> _freezePrevious(
+    VideoPlayerController controller,
+    int index,
+    int streamHeight,
+  ) async {
+    final stale = _frozenController;
+    _frozenController = null;
+    _frozenIndex = null;
+    if (stale != null && !identical(stale, controller)) {
+      try {
+        await stale.pause();
+      } catch (_) {}
+      try {
+        await stale.dispose();
+      } catch (_) {}
     }
-    for (final key in toRemove) {
-      _detailCache.remove(key);
+    try {
+      await controller.setVolume(0);
+      await controller.pause();
+    } catch (_) {}
+    if (!_canRun) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      return;
     }
+    _frozenController = controller;
+    _frozenIndex = index;
+    _frozenStreamHeight = streamHeight;
+  }
+
+  void _prunePageState(int currentIndex) {
+    final lastFuturePage = currentIndex + _preloadSlotCount + 1;
+    _detailCache.removeWhere(
+      (index, _) => index < currentIndex - 1 || index > lastFuturePage,
+    );
+    _retried.removeWhere(
+      (index) => index < currentIndex - 1 || index > lastFuturePage,
+    );
   }
 }

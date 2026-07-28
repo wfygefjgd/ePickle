@@ -628,7 +628,7 @@ class GenericSiteApi {
     required Set<String> seen,
     required DateTime deadline,
   }) async {
-    switch (site.id) {
+    switch (site.parserId ?? site.id) {
       case 'eporner':
         return _fetchEpornerApi(
           site,
@@ -1023,7 +1023,7 @@ class GenericSiteApi {
 
   Future<VideoDetail> getVideoDetail(SiteDef site, String url) async {
     final deadline = DateTime.now().add(_detailResolveTimeout);
-    if (site.id == 'stripchat') {
+    if (site.isStripchat) {
       throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
     }
     if (site.kind == SiteKind.live) {
@@ -1156,14 +1156,14 @@ class GenericSiteApi {
     final room = _usernameFromUrl(pageUrl);
     if (room == null || room.isEmpty) return null;
 
-    if (site.id == 'stripchat') {
+    if (site.isStripchat) {
       // Its public HLS path can redirect to a 20-second CPA VOD. The feed
       // screen therefore uses the room's real WebRTC player in WKWebView and
       // must never hand this preview URL to AVPlayer.
       return null;
     }
 
-    if (site.id == 'chaturbate') {
+    if (site.isChaturbate) {
       final cached = _liveStreamNames['chaturbate:${room.toLowerCase()}'];
       if (cached != null && cached.contains('.m3u8')) {
         return VideoDetail(
@@ -1220,7 +1220,7 @@ class GenericSiteApi {
   ) async {
     // Live rooms: try HLS from room page / API snippets
     if (site.kind == SiteKind.live) {
-      if (site.id == 'stripchat') {
+      if (site.isStripchat) {
         throw PhubException('Stripchat 使用房间 WebRTC 实时播放，不使用预览 HLS');
       }
       final live = await _extractLiveStreams(site, url, html, base);
@@ -1997,7 +1997,7 @@ class GenericSiteApi {
     String tagId,
     int page,
   ) {
-    final id = site.id;
+    final id = site.parserId ?? site.id;
     final p = page < 1 ? 1 : page;
     // Site-specific first paths
     switch (id) {
@@ -2209,7 +2209,7 @@ class GenericSiteApi {
     int page,
   ) {
     final p = page < 1 ? 1 : page;
-    switch (site.id) {
+    switch (site.parserId ?? site.id) {
       case 'xnxx':
         return [
           (b) => '$b/search/$enc${p > 1 ? '/$p' : ''}',
@@ -2424,7 +2424,7 @@ class GenericSiteApi {
             online == 'true';
         if (!blocked && stripchatOnline) {
           final key = username.toLowerCase();
-          final streamValue = site.id == 'stripchat'
+          final streamValue = site.isStripchat
               ? stringValue(map, const [
                   'streamName',
                   'stream_name',
@@ -2585,7 +2585,7 @@ class GenericSiteApi {
     }
 
     // Site-specific positive rules
-    switch (site.id) {
+    switch (site.parserId ?? site.id) {
       case 'jable':
         return RegExp(r'/videos?/[^/]+/?').hasMatch(h) ||
             RegExp(r'/[a-z0-9]+-[a-z0-9-]+/?$').hasMatch(h);
@@ -2956,7 +2956,7 @@ class GenericSiteApi {
     final room = _usernameFromUrl(pageUrl) ?? '';
 
     // Chaturbate: edge HLS + room Dossier API (live only, not VOD shows)
-    if (site.id == 'chaturbate') {
+    if (site.isChaturbate) {
       for (final m in RegExp(
         r'''https?:\\?/\\?/[^\s"'<>]*(?:playlist|live|amic|edge)[^\s"'<>]*\.m3u8[^\s"'<>]*''',
         caseSensitive: false,
@@ -3020,7 +3020,7 @@ class GenericSiteApi {
     }
 
     // Stripchat / xHamsterLive: doppiocdn HLS by model username
-    if (site.id == 'stripchat') {
+    if (site.isStripchat) {
       // Stripchat embeds 20-second previews beside its live metadata. Keep
       // only the room stream name and derive the rolling live master URL.
       streams.clear();
