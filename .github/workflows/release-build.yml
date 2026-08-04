@@ -56,7 +56,7 @@ jobs:
 
       - name: Build APK (release)
         working-directory: mobile
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Rename APK
         working-directory: mobile
@@ -260,6 +260,8 @@ jobs:
           TAG="v${VER}"
 
           NOTES=$(cat <<EOF
+          ## 稳定版
+
           ## 下载
 
           | 平台 | 文件 | 说明 |
@@ -268,6 +270,27 @@ jobs:
           | **iOS** | \`ePickle-v${VER}-iOS.ipa\` | **未签名**，需 Sideloadly / 全能签 / TrollStore 等自签 |
 
           ## 更新说明 (v${VER})
+
+          ### UI 修复
+          - 移除播放页重复返回按钮
+          - 设置 / 全屏按钮上移至与标题平齐
+          - 左上角返回按钮透明度与全屏按钮一致，去除阴影
+
+          ### 体积优化
+          - Android 仅 arm64 架构，剔除 x86 / arm32，体积显著缩小
+          - R8 代码压缩 + 资源压缩 (shrinkResources)
+          - useLegacyPackaging，移除 cupertino_icons
+
+          ### 性能优化
+          - MinimalButton / 播放时长 / 倍速采用 ValueNotifier 精准刷新，避免整页重建
+          - VideoCard 包裹 RepaintBoundary，减少重绘范围
+
+          ### 稳定性
+          - CacheManager 扫描加并发上限，防止内存暴涨
+
+          ### 设置页
+          - 关闭按钮与标题下移，风格统一
+          - 顶部下拉手势直接退出设置页
 
           ### 产品
           - 应用名：**ePickle**（多源播放器）
@@ -283,11 +306,11 @@ jobs:
 
           if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — ePickle" \
+              --title "v${VER} — ePickle UI修复版本" \
               --notes "$NOTES"
           else
             gh release edit "$TAG" --repo "${{ github.repository }}" \
-              --title "v${VER} — ePickle" \
+              --title "v${VER} — ePickle UI修复版本" \
               --notes "$NOTES"
           fi
 
