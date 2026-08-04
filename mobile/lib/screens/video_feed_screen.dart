@@ -106,7 +106,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   int _lifecycleEpoch = 0;
   String? _error;
   String _titleText = '';
-  String _speedLabel = '';
+  final ValueNotifier<String> _speedLabel = ValueNotifier<String>('');
 
   Timer? _progressTimer;
   Timer? _retryTimer;
@@ -115,7 +115,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
   Timer? _liveWatchdog;
   final ValueNotifier<double> _sliderValue = ValueNotifier(0);
   final ValueNotifier<String> _currentTime = ValueNotifier('0:00');
-  String _totalTime = '0:00';
+  final ValueNotifier<String> _totalTime = ValueNotifier<String>('0:00');
   int _baseSpeed = 1500;
   double _lastBufferedMs = 0;
   int _lastTickMs = 0;
@@ -366,6 +366,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     _liveWatchdog = null;
     _sliderValue.dispose();
     _currentTime.dispose();
+    _totalTime.dispose();
+    _speedLabel.dispose();
     _pageCtrl.dispose();
     final c = _controller;
     _controller = null;
@@ -1513,7 +1515,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       setState(() {
         _pageLoading = false;
         _titleText = preloadDetail?.title ?? item.title;
-        _totalTime = PlaybackHelpers.fmtDuration(dur);
+        _totalTime.value = PlaybackHelpers.fmtDuration(dur);
         _baseSpeed = preloadStream != null
             ? _estimateBaseSpeed(preloadStream.height)
             : 1500;
@@ -1568,8 +1570,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _pageLoading = true;
       _currentIndex = index;
       _titleText = item.title;
-      _totalTime = '0:00';
-      _speedLabel = '';
+      _totalTime.value = '0:00';
+      _speedLabel.value = '';
     });
     _sliderValue.value = 0;
     _currentTime.value = '0:00';
@@ -1740,7 +1742,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
     setState(() {
       _pageLoading = false;
       _titleText = detail.title;
-      _totalTime = PlaybackHelpers.fmtDuration(effDur);
+      _totalTime.value = PlaybackHelpers.fmtDuration(effDur);
     });
     _translateTitleOnly(detail.title);
     await ready.play();
@@ -1792,8 +1794,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
         (widget.site?.isChaturbate == true || widget.site?.isStripchat == true);
     _browserIsStripchat = focusLive;
     _titleText = title;
-    _totalTime = live ? 'LIVE' : '-';
-    _speedLabel = live ? '' : '网页';
+    _totalTime.value = live ? 'LIVE' : '-';
+    _speedLabel.value = live ? '' : '网页';
     _sliderValue.value = 0;
     _currentTime.value = live ? 'LIVE' : '0:00';
     setState(() => _pageLoading = false);
@@ -1931,7 +1933,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
             final label = '$speed Kbps';
             if (label != _lastSpeedLabel) {
               _lastSpeedLabel = label;
-              if (mounted) setState(() => _speedLabel = label);
+              _speedLabel.value = label;
             }
           }
         }
@@ -1965,8 +1967,8 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
       _currentTime.value = PlaybackHelpers.fmtDuration(pos);
       if (dur.inMilliseconds > 0) {
         final t = PlaybackHelpers.fmtDuration(dur);
-        if (t != _totalTime && mounted) {
-          setState(() => _totalTime = t);
+        if (t != _totalTime.value) {
+          _totalTime.value = t;
         }
       }
     });
@@ -2303,7 +2305,7 @@ class VideoFeedScreenState extends State<VideoFeedScreen>
               currentTime: _currentTime,
               totalTime: _totalTime,
               titleText: _titleText,
-              speedLabel: immersive ? '' : _speedLabel,
+              speedLabel: _speedLabel,
               browserLiveUrl: _browserLiveUrl,
               browserIsStripchat: _browserIsStripchat,
               onPageChanged: _onPageChanged,

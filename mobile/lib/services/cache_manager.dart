@@ -74,11 +74,15 @@ class CacheManager {
       if (root == null) return 0;
 
       int totalSize = 0;
+      int scanned = 0;
+      // 上限保护：异常目录（海量小文件）不会无限阻塞 UI 线程。
       await for (final entity
           in root.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
             totalSize += await entity.length();
+            scanned++;
+            if (scanned >= 200000) break;
           } catch (_) {}
         }
       }
@@ -95,6 +99,7 @@ class CacheManager {
       final now = DateTime.now();
 
       Future<void> deleteOlderThan(int days) async {
+        int scanned = 0;
         await for (final entity
             in tempDir.list(recursive: true, followLinks: false)) {
           if (entity is File) {
@@ -103,6 +108,8 @@ class CacheManager {
               if (now.difference(stat.modified).inDays > days) {
                 await entity.delete();
               }
+              scanned++;
+              if (scanned >= 200000) break;
             } catch (_) {}
           }
         }

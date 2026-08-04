@@ -45,9 +45,9 @@ class VideoPlayerPage extends StatefulWidget {
   final PageController pageCtrl;
   final ValueNotifier<double> sliderValue;
   final ValueNotifier<String> currentTime;
-  final String totalTime;
+  final ValueNotifier<String> totalTime;
   final String titleText;
-  final String speedLabel;
+  final ValueNotifier<String> speedLabel;
   final String? browserLiveUrl;
   final bool browserIsStripchat;
 
@@ -370,7 +370,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   child: FeedProgressBar(
                     slider: widget.sliderValue,
                     curTime: widget.currentTime,
-                    totalTime: widget.totalTime,
+                    totalTime: widget.totalTime.value,
                     onChanged: widget.onSeekPreview,
                     onChangeStart: (_) => widget.onSeekStart(),
                     onChangeEnd: widget.onSeekEnd,
@@ -457,7 +457,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 child: FeedProgressBar(
                   slider: widget.sliderValue,
                   curTime: widget.currentTime,
-                  totalTime: widget.totalTime,
+                  totalTime: widget.totalTime.value,
                   onChanged: widget.onSeekPreview,
                   onChangeStart: (_) => widget.onSeekStart(),
                   onChangeEnd: widget.onSeekEnd,
@@ -494,27 +494,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
               ),
             ),
-            if (!widget.immersive && widget.speedLabel.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black38,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    child: Text(
-                      widget.speedLabel,
-                      style: const TextStyle(
-                        color: Color(0xFF66D9A0),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+            if (!widget.immersive)
+              ValueListenableBuilder<String>(
+                valueListenable: widget.speedLabel,
+                builder: (_, label, __) {
+                  if (label.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            color: Color(0xFF66D9A0),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
           ],
         ),
@@ -546,6 +552,12 @@ class _MinimalButtonState extends State<_MinimalButton> {
   bool _isDragging = false;
   Offset _currentDragOffset = Offset.zero;
   Offset _dragStartOffset = Offset.zero;
+  // 拖拽时高频更新，用 ValueNotifier 驱动偏移，避免整棵子树重建。
+  final ValueNotifier<Offset> _offsetNotifier =
+      ValueNotifier<Offset>(Offset.zero);
+  final ValueNotifier<bool> _pressingNotifier = ValueNotifier<bool>(false);
+  Size? _viewportSize;
+  EdgeInsets? _viewportPadding;
 
   @override
   void initState() {
@@ -553,14 +565,20 @@ class _MinimalButtonState extends State<_MinimalButton> {
     _loadOffset();
   }
 
+  @override
+  void dispose() {
+    _offsetNotifier.dispose();
+    _pressingNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadOffset() async {
     final prefs = await SharedPreferences.getInstance();
     final x = prefs.getDouble('${widget.storageKey}_offset_x');
     final y = prefs.getDouble('${widget.storageKey}_offset_y');
     if (x != null && y != null && mounted) {
-      setState(() {
-        _savedOffset = Offset(x, y);
-      });
+      _savedOffset = Offset(x, y);
+      _offsetNotifier.value = _savedOffset!;
     }
   }
 
@@ -570,59 +588,69 @@ class _MinimalButtonState extends State<_MinimalButton> {
     await prefs.setDouble('${widget.storageKey}_offset_y', offset.dy);
   }
 
+  Offset _clampOffset(Offset o) {
+    final size =
+        _viewportSize ?? const Size(double.maxFinite, double.maxFinite);
+    final pad = _viewportPadding ?? EdgeInsets.zero;
+    return Offset(
+      o.dx.clamp(
+        -widget.defaultOffset.dx,
+        size.width - widget.defaultOffset.dx - 40 - pad.right,
+      ),
+      o.dy.clamp(
+        -widget.defaultOffset.dy,
+        size.height - widget.defaultOffset.dy - 40 - pad.bottom,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final displayOffset =
-        _isDragging ? _currentDragOffset : (_savedOffset ?? Offset.zero);
+    // 只在尺寸/padding 真正变化时刷新缓存，拖拽 move 不再触发 MediaQuery/build。
+    final mq = MediaQuery.of(context);
+    _viewportSize = mq.size;
+    _viewportPadding = mq.padding;
 
-    return Transform.translate(
-      offset: displayOffset,
-      child: GestureDetector(
-        onTap: _isDragging ? null : widget.onTap,
-        onLongPressStart: (details) {
-          setState(() {
+    return ValueListenableBuilder<Offset>(
+      valueListenable: _offsetNotifier,
+      builder: (_, displayOffset, __) => Transform.translate(
+        offset: displayOffset,
+        child: GestureDetector(
+          onTap: _isDragging ? null : widget.onTap,
+          onLongPressStart: (details) {
             _isDragging = true;
+            _pressingNotifier.value = true;
             _dragStartOffset = _savedOffset ?? Offset.zero;
-            _currentDragOffset = _dragStartOffset;
-          });
-        },
-        onLongPressMoveUpdate: (details) {
-          if (!_isDragging) return;
-          setState(() {
-            _currentDragOffset = _dragStartOffset + details.offsetFromOrigin;
-            final size = MediaQuery.of(context).size;
-            final padding = MediaQuery.of(context).padding;
-            _currentDragOffset = Offset(
-              _currentDragOffset.dx.clamp(
-                -widget.defaultOffset.dx,
-                size.width - widget.defaultOffset.dx - 40 - padding.right,
-              ),
-              _currentDragOffset.dy.clamp(
-                -widget.defaultOffset.dy,
-                size.height - widget.defaultOffset.dy - 40 - padding.bottom,
-              ),
-            );
-          });
-        },
-        onLongPressEnd: (details) {
-          setState(() {
+            _offsetNotifier.value = _dragStartOffset;
+          },
+          onLongPressMoveUpdate: (details) {
+            if (!_isDragging) return;
+            _currentDragOffset =
+                _clampOffset(_dragStartOffset + details.offsetFromOrigin);
+            _offsetNotifier.value = _currentDragOffset;
+          },
+          onLongPressEnd: (details) {
             _savedOffset = _currentDragOffset;
             _isDragging = false;
-          });
-          _saveOffset(_currentDragOffset);
-        },
-        child: AnimatedScale(
-          scale: _isDragging ? 1.2 : 1.0,
-          duration: const Duration(milliseconds: 150),
-          child: Icon(
-            widget.icon,
-            color: _isDragging
-                ? Colors.white.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.5),
-            size: 28,
-            shadows: const [
-              Shadow(color: Colors.black45, blurRadius: 4),
-            ],
+            _pressingNotifier.value = false;
+            _saveOffset(_currentDragOffset);
+          },
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _pressingNotifier,
+            builder: (_, pressing, __) => AnimatedScale(
+              scale: pressing ? 1.2 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              child: Icon(
+                widget.icon,
+                color: pressing
+                    ? Colors.white.withValues(alpha: 0.9)
+                    : Colors.white.withValues(alpha: 0.5),
+                size: 28,
+                shadows: const [
+                  Shadow(color: Colors.black45, blurRadius: 4),
+                ],
+              ),
+            ),
           ),
         ),
       ),
