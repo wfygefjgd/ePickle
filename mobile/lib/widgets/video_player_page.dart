@@ -381,41 +381,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           ],
         ] else ...[
           _buildTopBar(),
-          // 竖屏：全屏按钮（半透明，无背景）
-          Positioned(
-            left: 10,
-            top: 52,
-            child: SafeArea(
-              child: _MinimalButton(
-                storageKey: 'back_button_normal',
-                defaultOffset: const Offset(10, 52),
-                icon: Icons.arrow_back_ios_new,
-                onTap: widget.onBack,
-              ),
-            ),
-          ),
-          // 竖屏：设置按钮（半透明，无背景）
+          // 竖屏：设置按钮（上移到标题行，半透明，无背景）
           Positioned(
             right: 10,
-            top: 52,
+            top: 8,
             child: SafeArea(
               child: _MinimalButton(
                 storageKey: 'settings_button_normal',
-                defaultOffset: const Offset(10, 52),
+                defaultOffset: const Offset(10, 8),
                 icon: Icons.settings,
                 onTap: widget.onOpenSettings,
               ),
             ),
           ),
+          // 竖屏：全屏按钮（上移到标题行，半透明，无背景）
           Positioned(
-            right: 10,
-            top: 96,
+            right: 50,
+            top: 8,
             child: SafeArea(
               child: Opacity(
                 opacity: 0.42,
                 child: _MinimalButton(
                   storageKey: 'fullscreen_button_normal',
-                  defaultOffset: const Offset(10, 96),
+                  defaultOffset: const Offset(50, 8),
                   icon: Icons.fullscreen,
                   onTap: widget.onFullscreen,
                 ),
@@ -478,7 +466,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             : '');
     return Positioned(
       left: 10,
-      right: 10,
+      right: 96,
       top: 8,
       child: SafeArea(
         child: Column(

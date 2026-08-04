@@ -107,7 +107,34 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.tag }}
-        name: v${{ steps.version.outputs.version }}
+        name: ePickle v${{ steps.version.outputs.version }} UI修复版本
+        body: |
+          # ePickle v${{ steps.version.outputs.version }} 稳定版
+
+          ## v2.6.1 UI 修复
+          - 移除播放页可拖拽的重复返回按钮
+          - 设置 / 全屏按钮上移至与标题平齐
+          - 左上角返回按钮透明度与全屏按钮一致，去除阴影
+
+          ## 体积优化
+          - Android：R8 代码压缩 + 资源压缩 (shrinkResources)
+          - 按 ABI 分包，仅 arm64 架构 (--target-platform android-arm64)
+          - 代码混淆 + 分离调试符号 (--obfuscate --split-debug-info)
+          - useLegacyPackaging，移除 cupertino_icons
+          - arm64 单架构 APK，体积显著缩小
+
+          ## 性能优化
+          - MinimalButton / 播放时长 / 倍速采用 ValueNotifier 精准刷新，避免整页重建
+          - VideoCard 包裹 RepaintBoundary，减少重绘范围
+
+          ## 稳定性
+          - CacheManager 扫描加并发上限，防止内存暴涨
+
+          ## 设置页
+          - 关闭按钮与标题下移，风格统一
+          - 顶部下拉手势直接退出设置页
+
+          iOS / Android 双端同步优化。
         files: |
           app-arm64-v8a-release.apk
           ePickle-iOS.ipa

@@ -1932,6 +1932,8 @@ class _SearchFeedScreenState extends State<SearchFeedScreen>
                         storageKey: 'search_back_button_normal',
                         defaultOffset: const Offset(10, 52),
                         icon: Icons.arrow_back_ios_new,
+                        iconAlpha: 0.3,
+                        showShadow: false,
                         onTap: _exitAfterStopping,
                       ),
                     ),
@@ -2095,12 +2097,16 @@ class _MinimalButton extends StatefulWidget {
     required this.defaultOffset,
     required this.icon,
     required this.onTap,
+    this.iconAlpha = 0.5,
+    this.showShadow = true,
   });
 
   final String storageKey;
   final Offset defaultOffset;
   final IconData icon;
   final VoidCallback onTap;
+  final double iconAlpha;
+  final bool showShadow;
 
   @override
   State<_MinimalButton> createState() => _MinimalButtonState();
@@ -2183,9 +2189,11 @@ class _MinimalButtonState extends State<_MinimalButton> {
             widget.icon,
             color: _isDragging
                 ? Colors.white.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.5),
+                : Colors.white.withValues(alpha: widget.iconAlpha),
             size: 28,
-            shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
+            shadows: widget.showShadow
+                ? const [Shadow(color: Colors.black45, blurRadius: 4)]
+                : null,
           ),
         ),
       ),
